@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "bash -c 'if [ -f .claude/crashlytics-context.md ]; then echo \"Crashlytics context available at .claude/crashlytics-context.md\"; else echo \"No crashlytics context found\"; fi'",
+        "description": "Check for Crashlytics crash data injected by external tooling"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "command": "bash -c 'echo \"Reminder: commit after every logical change with [STORY-ID] format\"'",
+        "description": "Remind agents to commit incrementally"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "command": "bash -c 'if echo \"$CLAUDE_TOOL_INPUT\" | grep -q \"git commit\"; then echo \"Commit made — update board-context.md if task status changed\"; fi'",
+        "description": "Remind agents to update board context after commits"
+      }
+    ]
+  }
+}

@@ -1,0 +1,414 @@
+# Commands Reference
+
+These are slash commands (skills) available in every project that uses the tech agency template. They automate the most common multi-step workflows so you don't have to type out full prompts.
+
+## Daily Operations
+
+### `/daily-sync`
+
+Runs the daily Kanban sync as Atlas. Reads the board, checks git activity, flags blockers, WIP violations, and stale tasks (>5 days in progress). Produces a status report and updates `board-context.md`.
+
+**When to use:** Daily, or whenever you want to know the current state of work.
+
+**Example triggers:**
+- "daily sync"
+- "what's the status"
+- "how are things going"
+- "board status"
+
+---
+
+### `/replenish`
+
+Reviews the backlog, applies RICE prioritization, moves items to Ready, and allocates 15-20% capacity to tech debt. Run by Atlas with input from Morgan.
+
+**When to use:** Weekly, or whenever the Ready column is running low.
+
+**Example triggers:**
+- "replenish the board"
+- "what should we work on next"
+- "review the backlog"
+- "fill the board"
+
+---
+
+### `/retro`
+
+Runs a retrospective. Analyzes cycle times, throughput, blockers, and process issues for a feature or time period. Produces action items and saves to `docs/retros/`.
+
+**When to use:** After a major feature ships, or monthly.
+
+**Example triggers:**
+- "run retro"
+- "retrospective"
+- "how did that feature go"
+- "what can we improve"
+
+---
+
+## Project Kickoff
+
+### `/new-product`
+
+Full product kickoff chain: Morgan (PRD) → Diana (BRD) → Sage (ADR + system design) → Atlas (board setup). Asks clarifying questions about the product vision, platforms, and constraints before starting. Pauses for your approval at each handoff.
+
+**When to use:** Starting a brand new product from scratch.
+
+**Example triggers:**
+- "I want to build a habit tracker app"
+- "new product: team management tool for remote teams"
+- "kick off a new project"
+
+---
+
+### `/new-feature`
+
+Feature kickoff that adapts to scope. Small features go straight to the engineer. Medium features start with Diana (BRD). Large features/epics require an RFC first. Pauses for approval at each handoff.
+
+**When to use:** Adding a feature to an existing product.
+
+**Example triggers:**
+- "add social sharing to the habit tracker"
+- "new feature: push notifications"
+- "I want to add dark mode"
+
+---
+
+## Release & Incident Response
+
+### `/release`
+
+Executes the full release checklist: QA sign-off (Apex), security review (Shield), documentation update (Scroll), release notes (Morgan), your go/no-go, then deployment (Sentinel). Each gate must pass before proceeding.
+
+**When to use:** When you're ready to ship a version to production.
+
+**Example triggers:**
+- "release v1.2.0"
+- "ship it"
+- "are we ready to deploy"
+- "cut a release"
+
+**Arguments:** Optionally provide the version number: `/release v1.2.0`
+
+---
+
+### `/hotfix`
+
+Emergency hotfix process. Creates a hotfix branch from the release tag, assigns the minimal fix, coordinates expedited review (1-hour SLA), gets your approval, and deploys. Requires a post-mortem within 24 hours.
+
+**When to use:** Critical bug in production that can't wait for the next release.
+
+**Example triggers:**
+- "critical bug: login is broken on Android"
+- "production is crashing"
+- "P0: users can't complete checkout"
+- "hotfix needed"
+
+---
+
+### `/investigate-crash`
+
+Crash spike investigation protocol. Analyzes recent commits against crash data, identifies the culprit commit, suggests a targeted fix and rollback candidate, then produces a structured post-mortem saved to `.claude/post-mortems/`.
+
+**When to use:** Crashlytics alert, sudden crash spike, or app stability issues.
+
+**Example triggers:**
+- "crash spike on Android profile screen"
+- "Crashlytics shows 5% crash rate"
+- "app is crashing after the last deploy"
+- "triage this crash"
+
+---
+
+### `/investigate-bug`
+
+Functional bug investigation protocol. Analyzes expected vs actual behavior, traces the issue through recent commits and feature specs, identifies the root cause, and produces a bug report with fix plan. For severe bugs (P0/P1), also generates a post-mortem.
+
+**When to use:** App behaves incorrectly but doesn't crash — wrong output, missing data, broken feature, regression in behavior.
+
+**Example triggers:**
+- "the search results are showing wrong items"
+- "users can't complete checkout since last deploy"
+- "this feature doesn't match the spec"
+- "investigate this bug"
+
+---
+
+### `/postmortem`
+
+Structured post-mortem using the **5 Whys** root cause analysis methodology. Goes beyond the immediate technical root cause to uncover the systemic failures that allowed the issue to be introduced AND escape every quality gate to reach production. Traces two parallel chains: (A) how the issue was introduced, and (B) how it escaped unit tests, integration tests, code review, CI/lint, QA, staging/canary, and monitoring. Produces a post-mortem document saved to `.claude/post-mortems/` and creates prevention board tasks for every gap identified.
+
+**When to use:** After completing an `/investigate-crash` or `/investigate-bug` session, when a recurring incident is detected, for near-misses caught in staging, or whenever a deep root cause analysis is needed.
+
+**Example triggers:**
+- "write a postmortem"
+- "5 whys analysis"
+- "root cause analysis"
+- "why did this reach production"
+- "postmortem for the crash investigation"
+
+---
+
+### `/pick-up-task`
+
+Agent task pickup protocol. Reads the Kanban board, selects the highest-priority Ready task matching the agent's domain, validates it has acceptance criteria and unblocked dependencies, moves it to In Progress, loads all feature context, and presents a work plan before beginning implementation.
+
+**When to use:** An agent has capacity and needs to start the next piece of work from the board.
+
+**Example triggers:**
+- "pick up next task"
+- "what should I work on next"
+- "grab next item from the board"
+- "start next task"
+
+---
+
+## Productivity
+
+### `/kick-off`
+
+Starts the day's work in one command. Chains three workflows: runs a daily sync (board status, blockers, stale tasks), replenishes the Ready column if it's running low, then picks up the next task matching the agent's domain. Gets an agent from zero to productive in a single step.
+
+**When to use:** At the start of a work session, or whenever an agent needs to get going.
+
+**Example triggers:**
+- "kick off"
+- "start work"
+- "start the day"
+- "morning sync"
+- "let's go"
+
+---
+
+### `/code-review`
+
+Performs a structured, multi-dimensional code review on a PR or branch. Checks architecture alignment (ADR compliance, layer violations), coding standards compliance, test coverage adequacy, security (lightweight scan), and acceptance criteria verification. Produces a scored verdict: APPROVED, CHANGES REQUESTED, or BLOCKED.
+
+**When to use:** Before merging any PR, or when an agent completes a task and needs peer review.
+
+**Example triggers:**
+- "review this PR"
+- "code review"
+- "is this ready to merge"
+- "check this branch"
+
+---
+
+### `/capture-screenshots`
+
+Captures before/after screenshots for PRs with UI changes. Detects the project's platform(s) (Android/iOS/Web), switches to the base branch to capture "before" screenshots, switches back to capture "after" screenshots, and generates a comparison table for the PR description.
+
+Supports three screenshot tools:
+- **Android**: Paparazzi (JVM-only, no emulator)
+- **iOS**: swift-snapshot-testing (Point-Free)
+- **Web**: Playwright visual comparisons
+
+Falls back to manual screenshot instructions when automated tools aren't configured.
+
+**When to use:** Before creating a PR that includes UI changes. Also invoked automatically by `/create-pr` when it detects UI changes and no visual evidence is present.
+
+**Example triggers:**
+- "capture screenshots"
+- "take before/after screenshots"
+- "generate visual diff"
+- "screenshot this UI change"
+
+---
+
+### `/health-check`
+
+Runs a comprehensive project health audit. Checks lint/static analysis, force-unwraps, TODO hygiene, test suite health and coverage, dependency vulnerabilities, board hygiene (stale tasks, WIP violations), documentation staleness, feature flag cleanup, and CI/hook installation. Produces a letter-grade health report with prioritized action items.
+
+**When to use:** Weekly, before a release, or when the codebase feels like it's drifting.
+
+**Example triggers:**
+- "health check"
+- "project health"
+- "audit the project"
+- "how healthy is the codebase"
+- "run diagnostics"
+
+---
+
+### `/onboard-agent`
+
+Fast-tracks an agent onto a feature they haven't worked on before. Loads all feature documentation (PRD, BRD, ADR, RFC, design specs, incidents), reviews recent git history and open branches, checks board state for related tasks, identifies key contacts from git blame, and produces a comprehensive onboarding briefing.
+
+**When to use:** When an agent is new to a feature, picking up someone else's work, or doing a cross-functional review.
+
+**Example triggers:**
+- "onboard me to this feature"
+- "catch me up on user-auth"
+- "get up to speed"
+- "what do I need to know about checkout"
+
+---
+
+### `/dependency-upgrade`
+
+Manages the full lifecycle of dependency upgrades: audit current dependencies for vulnerabilities and outdated packages, classify by urgency (P0 critical vuln → P4 Kotlin version upgrade), assess risk for major bumps, execute the upgrade with cross-platform verification (KMP), and document a rollback plan. Handles both individual upgrades and monthly batch updates.
+
+**When to use:** When a vulnerability is reported, dependencies are outdated, or it's time for the monthly dependency maintenance window.
+
+**Example triggers:**
+- "upgrade dependencies"
+- "check for vulnerabilities"
+- "bump Kotlin version"
+- "monthly dependency update"
+- "security patch needed"
+
+---
+
+### `/rfc`
+
+Writes a structured Request for Comments (RFC) for large features or significant technical changes. Produces a comprehensive proposal with goal, background, proposed plan (architecture, implementation steps, data model, API changes, feature flags), alternatives considered, open questions, security considerations, testing strategy, migration plan, estimated scope, and rollback plan. Required per `shared-standards.md` for any epic or large user story spanning multiple tasks or modules.
+
+**When to use:** Before implementing a feature that spans multiple modules, introduces a new architectural pattern, requires data model changes, or is estimated at >2 weeks of work.
+
+**Example triggers:**
+- "write an RFC"
+- "technical proposal for payments"
+- "design doc for the new feature"
+- "request for comments"
+- "this feature needs upfront design"
+
+---
+
+### `/sprint-report`
+
+Generates a quantitative sprint or time-period report. Gathers data from the board, git log, health reports, and post-mortems to compute throughput (stories completed, commits), cycle times (median, p90, max for lead/work/review/block time), agent utilization, and quality signals (reviews, incidents, hotfixes). Compares against the previous period to show trends. Flags risks like stale tasks, overloaded agents, and cycle time spikes.
+
+**When to use:** End of sprint, monthly review, or whenever you want a data-driven snapshot of team performance.
+
+**Example triggers:**
+- "sprint report"
+- "how did we do this sprint"
+- "team metrics"
+- "show me throughput"
+- "performance report for last 2 weeks"
+
+---
+
+### `/tech-task`
+
+Kicks off a technical or infrastructure task that isn't a product feature. Skips the product discovery chain (no Morgan/Diana) and routes directly to the appropriate engineer(s) via Sage. For small tasks, goes straight to the owning agent. For medium tasks, Sage evaluates whether an ADR is needed. For large tasks, requires an RFC first.
+
+Covers: tooling improvements, CI/CD changes, refactoring, design system creation, tech debt cleanup, developer experience work, infrastructure setup, and any engineering initiative that doesn't start from a user story.
+
+**When to use:** Any engineering work that doesn't have a product feature driving it.
+
+**Example triggers:**
+- "improve the git hooks"
+- "create a reusable design system"
+- "refactor the authentication module"
+- "set up monitoring dashboards"
+- "clean up tech debt in the data layer"
+- "upgrade to Kotlin 2.1"
+- "add screenshot tests to the CI pipeline"
+
+---
+
+## Parallel Execution
+
+### `/dispatch`
+
+Dispatches one or more tasks to run in parallel using git worktrees. Each task gets its own isolated worktree and branch so agents don't interfere with each other's work. Handles the full lifecycle: parse the task list, create worktrees with proper branch naming, hand off to the assigned agent, and track progress. After work is complete, the agent pushes and creates a PR. Worktrees are cleaned up after merge.
+
+**When to use:** When you have multiple independent tasks that can be worked on simultaneously — e.g., two features on different modules, a backend task and a frontend task, or any set of tasks that don't share files.
+
+**Example triggers:**
+- "dispatch these tasks in parallel"
+- "work on these at the same time"
+- "run these tasks simultaneously"
+- "parallel execution: US-042 and US-043"
+
+**Arguments:** Provide the task list — either task IDs from the board or inline descriptions with assigned agents.
+
+---
+
+## Board Management
+
+### `/update-board`
+
+Updates the Kanban board when a task changes status and commits the board change on the current branch. This ensures the board state is always part of the branch history — when the PR merges, the board update merges with the code.
+
+Supports all lifecycle transitions: Ready → In Progress, In Progress → Blocked, Blocked → In Progress, In Progress → Review, Review → Done. Infers the task ID from the branch name or recent commits if not provided.
+
+**When to use:** Every time a task changes status — picking up a task, getting blocked, sending to review, or completing work. Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/code-review`, `/dispatch`) invoke this automatically, but you can also call it directly.
+
+**Example triggers:**
+- "update board"
+- "move task to review"
+- "mark task done"
+- "task is blocked"
+- "commit board change"
+
+**Arguments:** Optionally provide the task ID and target column: `/update-board US-042 → Review`
+
+---
+
+### `/create-pr`
+
+Creates a pull request with a standardized format. The PR title includes the task ID (e.g., `[US-042] Add email validation`), and the body lists the primary authoring agent and all participating agents, a summary of changes, related docs, a test plan, and a review checklist. Suggests reviewers based on the code review matrix.
+
+**When to use:** After an agent finishes a task and the board has been updated to Review. Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke this automatically, but you can also call it directly.
+
+**Example triggers:**
+- "create PR"
+- "open a pull request"
+- "submit PR for this branch"
+- "push and create PR"
+- "ready for review"
+
+**Arguments:** None required — infers task ID, branch, and agents from the current context.
+
+---
+
+## Setup & Configuration
+
+### `/setup-repo`
+
+Sets up a repository with the full Tech Agency configuration. Works for both new and existing projects — auto-detects the project mode, audits what's already in place, and only installs the missing pieces.
+
+**For new projects:** Scaffolds the full project structure from scratch — Git init, directory layout, all agency rules/skills, git hooks, CI/CD pipelines, branch protection, initial commit, and optional GitHub repo creation.
+
+**For existing projects:** Audits the current setup against the full Tech Agency configuration, reports what's present and what's missing, then gap-fills only the missing components (rules, skills, hooks, CI workflows, docs) without overwriting anything already in place.
+
+**When to use:** Setting up a brand new project, or onboarding an existing codebase onto the Tech Agency framework.
+
+**Example triggers:**
+- "set up this project with tech agency"
+- "scaffold a new KMP project"
+- "add tech agency to my existing repo"
+- "initialize the agency setup"
+
+---
+
+## Quick Reference
+
+| Command | What it does | How often |
+|---------|-------------|-----------|
+| `/daily-sync` | Board status, blockers, WIP check | Daily |
+| `/replenish` | Prioritize and fill the Ready column | Weekly |
+| `/retro` | Retrospective with cycle time analysis | Per feature / monthly |
+| `/new-product` | Full kickoff: PRD → BRD → ADR → Board | Per product |
+| `/new-feature` | Feature kickoff, adapts to scope | Per feature |
+| `/release` | Full release checklist and deploy | Per release |
+| `/hotfix` | Emergency fix pipeline | As needed |
+| `/investigate-crash` | Crash triage and post-mortem | As needed |
+| `/investigate-bug` | Functional bug investigation and fix plan | As needed |
+| `/postmortem` | 5 Whys root cause analysis and prevention tasks | After investigations |
+| `/pick-up-task` | Pull next task from board and begin work | As needed |
+| `/kick-off` | Daily sync + replenish + pick up task | Daily |
+| `/code-review` | Structured code review with verdict | Per PR |
+| `/capture-screenshots` | Before/after screenshots for UI changes | Per UI PR |
+| `/health-check` | Project health audit with action items | Weekly / pre-release |
+| `/onboard-agent` | Fast-track agent onto a feature | As needed |
+| `/dependency-upgrade` | Audit, upgrade, and verify dependencies | Monthly / as needed |
+| `/rfc` | Write an RFC for large features | Per epic / large feature |
+| `/sprint-report` | Sprint metrics, throughput, cycle times, trends | Per sprint / monthly |
+| `/tech-task` | Technical/infrastructure task kickoff | As needed |
+| `/dispatch` | Dispatch parallel tasks via git worktrees | As needed |
+| `/update-board` | Update board status and commit on branch | Per transition |
+| `/create-pr` | Create standardized PR with task ID and agents | Per task |
+| `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project |

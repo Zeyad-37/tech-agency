@@ -1,0 +1,132 @@
+# Board Adapter — Platform-Agnostic Board Operations
+
+The board backend is configured per-project in `.claude/settings.json` via the `board_backend` field. All agents and skills MUST use the operations defined here instead of directly reading/writing `board-context.md`. This abstraction allows the agency to work with markdown Kanban, Jira, Linear, Asana, or any other board tool.
+
+## Configuration
+
+```json
+// .claude/settings.json
+{
+  "board_backend": "markdown"
+}
+```
+
+Supported values: `"markdown"` (default), or any external tool accessible via MCP (e.g., `"jira"`, `"linear"`, `"asana"`). If the field is missing, default to `"markdown"`.
+
+## Board Operations
+
+Every skill that interacts with the board MUST use these abstract operations. The agent reads `board_backend` from `.claude/settings.json` and translates each operation to the appropriate backend.
+
+### Read Operations
+
+| Operation | What it does |
+|-----------|-------------|
+| `board.read_all()` | Read the full board state (all columns) |
+| `board.read_column(column)` | Read tasks in a specific column (Backlog, Ready, In Progress, Review, Done, Blocked) |
+| `board.read_task(task_id)` | Read a specific task by ID |
+| `board.read_agent_wip(agent)` | Read all In Progress tasks assigned to an agent |
+| `board.search(query)` | Search tasks by keyword, assignee, or label |
+
+### Write Operations
+
+| Operation | What it does |
+|-----------|-------------|
+| `board.move_task(task_id, from_column, to_column)` | Move a task between columns |
+| `board.assign_task(task_id, agent)` | Assign or reassign a task to an agent |
+| `board.create_task(task)` | Create a new task (with description, priority, assignee, acceptance criteria) |
+| `board.update_task(task_id, fields)` | Update task fields (description, priority, labels, etc.) |
+| `board.add_comment(task_id, comment)` | Add a comment or note to a task |
+| `board.add_blocker(task_id, reason)` | Mark a task as blocked with a reason |
+| `board.remove_blocker(task_id)` | Unblock a task |
+
+## Backend Translations
+
+### `"markdown"` (default)
+
+When `board_backend` is `"markdown"`, translate operations to direct reads and writes of `board-context.md`:
+
+| Operation | Translation |
+|-----------|-------------|
+| `board.read_all()` | `cat board-context.md` |
+| `board.read_column(column)` | Parse `board-context.md`, extract the section under `## {Column}` |
+| `board.read_task(task_id)` | Parse `board-context.md`, find the row matching `task_id` |
+| `board.read_agent_wip(agent)` | Parse `board-context.md`, filter "In Progress" by agent name |
+| `board.search(query)` | `grep -i "{query}" board-context.md` |
+| `board.move_task(...)` | Edit `board-context.md` — remove from source section, add to target section |
+| `board.assign_task(...)` | Edit `board-context.md` — update the "Assigned To" field |
+| `board.create_task(...)` | Append a new row to the appropriate column in `board-context.md` |
+| `board.update_task(...)` | Edit the matching row in `board-context.md` |
+| `board.add_comment(...)` | Append to a "Notes" section or inline comment in `board-context.md` |
+| `board.add_blocker(...)` | Move task to "Blocked" section with reason |
+| `board.remove_blocker(...)` | Move task back to "In Progress" from "Blocked" |
+
+The markdown board follows the format documented in `board-context.md` with these columns:
+
+```markdown
+## Backlog
+## Ready
+## In Progress
+## Review
+## Blocked
+## Done
+## Decisions Log
+```
+
+Each column contains a markdown table with columns: Task ID, Description, Assigned To, Priority, Started/Added date.
+
+### External Tool (Jira, Linear, Asana, etc.)
+
+When `board_backend` is set to an external tool, translate operations to MCP tool calls. The specific MCP tool names depend on the connected tool:
+
+| Operation | MCP Call Pattern |
+|-----------|-----------------|
+| `board.read_all()` | Call the tool's "list issues/tasks" endpoint with the project filter |
+| `board.read_column(column)` | Call "list issues" filtered by status mapping (see Status Mapping below) |
+| `board.read_task(task_id)` | Call "get issue" by ID |
+| `board.read_agent_wip(agent)` | Call "list issues" filtered by assignee + status "In Progress" |
+| `board.search(query)` | Call the tool's search/JQL/filter endpoint |
+| `board.move_task(...)` | Call "transition issue" or "update status" |
+| `board.assign_task(...)` | Call "update issue" with assignee field |
+| `board.create_task(...)` | Call "create issue" with mapped fields |
+| `board.update_task(...)` | Call "update issue" with changed fields |
+| `board.add_comment(...)` | Call "add comment" on the issue |
+| `board.add_blocker(...)` | Call "update issue" to set blocked flag/status + add comment with reason |
+| `board.remove_blocker(...)` | Call "update issue" to clear blocked flag/status |
+
+### Status Mapping
+
+Map the agency's column names to external tool statuses:
+
+| Agency Column | Jira (typical) | Linear (typical) | Asana (typical) |
+|---------------|----------------|-------------------|-----------------|
+| Backlog | Backlog | Backlog | Not Started |
+| Ready | To Do / Selected for Dev | Todo | Upcoming |
+| In Progress | In Progress | In Progress | In Progress |
+| Review | In Review | In Review | In Review |
+| Blocked | Blocked (custom) | Blocked (label) | On Hold |
+| Done | Done | Done | Completed |
+
+The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/board-config.md`.
+
+## Agent Guidelines
+
+1. **Always check `board_backend`** before any board interaction. Read `.claude/settings.json` at the start of any skill that touches the board.
+
+2. **Use operations, not raw access.** Never write `cat board-context.md` directly in a skill. Always go through the operation abstraction. If the backend is markdown, the operation translates to `cat board-context.md` — but the skill shouldn't know that.
+
+3. **Handle both backends gracefully.** If an MCP tool is not available for the configured backend, report the error clearly: "Board backend is set to {tool} but the MCP connection is not available. Please check your MCP configuration or switch to markdown."
+
+4. **Keep `board-context.md` as fallback.** Even when using an external tool, `board-context.md` can serve as a local cache or backup. If the external tool is unreachable, the agent may fall back to the last cached state in `board-context.md` and note that it's potentially stale.
+
+5. **Sync after external operations.** When using an external backend, after any write operation, the agent should update `board-context.md` as a local mirror if it exists. This keeps the file useful for quick offline reference.
+
+## Adding a New Backend
+
+To add support for a new board tool:
+
+1. Configure the MCP connection for the tool (see `docs/tool-integrations.md`)
+2. Add the tool name as a valid `board_backend` value
+3. Document the status mapping in `docs/board-config.md`
+4. Test with `/daily-sync` to verify read operations work
+5. Test with `/pick-up-task` to verify write operations work
+6. No changes to any skill files are needed — the adapter handles translation

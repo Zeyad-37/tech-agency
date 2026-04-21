@@ -1,0 +1,2 @@
+| Date | Incident | Severity | Report |
+|------|----------|----------|--------|
