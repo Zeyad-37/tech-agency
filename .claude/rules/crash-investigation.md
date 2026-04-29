@@ -27,9 +27,9 @@ Provide two options:
 
 ### 4. Generate Post Mortem
 
-After completing the investigation, generate a post mortem document as the **sole output** of the session. Save it to `.claude/post-mortems/YYYY-MM-DD_<crash-slug>.md` (e.g., `.claude/post-mortems/2026-03-26_npe-user-profile-load.md`).
+After completing the investigation, generate a post mortem document as the **sole output** of the session. Save it to `docs/post-mortem/{Task-Id}-Post Mortem-Title.md` (e.g., `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
 
-If `.claude/post-mortems/` does not exist, create it.
+If `docs/post-mortem/` does not exist, create it.
 
 The post mortem must follow this structure exactly:
 
@@ -87,10 +87,10 @@ Action points must cover all relevant layers: unit/integration tests, CI checks 
 
 ### 5. Update the Index
 
-Append a one-line entry to `.claude/post-mortems/INDEX.md` (create the file if it doesn't exist):
+Append a one-line entry to `docs/post-mortem/INDEX.md` (create the file if it doesn't exist):
 
 ```
-| YYYY-MM-DD | <Incident Title> | <Severity> | [Post Mortem](./<filename>.md) |
+| YYYY-MM-DD | <Incident Title> | <Severity> | [Post Mortem](./filename.md) |
 ```
 
 If INDEX.md is new, add a header row first:

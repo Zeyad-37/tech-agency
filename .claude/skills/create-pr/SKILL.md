@@ -19,6 +19,50 @@ Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke th
 
 > **IMPORTANT — No Auto-Push:** This skill does NOT push to remote automatically. It prepares the PR metadata and presents a summary to @Zeyad. Only when @Zeyad says "push", "push it", "go ahead", or similar, do you run `git push` and `gh pr create`.
 
+## Pre-flight: Rebase onto Main if Behind
+
+Before doing anything else, fetch the latest state of `main` and rebase the current branch onto it if it has fallen behind. A PR opened from a stale branch risks conflicts and makes review harder.
+
+```bash
+# Fetch latest remote state without merging
+git fetch origin main
+
+# Check how many commits the branch is behind main
+BEHIND=$(git rev-list --count HEAD..origin/main)
+echo "Branch is $BEHIND commit(s) behind origin/main"
+```
+
+**If `BEHIND` is 0** — branch is up to date. Proceed to Step 1.
+
+**If `BEHIND` is > 0** — rebase automatically:
+
+```bash
+git rebase origin/main
+```
+
+- If the rebase succeeds cleanly, report to @Zeyad and proceed to Step 1:
+  ```
+  ✅ Rebased onto origin/main ({BEHIND} commit(s) applied). Branch is now up to date.
+  ```
+
+- If the rebase hits conflicts, abort and stop:
+  ```bash
+  git rebase --abort
+  ```
+  Then report:
+  ```
+  ⚠️  Rebase onto origin/main failed due to merge conflicts.
+
+  Conflicts must be resolved manually before creating the PR.
+  Run the following, resolve conflicts, then re-run /create-pr:
+
+    git rebase origin/main
+    # resolve conflicts in each file
+    git add <resolved-files>
+    git rebase --continue
+  ```
+  Do NOT proceed until the rebase is clean.
+
 ## Step 1: Gather PR Context
 
 Collect the following from the current branch and task context:

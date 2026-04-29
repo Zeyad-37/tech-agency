@@ -6,7 +6,7 @@
 - When introducing a breaking change, create a new version — never modify an existing version's contract
 - Deprecated versions must return a `Sunset` header with the retirement date and a `Deprecation` header with the date deprecation was announced
 - Minimum deprecation notice: 3 months before sunset for external APIs, 2 weeks for internal-only APIs
-- @Scroll documents migration guides for each version bump in `docs/api-migrations/v{old}-to-v{new}.md`
+- @Scroll documents migration guides for each version bump in `docs/api-migration/{Task-Id}-API Migration-v{old}-to-v{new}.md`
 - @Sentinel monitors traffic on deprecated versions — do not retire until traffic drops below 1% or the sunset date passes
 - After retirement, deprecated endpoints return `410 Gone` with a body pointing to the new version
 
