@@ -7,8 +7,7 @@
 - Action items tagged with `@AgentName`
 - Priority levels: P0 (critical), P1 (high), P2 (medium), P3 (low)
 - Receiving agent acknowledges within 1 daily sync cycle
-- Every handoff document must be saved to `docs/{feature-name}/{handoff-doc-type}.md` (e.g., `docs/user-auth/prd.md`, `docs/user-auth/brd.md`, `docs/user-auth/adr-001.md`). This groups all artifacts for a feature together in the repo.
-- Additionally, maintain a cross-reference index at `docs/by-type/{handoff-doc-type}/{feature-name}.md` that symlinks or re-exports the source document (e.g., `docs/by-type/prd/user-auth.md` → `../../user-auth/prd.md`). This provides a unified view by document type across all features. Each index file should contain a single line: `See @docs/{feature-name}/{handoff-doc-type}.md` pointing to the canonical source.
+- Every handoff document must be saved to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` (e.g., `docs/prd/US-042-PRD-User Authentication.md`, `docs/brd/US-042-BRD-User Authentication.md`, `docs/adr/US-042-ADR-JWT Strategy.md`). Document type folders are: `prd`, `brd`, `adr`, `rfc`, `design-spec`, `api-contract`, `incident-notes`, `post-mortem`, `release-record`, `api-migration`. Create the folder if it does not exist.
 
 ## Templates
 
@@ -33,7 +32,8 @@
 **From:** @Sage | **To:** @[Engineer] | **Date:** YYYY-MM-DD
 **ADR:** ADR-[NNN]-[title] | **Status:** Accepted
 **Includes:** Context, Decision, Consequences, Alternatives Considered, API Contracts
-**Action:** @[Engineer] — Implement per ADR. Raise if constraints conflict.
+**Test Plan:** [Required test types and coverage expectations — e.g., unit tests for X, integration tests for Y, contract tests for Z]
+**Action:** @[Engineer] — Implement per ADR, write tests per test plan on the same branch. Raise if constraints conflict.
 ```
 
 ### 4. Sage → Pixel: Design Brief
