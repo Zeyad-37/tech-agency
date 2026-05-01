@@ -1,3 +1,18 @@
 {
-  "plugins": ["tech-agency"]
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "tech-agency",
+  "description": "Multi-agent software development framework — 19 specialized agents, 24+ skills, and coding standards for Android, iOS, KMP, Web, and backend development.",
+  "owner": {
+    "name": "Zeyad Gasser",
+    "email": "zeyad.gasser@welltech.com"
+  },
+  "plugins": [
+    {
+      "name": "tech-agency",
+      "description": "19 specialized agents (Atlas, Kai, Swift, Nova, Link, Forge, Pyra, Flux, Shield, Sage, Morgan, Diana, Pixel, Apex, Sentinel, Scroll, Echo, Neuron, Pipeline) with skills for feature development, PR creation, code review, health checks, releases, and more.",
+      "category": "development",
+      "source": "./.claude",
+      "homepage": "https://github.com/Zeyad-37/tech-agency"
+    }
+  ]
 }

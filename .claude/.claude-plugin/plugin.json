@@ -1,0 +1,9 @@
+{
+  "name": "tech-agency",
+  "description": "Multi-agent software development framework with 19 specialized agents and 24+ skills covering the full product lifecycle.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Zeyad Gasser",
+    "email": "zeyad.gasser@welltech.com"
+  }
+}
