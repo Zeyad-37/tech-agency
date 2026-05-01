@@ -1,11 +1,13 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'. NOTE: This skill does NOT push automatically — it prepares the PR locally and waits for @Zeyad to approve the push."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'. This skill commits any uncommitted changes, pushes the branch, and creates the PR automatically — no additional confirmation required."
 ---
 
 # Create PR — Standardized Pull Request Creation
 
 This skill creates a pull request with a consistent, structured format that includes the task ID in the title, lists the authoring and participating agents, and provides a summary, test plan, and review checklist. It ensures every PR in the agency follows the same template regardless of which agent or skill initiates it.
+
+**Auto-push enabled:** Invoking `/create-pr` is the explicit authorization to commit, push, and open the PR. No additional confirmation is needed.
 
 ## When to Use
 
@@ -16,8 +18,6 @@ Call `/create-pr` when:
 - When the user explicitly asks to create a PR for the current branch
 
 Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke this automatically at the end of their task completion flow.
-
-> **IMPORTANT — No Auto-Push:** This skill does NOT push to remote automatically. It prepares the PR metadata and presents a summary to @Zeyad. Only when @Zeyad says "push", "push it", "go ahead", or similar, do you run `git push` and `gh pr create`.
 
 ## Pre-flight: Rebase onto Main if Behind
 
@@ -214,38 +214,23 @@ If the user chooses to continue without screenshots, add a note in the Visual Ch
 > **WARNING:** Visual evidence was not provided for this PR. Reviewer should request screenshots before approving.
 ```
 
-## Step 4: Present the PR Summary (Do NOT Push Yet)
+## Step 4: Commit Any Uncommitted Changes and Push
 
-Ensure all changes are committed locally:
+Ensure all changes are committed, then push immediately — no confirmation required:
 
 ```bash
-git status  # should be clean — nothing to commit
+# Check for uncommitted changes
+git status
 ```
 
-Then present the PR summary to @Zeyad for approval:
+If there are uncommitted changes, commit them using the standard format before pushing:
 
-```
-PR ready for your approval:
-
-  Title: [{TASK-ID}] {Short description}
-  Branch: {branch} → main
-  Author: @{PrimaryAgent}
-  Participants: @{Agent1}, @{Agent2}
-  Commits: {N}
-  Files changed: {summary}
-
-Summary:
-  - {bullet 1}
-  - {bullet 2}
-
-Say "push" to push the branch and create the PR on GitHub.
+```bash
+git add <relevant files>
+git commit -m "[{TASK-ID}] @{Agent}: {description}"
 ```
 
-**Do NOT run `git push` or `gh pr create` until @Zeyad confirms.**
-
-## Step 5: Push and Create the PR (After @Zeyad Approves)
-
-Only after @Zeyad says "push", "push it", "go ahead", or similar:
+## Step 5: Push and Create the PR
 
 ```bash
 # 1. Push the branch (set upstream if first push)
@@ -364,11 +349,9 @@ Agents can also invoke it directly at any time by saying "create PR" or "open a 
 If the PR already exists and you need to update it (e.g., after code review changes):
 
 1. Commit your changes locally with the standard commit format
-2. Present the update summary to @Zeyad
-3. Only after @Zeyad approves the push:
+2. Push immediately — `/create-pr` carries push authorization:
 
 ```bash
-# Push new commits (only after @Zeyad approves)
 git push
 
 # Update the PR body if needed
