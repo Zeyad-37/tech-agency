@@ -25,7 +25,10 @@
     "allow": [
       "Read",
       "Glob",
-      "Grep"
+      "Grep",
+      "Bash(git push*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr edit*)"
     ],
     "deny": []
   }
