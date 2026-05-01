@@ -119,9 +119,10 @@ Tech Agency includes 15 coding standards files that agents follow when writing c
 ```
 tech-agency/
 ├── .claude-plugin/
-│   ├── plugin.json              # Plugin identity and metadata
-│   └── marketplace.json         # Git-based marketplace configuration
+│   └── marketplace.json         # Marketplace manifest (makes this repo a plugin source)
 ├── .claude/
+│   ├── .claude-plugin/
+│   │   └── plugin.json          # Plugin identity and metadata
 │   ├── agents/                  # 19 agent definition files
 │   │   ├── atlas-orchestrator.md
 │   │   ├── kai-android-engineer.md
@@ -151,27 +152,49 @@ tech-agency/
 
 ## Installation
 
-Tech Agency is distributed as a Claude Code plugin via a git-based marketplace.
+Tech Agency is distributed as a Claude Code plugin from this GitHub repo. Installing at user scope makes it available in every project on the machine.
 
-### 1. Add the marketplace (one-time)
+### First-time setup (run once per machine)
 
 ```bash
-claude mcp add-json marketplace-tech-agency '{
-  "command": "npx",
-  "args": ["-y", "@anthropic-ai/claude-code-marketplace@latest"],
-  "env": {
-    "MARKETPLACE_GIT_URL": "<your-git-repo-url>"
+# 1. Register the marketplace
+claude plugin marketplace add github:Zeyad-37/tech-agency --scope user
+
+# 2. Install the plugin
+claude plugin install tech-agency@tech-agency --scope user
+```
+
+### Auto-updates
+
+Add this to your `~/.claude/settings.json` to automatically pull the latest version at the start of every Claude Code session:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "claude plugin update tech-agency --scope user 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
   }
-}'
+}
 ```
 
-### 2. Install the plugin
+After this is in place, any changes merged to `main` on this repo will be picked up automatically the next time you open Claude Code.
+
+### Manual update
 
 ```bash
-claude plugin install tech-agency
+claude plugin update tech-agency --scope user
 ```
 
-### 3. Verify
+### Verify
 
 Open Claude Code and type `/kick-off` to start your first daily sync.
 
