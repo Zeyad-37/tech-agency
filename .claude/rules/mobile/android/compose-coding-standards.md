@@ -360,6 +360,7 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 | Unit (ViewModel, InputHandler) | JUnit 5 + Mockito + Turbine | `src/test/` | CI (every commit) |
 | API (Retrofit endpoints) | JUnit 5 + MockWebServer | `src/test/` | CI (every commit) |
 | Compose UI (component behavior) | Compose Test Rule | `src/androidTest/` or `src/test/` (Robolectric) | CI (every commit) |
+| UI interaction tests (Input dispatch) | Compose Test Rule + capturing fake | `src/test/` (Robolectric) | CI (every commit) |
 | Integration (full stack) | JUnit 5 + Hilt + Testcontainers | `src/androidTest/` | CI (every PR) |
 | Screenshot / Visual Regression | Paparazzi | `src/test/` (JVM, no emulator) | CI (every PR) |
 | E2E (user flows) | Maestro or Compose UI Test + Espresso | `src/androidTest/` | CI (nightly) |
@@ -378,7 +379,27 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 - **MockWebServer** for Retrofit API tests.
 - **Robolectric** for tests needing Android framework without an emulator.
 - **Compose test rule** for UI tests — test the stateless Content composable.
+- Every stateless `*Content` composable that exposes a `process: (Input) -> Unit` lambda MUST have a Compose UI test that asserts each interactive surface in the bottom bar, action bar, or floating CTAs dispatches the correct `Input` on tap. The test runs against the stateless `Content` (no ViewModel), uses a capturing fake for `process`, and verifies the dispatched `Input` by type and payload. This is separate from screenshot tests, which verify rendering but not wiring — an accidental swap (Delete actually fires Archive) would ship under screenshot-only coverage.
+
+```kotlin
+@Test
+fun mark_done_button_dispatches_check_input() {
+    val dispatched = mutableListOf<Input>()
+    composeTestRule.setContent {
+        AgendaItemDetailsContent(
+            state = sampleSuccessState,
+            snackBarHostState = remember { SnackbarHostState() },
+            process = { dispatched += it },
+            monthLabel = "May 2026",
+        )
+    }
+    composeTestRule.onNodeWithText("Mark done").performClick()
+    assertTrue(dispatched.any { it is CheckAgendaEntryDetailInput })
+}
+```
+
 - **Paparazzi** for screenshot tests — JVM only, no emulator.
+- Every new screen MUST have a Paparazzi test that snapshots the entire stateless `*Content` composable end-to-end in both light and dark themes, in addition to any sub-component showcase snapshots. Component-level snapshots (showcase grids of cards, chart blocks, etc.) are valuable but do not constitute a screen-level regression baseline — the header, title block, reminder row, and action bar must all be in the frame. If Paparazzi can't resolve a `stringResource` because the Compose-resources lookup isn't available in JVM tests, thread the resolved string through `Content` as an optional parameter (e.g. `backContentDescription`, `deleteContentDescription`) — do not skip the full-screen snapshot.
 - **Macrobenchmark** for performance — nightly CI on real device.
 - **Given / When / Then** structure in every test.
 - **Test naming**: `snake_case` matching KMP: `when_<condition>_then_<expected>` or backtick style.
@@ -467,6 +488,7 @@ object Spacing {
 
 - Pixel's design tokens mapped to Material 3 color scheme.
 - No hardcoded colors, font sizes, or spacing — always `MaterialTheme.*` or `Spacing.*`.
+- Every user-facing string MUST come from a string resource — including strings produced by mapping functions (`when` over enums, formatter helpers, computed labels). A helper like `fun buildKindLabel(type): String = when (type) { MORNING -> "Routine · Morning"; ... }` is a violation even though detekt's inline-literal check won't catch it (the string isn't in a `@Composable` body). The function must either take a string-resolver and return resource-resolved values, or return a resource ID/key the caller resolves. The same applies to delta phrases (`"on track"`, `"personal best"`), cadence words (`"daily"`, `"weekly"`, `"weekdays"`), and any other dynamic UI copy.
 - Dynamic color (Material You) on Android 12+, fallback to custom scheme.
 - Dark mode via `isSystemInDarkTheme()` with manual toggle option.
 
