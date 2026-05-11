@@ -1,6 +1,6 @@
 # Ktor Server Coding Standards
 
-Owner: Link. All Ktor server code MUST follow these standards. For shared KMP code (domain models, DTOs, validation, use cases), see @.claude/rules/kmp-coding-standards.md — those rules apply here too.
+Owner: Link. All Ktor server code MUST follow these standards. For shared KMP code (domain models, DTOs, validation, use cases), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here too.
 
 ## Why Ktor over Spring
 
@@ -815,7 +815,7 @@ fun Application.configureHealthChecks() {
 
 ### Alerting Integration
 
-- Reference `@.claude/rules/operational-standards.md` for SLO definitions.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions.
 - Unhandled exceptions in StatusPages: log at ERROR, report to error tracking service.
 - Database connection pool exhaustion: log and alert when pool utilization > 80%.
 
@@ -823,8 +823,8 @@ fun Application.configureHealthChecks() {
 
 - Observability is configured in the Ktor `Application.module()` — install plugins early.
 - Share observability patterns with KMP where possible (e.g., same `Logger` interface from `commonMain`).
-- Reference `@.claude/rules/kmp-coding-standards.md` for shared observability interfaces.
-- Reference `@.claude/rules/shared-standards.md` for the baseline.
+- Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for shared observability interfaces.
+- Reference `@.claude/rules/shared/shared-standards.md` for the baseline.
 
 ## Security
 

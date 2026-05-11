@@ -1,6 +1,6 @@
 # JVM / Spring Boot Coding Standards
 
-Owner: Forge. All Spring Boot / JVM backend code MUST follow these standards. For Kotlin-first backends that share code with KMP clients via Ktor, see @.claude/rules/ktor-server-coding-standards.md (owned by Link).
+Owner: Forge. All Spring Boot / JVM backend code MUST follow these standards. For Kotlin-first backends that share code with KMP clients via Ktor, see @.claude/rules/backend/kotlin/ktor-server-coding-standards.md (owned by Link).
 
 ## Project Structure
 
@@ -714,7 +714,7 @@ class ExternalApiHealthIndicator(
 
 ### Alerting Integration
 
-- Reference `@.claude/rules/operational-standards.md` for SLO definitions and alert thresholds.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions and alert thresholds.
 - Structured error logging at ERROR/FATAL enables alert rules in your monitoring platform.
 - Circuit breaker state changes (via Resilience4j): log and emit metrics when circuits open/close.
 - JVM alerts: GC pause time > 500ms, heap usage > 85%, thread count > threshold.

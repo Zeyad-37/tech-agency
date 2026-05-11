@@ -1,6 +1,10 @@
 # Jetpack Compose / Android Coding Standards
 
-Owner: Kai. All Android code MUST follow these standards. This document covers Android-specific concerns. For shared KMP architecture (MVI pattern, Clean Architecture layers, use cases, repositories, data models, Konsist enforcement), see @.claude/rules/kmp-coding-standards.md — those rules apply here.
+Owner: Kai. All Android code MUST follow these standards. This document covers Android-specific concerns. For shared KMP architecture (MVI pattern, Clean Architecture layers, use cases, repositories, data models, Konsist enforcement), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here.
+
+**Reading Guide**: Android development requires reading BOTH documents:
+1. **KMP standards** (@.claude/rules/mobile/shared/kmp-coding-standards.md) — the foundation: architecture, MVI pattern, shared code structure, cross-platform testing
+2. **This Compose standards document** — Android-specific layer: Jetpack Compose UI, Hilt DI, Retrofit networking, Android testing frameworks, Material 3 theming
 
 ## Key Differences from KMP Shared Code
 
@@ -510,7 +514,7 @@ Logging in Android uses the KMP `Logger` interface. The Android `actual` impleme
 - **Context fields**: Always include `traceId`, `userId`, and `module` in structured log entries where applicable.
 - **Sensitive data**: NEVER log PII (email, phone), tokens, passwords. Mask or exclude entirely.
 
-Reference `@.claude/rules/kmp-coding-standards.md` for the `Logger` interface and `@.claude/rules/shared-standards.md` for baseline structured logging schema.
+Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for the `Logger` interface and `@.claude/rules/shared/shared-standards.md` for baseline structured logging schema.
 
 ### Crash Reporting
 
@@ -524,7 +528,7 @@ Integrate via KMP `CrashReporter` interface. Android `actual` implementation del
 - **Non-fatal exceptions**: Catch unexpected exceptions indicating invalid state (e.g., null where not expected) and report via `CrashReporter.logException()`.
 - **ViewModel setup**: Install a `CoroutineExceptionHandler` at ViewModel scope level to catch uncaught coroutine exceptions.
 
-Reference `@.claude/rules/kmp-coding-standards.md` for the `CrashReporter` interface.
+Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for the `CrashReporter` interface.
 
 ### Performance Monitoring
 
@@ -535,7 +539,7 @@ Use KMP `PerformanceTrace` interface. Android `actual` delegates to the project'
 - **Custom traces**: Wrap critical user flows (search, checkout, media upload).
 - **Screen rendering metrics**: Monitor recomposition counts via Compose metrics, track slow/frozen frames, measure jank using `FrameMetricsAggregator`.
 
-Reference `@.claude/rules/kmp-coding-standards.md` for the `PerformanceTrace` interface.
+Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for the `PerformanceTrace` interface.
 
 ### App Lifecycle Observability
 
@@ -547,7 +551,7 @@ Reference `@.claude/rules/kmp-coding-standards.md` for the `PerformanceTrace` in
 
 ### Alerting Thresholds
 
-Reference `@.claude/rules/operational-standards.md` for SLO definitions. Key mobile thresholds:
+Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions. Key mobile thresholds:
 
 - **Crash-free rate**: Alert if < 99.5%
 - **ANR rate**: Alert if > 0.5%
@@ -560,8 +564,8 @@ Reference `@.claude/rules/operational-standards.md` for SLO definitions. Key mob
 
 - All observability goes through KMP shared interfaces. Android module provides the `actual` implementations (logging framework, crash SDK, APM tool, etc.).
 - Inject via Hilt: ViewModels and repository classes receive `Logger`, `CrashReporter`, and `PerformanceTrace` via constructor injection. Never hardcode a vendor SDK.
-- Reference `@.claude/rules/kmp-coding-standards.md` for shared observability interfaces.
-- Reference `@.claude/rules/operational-standards.md` for SLO/alerting baselines and incident severity definitions.
+- Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for shared observability interfaces.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO/alerting baselines and incident severity definitions.
 - Logging library choice (Timber, Logback, SLF4J) is made at project setup. If not already chosen, Timber is recommended for its simple API and integration with Android lifecycle.
 - Crash reporting SDK choice (Firebase Crashlytics, Sentry, etc.) depends on project requirements and existing infrastructure. Configure at app startup before any crashes can occur.
 - APM tool choice (Firebase Performance, Datadog, New Relic) drives the `PerformanceTrace` actual implementation. Ensure auto-instrumentation is enabled for HTTP calls and database queries.

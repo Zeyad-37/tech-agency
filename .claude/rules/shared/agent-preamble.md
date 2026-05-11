@@ -15,4 +15,4 @@ At the end of any task:
 3. **Save artifacts**: Write all output documents to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Create the folder if it does not exist.
 4. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`)
 5. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass.
-6. **Handoff**: Use the appropriate handoff template from @.claude/rules/handoff-protocol.md. Tag the receiving agent and @Atlas
+6. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas
