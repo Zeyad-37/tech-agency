@@ -1186,8 +1186,8 @@ export function middleware(request: NextRequest) {
 
 - Error tracking, RUM, and logging providers are configured via environment variables — never hardcode vendor SDKs inline.
 - All observability code in a dedicated `lib/observability/` directory.
-- Reference `@.claude/rules/shared-standards.md` for the baseline.
-- Reference `@.claude/rules/operational-standards.md` for SLO/alerting definitions.
+- Reference `@.claude/rules/shared/shared-standards.md` for the baseline.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO/alerting definitions.
 
 ## Environment & Configuration
 

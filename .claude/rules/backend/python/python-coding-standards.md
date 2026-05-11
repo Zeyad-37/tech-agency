@@ -563,7 +563,7 @@ async def readiness():
 
 ### Alerting Integration
 
-- Reference `@.claude/rules/operational-standards.md` for SLO definitions.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions.
 - Unhandled exceptions: log at CRITICAL, report to error tracking, return 500 structured response.
 - Celery task failures: log with task ID, queue name, retry count — enable alerting on repeated failures.
 

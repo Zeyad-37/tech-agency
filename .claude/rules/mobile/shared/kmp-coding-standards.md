@@ -453,7 +453,7 @@ kotlin {
 
 ## Shared Client-Server Code (KMP + Ktor Server)
 
-When the backend uses Ktor (see @.claude/rules/ktor-server-coding-standards.md), client and server can share types via a `commonMain` module:
+When the backend uses Ktor (see @.claude/rules/backend/kotlin/ktor-server-coding-standards.md), client and server can share types via a `commonMain` module:
 
 ```
 project/
@@ -543,8 +543,8 @@ All observability in KMP uses expect/actual pattern to remain tool-agnostic. Pla
 - **Network Observability**: Ktor client plugin for tracing headers, request/response logging (sanitized), and metrics collection.
 - All observability interfaces live in `commonMain` — no hardcoded vendor dependencies in shared code.
 - Platform implementations injected via Koin or your DI system.
-- Reference `@.claude/rules/shared-standards.md` for baseline logging contract.
-- Reference `@.claude/rules/operational-standards.md` for SLO definitions and alerting baselines.
+- Reference `@.claude/rules/shared/shared-standards.md` for baseline logging contract.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions and alerting baselines.
 
 ## Testing
 
@@ -752,3 +752,13 @@ fun NotesListScreen(
 - On Web (Wasm), consume via `koinInject()` and `collectAsState()` in Compose Multiplatform for Web.
 - Never import platform-specific code in `commonMain`.
 - Follow Link's integration guides for each KMP module.
+
+### Platform-Specific UI Standards
+
+Each platform has dedicated UI coding standards that complement this KMP guide:
+
+- **Android**: @.claude/rules/mobile/android/compose-coding-standards.md — Jetpack Compose, Android-specific DI (Hilt), Retrofit networking, testing with Robolectric/MockWebServer.
+- **iOS**: @.claude/rules/mobile/ios/swiftui-coding-standards.md — SwiftUI, async/await patterns, URLSession, testing with XCTest, VoiceOver accessibility.
+- **Web**: Compose Multiplatform for Web targets (Kotlin/Wasm) — follow the core Compose patterns with platform-specific event handling and styling.
+
+These standards should be read alongside the shared KMP standards. Link coordinates shared code; Kai and Swift ensure platform integration is idiomatic for their respective platforms.
