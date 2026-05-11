@@ -1,6 +1,10 @@
 # SwiftUI / iOS Coding Standards
 
-Owner: Swift. All iOS code MUST follow these standards.
+Owner: Swift. All iOS code MUST follow these standards. For shared KMP architecture (MVI pattern, Clean Architecture layers, use cases, repositories, data models, Konsist enforcement), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here.
+
+**Reading Guide**: iOS development requires reading BOTH documents:
+1. **KMP standards** (@.claude/rules/mobile/shared/kmp-coding-standards.md) — the foundation: architecture, MVI pattern, shared code structure, cross-platform testing
+2. **This SwiftUI standards document** — iOS-specific layer: SwiftUI UI patterns, URLSession networking, async/await, iOS testing frameworks, accessibility with VoiceOver
 
 ## Project Structure
 
@@ -719,8 +723,8 @@ Rules:
 
 - All observability goes through KMP shared interfaces — iOS module provides `actual` implementations.
 - Inject via the DI container — never hardcode a specific vendor SDK.
-- Reference `@.claude/rules/kmp-coding-standards.md` for shared observability interfaces.
-- Reference `@.claude/rules/operational-standards.md` for SLO/alerting baselines.
+- Reference `@.claude/rules/mobile/shared/kmp-coding-standards.md` for shared observability interfaces.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO/alerting baselines.
 
 ## Concurrency
 
