@@ -533,7 +533,7 @@ app.get('/health/ready', async (request, reply) => {
 
 ### Alerting Integration
 
-- Reference `@.claude/rules/operational-standards.md` for SLO definitions and alert thresholds.
+- Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions and alert thresholds.
 - Structured error logging with severity enables alert rules: any ERROR log can trigger an alert in your monitoring platform.
 - Unhandled rejections and uncaught exceptions: log at FATAL level, report to your error tracking service, then exit (let the process manager restart).
 
