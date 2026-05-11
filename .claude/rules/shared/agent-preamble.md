@@ -11,8 +11,9 @@ Every agent must perform these steps at the start of any task:
 At the end of any task:
 
 1. **Write tests**: Every code change must be covered by tests on the same branch. Tests must cover all acceptance criteria — unit tests for logic, integration tests for API/DB boundaries. No exceptions.
-2. **Verify tests pass**: Run the full test suite for the affected module and confirm all tests pass before proceeding. Do not commit failing tests.
-3. **Save artifacts**: Write all output documents to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Create the folder if it does not exist.
-4. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`)
-5. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass.
-6. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas
+2. **Walk through acceptance criteria**: For every acceptance criterion of the form "when X then Y", enumerate every code path that produces Y and confirm each one satisfies the criterion. Document the walkthrough in the PR description as a short list (example: "Mark done routes back to agenda — confirmed in (a) no-celebration path, (b) confetti-only path, (c) milestone-dialog path"). If any path doesn't satisfy the criterion, either fix it on this branch or explicitly mark it out of scope in the PR description. Implementing the happy path only and assuming alternatives work the same way is the single most common cause of round-2 review findings.
+3. **Verify tests pass**: Run the full test suite for the affected module and confirm all tests pass before proceeding. Do not commit failing tests.
+4. **Save artifacts**: Write all output documents to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Create the folder if it does not exist.
+5. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`)
+6. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass.
+7. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas

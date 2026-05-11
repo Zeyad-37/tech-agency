@@ -571,6 +571,7 @@ All observability in KMP uses expect/actual pattern to remain tool-agnostic. Pla
 - Use `runTest` for all coroutine tests.
 - `FakeTimeService` for deterministic time in tests.
 - Test each InputHandler in isolation. Test ViewModels for integration (state transitions).
+- When a function maps over a `sealed class` or `enum class` with a `when` expression, the test for that function MUST assert one case per branch. Covering 2 of 5 enum values is a coverage gap, not coverage — a reorder or rename of an unasserted case ships undetected. This applies in particular to functions named `build*Label`, `*ToDomain`, `map*`, and to any `*Mapper.toDomain` / `toPresentation` helper. The number of distinct assertions on the function under test must be `>=` the number of `when` branches.
 - Coverage targets: 85%+ on shared code (`commonMain`), 80%+ on ViewModels, 60%+ overall.
 - Screenshot tests for every design system component and every screen's 4 states.
 - Performance benchmarks must not regress beyond documented thresholds.
