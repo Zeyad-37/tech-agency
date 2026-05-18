@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
+description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
 ---
 
 # Code Review
@@ -22,6 +22,16 @@ git log --oneline main..{branch}
 git diff --stat main..{branch}
 git diff main..{branch}
 ```
+
+Resolve the target PR number now — the verdict will be posted there in Step 8:
+
+```bash
+# PR for the current branch, or pass an explicit number if the user gave one
+PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null)
+echo "Target PR: ${PR_NUMBER:-<none — see Step 8 fallback>}"
+```
+
+If no PR exists for the branch yet, note it — Step 8 explains the fallback (create the PR first, or print the review inline).
 
 Then gather project context:
 
@@ -278,15 +288,43 @@ Produce the final review report:
 - **CHANGES REQUESTED**: Any dimension scores 1-2, or missing tests, or coding standard violations
 - **BLOCKED**: Security FAIL, architecture violation of an accepted ADR, or acceptance criteria not met
 
-## Step 8: Follow Up
+## Step 8: Post the Review to the PR
 
-After producing the review:
+The review verdict from Step 7 is posted **directly as a comment on the PR**. Do NOT write a Markdown file into the repo — no `docs/.../review-*.md`, nothing added to the working tree or any commit.
 
-1. Save the review to `docs/{feature-name}/review-{story-id}-{date}.md`
-2. Tag the author agent and @Atlas with the verdict
-3. If BLOCKED, also tag @Sage (architecture issues) or @Shield (security issues)
-4. If APPROVED and change is security-sensitive, confirm @Shield has separately reviewed
-5. Run `/update-board` to update the board and commit the change:
+Write the full Step 7 report to a temp file (keeps Markdown intact, avoids shell-quoting issues) and post it with `gh`:
+
+```bash
+REVIEW_BODY_FILE=$(mktemp /tmp/code-review-XXXXXX.md)
+# ... write the complete Step 7 report into "$REVIEW_BODY_FILE" ...
+
+case "$VERDICT" in
+  APPROVED)
+    gh pr review "$PR_NUMBER" --approve --body-file "$REVIEW_BODY_FILE" ;;
+  "CHANGES REQUESTED"|BLOCKED)
+    gh pr review "$PR_NUMBER" --request-changes --body-file "$REVIEW_BODY_FILE" ;;
+  *)
+    gh pr review "$PR_NUMBER" --comment --body-file "$REVIEW_BODY_FILE" ;;
+esac
+
+rm -f "$REVIEW_BODY_FILE"
+```
+
+Notes:
+- `gh pr review` maps the verdict to GitHub's review states: APPROVED → approve, CHANGES REQUESTED/BLOCKED → request-changes (GitHub has no "blocked" state — the body text carries the BLOCKED designation and blocking issues).
+- The temp file lives in `/tmp`, never inside the repo, and is deleted after posting.
+- **Fallback — `gh pr review` rejects self-review** ("Can not request changes / approve your own pull request"): post the same body as a regular issue comment instead, so the review is still recorded on the PR:
+  ```bash
+  gh pr comment "$PR_NUMBER" --body-file "$REVIEW_BODY_FILE"
+  ```
+- **Fallback — no PR exists for the branch** (`PR_NUMBER` is empty from Step 1): do not create a file. Either run `/create-pr` first and then post, or, if the user only wanted the review, output the full report inline in the response and tell them no PR was found to post to.
+
+After posting:
+
+1. Tag the author agent and @Atlas with the verdict (in the PR comment body or the response).
+2. If BLOCKED, also tag @Sage (architecture issues) or @Shield (security issues).
+3. If APPROVED and the change is security-sensitive, confirm @Shield has separately reviewed.
+4. Run `/update-board` to update the board and commit that board change:
    - If **APPROVED**: `/update-board {TASK-ID} → Done` — the board commit will be included in the merge
    - If **CHANGES REQUESTED**: task stays in Review (no board update needed)
    - If **BLOCKED**: `/update-board {TASK-ID} → Blocked` with the blocking reason
