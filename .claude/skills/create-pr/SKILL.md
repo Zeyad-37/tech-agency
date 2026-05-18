@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'. This skill commits any uncommitted changes, pushes the branch, and creates the PR automatically — no additional confirmation required."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'. This skill commits any uncommitted changes, pushes the branch, and creates the PR automatically — no additional confirmation required."
 ---
 
 # Create PR — Standardized Pull Request Creation
@@ -8,6 +8,8 @@ description: "Create a pull request with a standardized format. The PR title inc
 This skill creates a pull request with a consistent, structured format that includes the task ID in the title, lists the authoring and participating agents, and provides a summary, test plan, and review checklist. It ensures every PR in the agency follows the same template regardless of which agent or skill initiates it.
 
 **Auto-push enabled:** Invoking `/create-pr` is the explicit authorization to commit, push, and open the PR. No additional confirmation is needed.
+
+**Auto-screenshots:** If the branch contains UI changes, `/create-pr` automatically runs `/capture-screenshots` to generate before/after visual evidence and embeds the comparison table in the PR. This is mandatory and non-skippable for UI PRs — the only fallback is a manual screenshot request when screenshot tooling is not configured for the affected platform (see Step 3b).
 
 ## When to Use
 
@@ -181,7 +183,7 @@ Use this template exactly:
 - **Branch:** `{BRANCH}` → `main`
 ```
 
-## Step 3b: Check for UI Changes and Visual Evidence
+## Step 3b: Check for UI Changes and Capture Visual Evidence (Mandatory)
 
 Before presenting the PR, check if the branch contains UI changes that need visual evidence:
 
@@ -190,29 +192,35 @@ Before presenting the PR, check if the branch contains UI changes that need visu
 UI_CHANGES=$(git diff --name-only main..HEAD | grep -iE '(Screen|Content|Component|View|Composable|Preview|page\.tsx|page\.jsx|layout\.tsx|designsystem|DesignSystem|Theme|Color|Typography|Spacing)' | head -5)
 ```
 
-If `UI_CHANGES` is non-empty:
+**If `UI_CHANGES` is empty** — no UI changes. Omit the Visual Changes section entirely and proceed to Step 4.
 
-1. Check if `.screenshots/` directory exists with before/after images
-2. If screenshots exist, include the **Visual Changes** section in the PR body (see template above)
-3. If screenshots do NOT exist, prompt the user:
+**If `UI_CHANGES` is non-empty** — before/after screenshots are mandatory. Do NOT prompt the user to opt out and do NOT proceed without visual evidence:
+
+1. If `.screenshots/before/` and `.screenshots/after/` already exist with images for the affected screens, reuse them — include the **Visual Changes** section in the PR body (see template above) and proceed to Step 4.
+2. Otherwise, automatically invoke `/capture-screenshots` to generate the before/after comparison. This runs the full per-platform capture flow (Paparazzi / swift-snapshot-testing / Playwright) on `main` and the feature branch, and produces the comparison table.
 
 ```
 UI changes detected in this PR:
   {list of UI-related files}
 
-Visual evidence (before/after screenshots) is required for UI changes.
-Run `/capture-screenshots` to generate them automatically, or provide screenshots manually.
-
-Continue without screenshots? (not recommended)
+Capturing before/after screenshots automatically (required for UI changes)…
 ```
 
-If the user chooses to continue without screenshots, add a note in the Visual Changes section:
+After `/capture-screenshots` completes:
+
+- Include the generated **Visual Changes** comparison table in the PR body.
+- Ensure the screenshots are part of the PR. By default, commit them on this branch in Step 4 (`git add .screenshots/`) so the table renders on GitHub. If the project's convention is to keep `.screenshots/` out of git (PR-comment upload), follow the capture-screenshots skill's Option B and post the table as a PR comment after Step 5 instead.
+
+**Only fall back to a manual screenshot request if automated capture is impossible** — i.e., `/capture-screenshots` reports the required tooling is not configured for an affected platform. In that case, follow the capture-screenshots skill's Step 4 (manual request) and add this note to the Visual Changes section so the gap is explicit and review-blocking:
 
 ```markdown
 ## Visual Changes
 
-> **WARNING:** Visual evidence was not provided for this PR. Reviewer should request screenshots before approving.
+> **MANUAL EVIDENCE REQUIRED:** Automated screenshot tooling is not configured for {platform}.
+> Reviewer must obtain before/after screenshots before approving — do not merge without them.
 ```
+
+Never silently skip visual evidence for a UI PR.
 
 ## Step 4: Commit Any Uncommitted Changes and Push
 
