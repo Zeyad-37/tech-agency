@@ -4,6 +4,14 @@
       {
         "command": "bash -c 'if [ -f .claude/crashlytics-context.md ]; then echo \"Crashlytics context available at .claude/crashlytics-context.md\"; else echo \"No crashlytics context found\"; fi'",
         "description": "Check for Crashlytics crash data injected by external tooling"
+      },
+      {
+        "command": "bash -c 'ENCODED=$(pwd | sed \"s|[./]|-|g\"); MEM=\"$HOME/.claude-personal/projects/${ENCODED}/memory/MEMORY.md\"; if [ -f \"$MEM\" ]; then echo \"=== Active memory index ===\"; cat \"$MEM\"; echo; fi'",
+        "description": "Display Claude Code's auto-memory index at session start — keeps standing preferences (tight mode, honest pushback, etc.) front-of-context without re-deriving each session"
+      },
+      {
+        "command": "bash -c 'STAMP=.claude/.last-memory-audit; if [ ! -f \"$STAMP\" ]; then echo \"⚠ Memory audit never run — run /audit-memory\"; else LAST=$(cat \"$STAMP\" 2>/dev/null); LAST_TS=$(date -j -f \"%Y-%m-%d\" \"$LAST\" +%s 2>/dev/null || date -d \"$LAST\" +%s 2>/dev/null); NOW=$(date +%s); if [ -n \"$LAST_TS\" ]; then DAYS=$(( (NOW - LAST_TS) / 86400 )); if [ \"$DAYS\" -gt 30 ]; then echo \"⚠ Memory audit overdue ($DAYS days since last) — run /audit-memory\"; fi; fi; fi'",
+        "description": "Remind to run /audit-memory if >30 days since last audit (or never)"
       }
     ],
     "PreToolUse": [

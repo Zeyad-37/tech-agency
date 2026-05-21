@@ -2,7 +2,7 @@
 
 **AI-powered multi-agent development team for fullstack product delivery.**
 
-Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 24 slash commands, and 15 coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
+Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 25 slash commands, and 15 coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
 
 **Version:** 1.0.0 | **Author:** Zeyad Gasser
 
@@ -85,6 +85,7 @@ The system is designed around Kotlin Multiplatform (KMP) projects but supports t
 | `/sprint-report` | Generate a sprint report with metrics and trends |
 | `/onboard-agent` | Rapidly onboard an agent onto an existing feature or codebase area |
 | `/setup-repo` | Set up a repository with Tech Agency configuration |
+| `/audit-memory` | Audit Claude Code's auto-memory store for stale or duplicate entries (run every ~30 days) |
 | `/postmortem` | Generate a post-mortem document for an incident |
 | `/capture-screenshots` | Capture screenshots for documentation or review |
 
@@ -132,7 +133,7 @@ tech-agency/
 │   │   ├── shared-standards.md
 │   │   ├── kmp-coding-standards.md
 │   │   └── ... (13 more)
-│   ├── skills/                  # 24 slash command skills
+│   ├── skills/                  # 25 slash command skills
 │   │   ├── kick-off/
 │   │   ├── daily-sync/
 │   │   ├── new-product/
