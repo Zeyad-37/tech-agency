@@ -384,6 +384,23 @@ Sets up a repository with the full Tech Agency configuration. Works for both new
 
 ---
 
+### `/audit-memory`
+
+Audits Claude Code's auto-memory store for stale, duplicate, or wrong entries. Auto-memory persists user preferences and project context across sessions — over time it drifts (file paths change, feedback rules get superseded, project facts go stale). Run this periodically to keep it accurate.
+
+The skill enumerates every memory file, evaluates each for truth/usefulness/specificity/uniqueness, proposes per-memory verdicts (KEEP / DELETE / MERGE / EDIT), waits for approval per change, then applies. Stamps `.claude/.last-memory-audit` on completion — the SessionStart hook reads this and stays quiet for 30 days.
+
+**When to use:** every ~30 days (SessionStart hook reminds when overdue), after a major refactor that invalidates project memories, or when you notice a feedback memory being consistently overridden in-session (suggests it's wrongly framed).
+
+**Example triggers:**
+- "audit memory"
+- "check memory"
+- "review memories"
+- "clean up memory"
+- (or just respond to the "Memory audit overdue" reminder at session start)
+
+---
+
 ## Quick Reference
 
 | Command | What it does | How often |
@@ -412,3 +429,4 @@ Sets up a repository with the full Tech Agency configuration. Works for both new
 | `/update-board` | Update board status and commit on branch | Per transition |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
 | `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project |
+| `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
