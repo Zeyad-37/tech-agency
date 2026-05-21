@@ -111,18 +111,22 @@ Standard success response envelope:
 - Merge to `main` only after: code review passed, Shield security review passed (if applicable), Apex QA sign-off received
 - Delete the branch after merge
 
-## Parallel Execution with Worktrees
+## Worktree-First Workflow (Mandatory)
 
-When multiple tasks need to run simultaneously, use git worktrees for isolation. Each agent works in its own worktree with its own branch — no file conflicts between agents.
+**All Claude Code work happens in a git worktree. No exceptions.** The main checkout is an orchestration root only — it holds the canonical `.git` directory and parents the worktrees. No task work runs there.
 
-- Use `/dispatch` to create worktrees automatically when dispatching tasks
+The full protocol — branch naming, creation commands, verification, exceptions — lives in `@.claude/rules/shared/worktree-first.md`. The agent preamble (`@.claude/rules/shared/agent-preamble.md`) references it as Step 0 of every task.
+
+Quick rules:
+
 - Worktree directory convention: `../{repo}-worktrees/{branch-slug}/`
 - One agent per worktree — never assign two agents to the same worktree
 - Agents must not read or write files outside their worktree
-- **First action in a worktree**: Every agent MUST `cd` into its assigned worktree and verify with `pwd` + `git branch --show-current` before doing any work. Never assume the current directory is correct
-- Board updates (`board-context.md`) are handled by @Atlas in the main working directory — agents report status back to @Atlas
-- Each worktree merges back via PR — never merge directly
-- Clean up worktrees after PR is merged: `git worktree remove <path> && git branch -d <branch>`
+- **First action in any task**: create the worktree, `cd` into it, verify `pwd` + `git branch --show-current` before any write. If already inside a worktree (spawned by `/dispatch` / `/dispatch-task`), verify it matches the task and continue
+- `board-context.md` is edited inside the worktree on the task branch and merges back via PR — there is no privileged "Atlas writes to main checkout" path
+- Each worktree merges back via PR — never merge or commit directly on `main`
+- Worktree cleanup is automatic: every `/create-pr` invocation sweeps all worktrees and removes any whose PR is already merged. No manual cleanup needed for the happy path. To abandon an unmerged worktree, run `git worktree remove <path> && git branch -D <branch>` from the main checkout
+- This rule is also the entire parallel-session arbitration mechanism: two sessions running at the same time each get their own worktree under distinct branch names, with no shared in-flight state — no lock files or busy-checks are needed
 
 ## Conflict Resolution
 

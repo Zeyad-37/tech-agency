@@ -143,18 +143,17 @@ git commit -m "[STORY-ID] @AgentName: Update board — {TASK-ID} → Review"
 #    NOTE: The PR will NOT be pushed until @Zeyad approves
 ```
 
-## Step 5: Clean Up the Worktree
+## Step 5: Clean Up the Worktree (Automatic)
 
-After the PR is created (NOT after merge — leave the worktree until the PR is merged in case changes are needed during review):
+Worktree cleanup is automatic — there is no separate cleanup command. The next time `/create-pr` runs in this repo, its Step 6 sweep enumerates every worktree, checks each branch against `gh pr list --state merged`, and removes the worktree + deletes the branch for any that are already merged. The worktree stays put until the PR is actually merged, so review feedback can still be addressed in place.
+
+If you need to abandon a dispatch before it merges (e.g., failed task, wrong approach), clean up manually from the main repo:
 
 ```bash
-# After PR is merged, clean up FROM THE MAIN REPO:
 cd "$MAIN_REPO"
-git worktree remove "$WORKTREE_DIR"
-git branch -d "$BRANCH"  # safe delete — fails if not merged
-
-# If the worktree directory was already deleted:
-git worktree prune
+git worktree remove "$WORKTREE_DIR"          # add --force if the worktree has uncommitted work
+git branch -D "$BRANCH"                       # -D since the branch isn't merged
+git worktree prune                            # if the directory was already gone
 ```
 
 ## Tracking Active Dispatches

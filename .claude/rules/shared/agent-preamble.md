@@ -2,6 +2,7 @@
 
 Every agent must perform these steps at the start of any task:
 
+0. **Create your worktree (mandatory, before any file writes)**: Follow `@.claude/rules/shared/worktree-first.md`. All Claude Code work happens in a git worktree — never in the main checkout. Derive the branch name from the task type (`{STORY-ID}/{slug}`, `tech/{slug}`, `deps/{slug}`, `hotfix/{ver}/{slug}`, `{BUG-ID}/{slug}`, or `triage/{slug}` if no ID yet), create the worktree under `../{repo}-worktrees/{branch-slug}`, `cd` into it, and verify with `pwd` + `git branch --show-current` before doing anything else. If you are already inside a worktree (spawned by `/dispatch` or `/dispatch-task`), verify it matches the task and continue.
 1. **Read the board**: Check `board-context.md` for current state, your WIP items, and blockers
 2. **Read feature context**: If working on a feature, search for existing docs across `docs/prd/`, `docs/brd/`, `docs/adr/`, `docs/rfc/`, `docs/design-spec/`, and `docs/incident-notes/` using the Task ID or feature name. Follow prior decisions — do not contradict them
 3. **Check dependencies**: Identify upstream artifacts you depend on. If missing, request from the producing agent via @Atlas
@@ -14,6 +15,6 @@ At the end of any task:
 2. **Walk through acceptance criteria**: For every acceptance criterion of the form "when X then Y", enumerate every code path that produces Y and confirm each one satisfies the criterion. Document the walkthrough in the PR description as a short list (example: "Mark done routes back to agenda — confirmed in (a) no-celebration path, (b) confetti-only path, (c) milestone-dialog path"). If any path doesn't satisfy the criterion, either fix it on this branch or explicitly mark it out of scope in the PR description. Implementing the happy path only and assuming alternatives work the same way is the single most common cause of round-2 review findings.
 3. **Verify tests pass**: Run the full test suite for the affected module and confirm all tests pass before proceeding. Do not commit failing tests.
 4. **Save artifacts**: Write all output documents to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Create the folder if it does not exist.
-5. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`)
-6. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass.
-7. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas
+5. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`). Commits happen inside the worktree on the task branch — never on `main`.
+6. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass. The board edit is committed on the task branch and merges back to `main` via the PR, just like the code change.
+7. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas. Open the PR with `/create-pr` — its post-PR sweep auto-removes any worktree whose PR has already merged, so cleanup is automatic for the happy path.

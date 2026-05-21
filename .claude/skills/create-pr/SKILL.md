@@ -295,7 +295,40 @@ EOF
   --base main
 ```
 
-## Step 6: Report the PR
+## Step 6: Sweep Merged Worktrees (Auto-Cleanup)
+
+Immediately after the PR is created, scan all existing worktrees and remove any whose branch has already been merged. This is how worktrees created by `/dispatch` and `/dispatch-task` get cleaned up — there is no separate cleanup command.
+
+```bash
+# Run from the main repo (NOT inside a worktree).
+MAIN_REPO_ROOT="$(git rev-parse --show-toplevel)"
+CURRENT_WT="$(pwd)"
+
+git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r WT; do
+  # Never touch the main checkout or the worktree we're currently inside.
+  [ "$WT" = "$MAIN_REPO_ROOT" ] && continue
+  [ "$WT" = "$CURRENT_WT" ] && continue
+
+  BR=$(git -C "$WT" branch --show-current 2>/dev/null)
+  [ -z "$BR" ] && continue
+
+  # Only clean up if a PR for this branch is in merged state.
+  MERGED_PR=$(gh pr list --head "$BR" --state merged --json number --jq '.[0].number' 2>/dev/null)
+  if [ -n "$MERGED_PR" ]; then
+    git -C "$MAIN_REPO_ROOT" worktree remove "$WT" \
+      && git -C "$MAIN_REPO_ROOT" branch -d "$BR" \
+      && echo "Cleaned up merged worktree: $WT (branch $BR, PR #$MERGED_PR)"
+  fi
+done
+```
+
+Rules for the sweep:
+- Skip the main checkout. Skip the worktree the current shell is inside (the PR just created is not merged yet, so it would be skipped by the merged-state check anyway, but the explicit guard is belt-and-braces).
+- Use `git branch -d` (safe delete), never `-D`. If the branch isn't fully merged, the delete fails and the worktree is preserved for manual inspection — that's the intended fallback.
+- Report each cleanup on its own line so @Zeyad sees what was reclaimed.
+- If `gh` is not available or `gh pr list` errors, skip the sweep silently rather than blocking the PR flow.
+
+## Step 7: Report the PR
 
 After the PR is created, report back:
 
