@@ -249,19 +249,18 @@ Maintain a tracker in the conversation so the user can see all parallel work. Us
 | 1 | @{Agent} | {branch} | {abs-path} | In Progress | — |
 ```
 
-### Step 5: Cleanup (after PRs are merged)
+### Step 5: Cleanup (Automatic, after PRs are merged)
 
-For each merged dispatch:
+Cleanup is automatic. The next `/create-pr` invocation in this repo runs an opportunistic sweep (Step 6 of that skill) that enumerates every worktree, checks each branch with `gh pr list --state merged`, and removes the worktree + deletes the branch for any merged ones. The worktree stays in place until its PR is actually merged so review feedback can be addressed.
+
+To abandon a dispatch before merge (failed task, wrong approach), clean up manually from the main repo:
 
 ```bash
 cd "$MAIN_REPO"
-git worktree remove "$WORKTREE_DIR"
-git branch -d "$BRANCH"   # safe delete; fails if not merged
-# If a directory was already removed manually:
-git worktree prune
+git worktree remove "$WORKTREE_DIR"          # add --force if there is uncommitted work
+git branch -D "$BRANCH"                       # -D since the branch isn't merged
+git worktree prune                            # if the directory was already removed
 ```
-
-Do not clean up before merge — keep the worktree available in case review feedback requires changes.
 
 ---
 

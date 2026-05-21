@@ -2,3 +2,9 @@
 *.swp
 *.swo
 *~
+
+# Ephemeral Claude Code worktree scratch dirs (created by /dispatch and the
+# claude-code-action GitHub workflow). Actual task worktrees live in
+# ../{repo}-worktrees/ per worktree-first.md, not here.
+.claude/worktrees/
+.claude/.last-memory-audit
