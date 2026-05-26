@@ -86,12 +86,12 @@ If the subagent returned BLOCKED, stop and surface the blocker to the user — d
 
 ## Step 7: Create the PR
 
-Run `/create-pr`. Per the project rule in `shared-standards.md`, this prepares the PR locally but does NOT push. Wait for explicit user approval ("push it", "go ahead").
+Run `/create-pr --no-push`. This commits any uncommitted changes, runs the pre-push verification gate (Step 4b of `/create-pr`), and prepares the PR title and body — but does NOT push or call `gh pr create`. Per the project rule in `shared-standards.md`, wait for explicit user approval ("push it", "go ahead") before pushing.
 
 After approval:
-- Push the branch
-- `gh pr create` with the standardized body
-- Capture the PR URL
+- `git push -u origin <branch>`
+- `gh pr create` using the title and body `/create-pr` prepared
+- Capture the PR URL and pass it to Step 8
 
 ## Step 8: Hand Off to `/address-feedback`
 

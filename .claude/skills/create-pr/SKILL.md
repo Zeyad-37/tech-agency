@@ -1,13 +1,13 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'. This skill commits any uncommitted changes, pushes the branch, and creates the PR automatically — no additional confirmation required."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Auto-pushes by default; pass --no-push to stop after the pre-push verification gate (used by parent skills like /ship-it that manage their own approval flow). Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
 ---
 
 # Create PR — Standardized Pull Request Creation
 
 This skill creates a pull request with a consistent, structured format that includes the task ID in the title, lists the authoring and participating agents, and provides a summary, test plan, and review checklist. It ensures every PR in the agency follows the same template regardless of which agent or skill initiates it.
 
-**Auto-push enabled:** Invoking `/create-pr` is the explicit authorization to commit, push, and open the PR. No additional confirmation is needed.
+**Default: auto-push.** Invoking `/create-pr` without flags is the explicit authorization to commit, run pre-push verification, push the branch, and open the PR — no additional confirmation needed. Pass `--no-push` to stop after the verification gate (Step 4b) so a parent skill (e.g. `/ship-it`) can handle push and `gh pr create` with its own approval flow. The verification gate runs in both modes — `--no-push` defers push, not safety.
 
 **Auto-screenshots:** If the branch contains UI changes, `/create-pr` automatically runs `/capture-screenshots` to generate before/after visual evidence and embeds the comparison table in the PR. This is mandatory and non-skippable for UI PRs — the only fallback is a manual screenshot request when screenshot tooling is not configured for the affected platform (see Step 3b).
 
@@ -303,6 +303,22 @@ echo "✅ All pre-push gates passed."
 If a gate fails, the push is aborted. Do not bypass.
 
 ## Step 5: Push and Create the PR
+
+**If `--no-push` was passed: stop here.** All commits, the verification gate, and the prepared PR title/body remain in conversation context. Emit a handoff report so the parent skill (e.g. `/ship-it`) can push and `gh pr create` once it has explicit user approval:
+
+```
+✅ PR prepared locally (--no-push):
+  Branch: {branch}
+  Title: [{TASK-ID}] {short description}
+  Body:  <ready for `gh pr create --body`>
+  Verification gate: passed
+
+Next: parent skill handles `git push -u origin {branch}` + `gh pr create` on approval.
+```
+
+Skip Steps 5–7. Do NOT run the worktree sweep (Step 6) — defer it to the parent skill or the next auto-push invocation.
+
+Otherwise (auto-push, the default), proceed:
 
 ```bash
 # 1. Push the branch (set upstream if first push)
