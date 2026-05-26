@@ -364,6 +364,46 @@ Creates a pull request with a standardized format. The PR title includes the tas
 
 ---
 
+## End-to-End Delivery
+
+### `/ship-it`
+
+End-to-end feature delivery in one command. Routes to the appropriate kickoff (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) based on intent, drives implementation through to passing tests, runs a **fresh-context self-review** via a subagent (replacing the manual "clear context, ask for code-review" step), applies REQUIRED fixes, and opens the PR via `/create-pr`. Stops once the PR is open — external review (CI, Copilot, humans) runs out-of-band.
+
+**Human gate kept:** after the kickoff plan, before code is written.
+
+**When to use:** Any time you'd otherwise type `/new-feature`, work through it, then manually clear context for review and open the PR.
+
+**Example triggers:**
+- "ship it: add dark mode toggle to settings"
+- "ship a feature for offline mode"
+- "end to end this bug fix"
+
+**Arguments:** Free-text description, optionally prefixed with `feature:` / `tech-task:` / `bug:` to skip the work-type prompt.
+
+---
+
+### `/address-feedback`
+
+Back half of the delivery loop. After external review is in (Copilot, human reviewers, CI results), this skill fetches every unresolved review comment, failing check, and `CHANGES_REQUESTED` review verdict; deduplicates overlapping findings; classifies them as REQUIRED vs RECOMMENDED; applies fixes (small recommendations inline, large ones filed as tech debt); pushes; re-watches checks until green; and stops at the merge gate.
+
+Pairs with `/ship-it` — you don't have to babysit the PR while review is pending; come back to it when feedback is in.
+
+**Flags:**
+- `--auto-merge` — merges automatically once everything is green and resolved. Without the flag, stops at a final approval gate ("Merge now? y/n").
+
+**When to use:** After `/ship-it` (or any PR creation), once review feedback and CI results are in.
+
+**Example triggers:**
+- "address feedback"
+- "address PR feedback"
+- "resolve PR #123"
+- "finish PR and merge it" (implies `--auto-merge`)
+
+**Arguments:** Optional PR number (defaults to the current branch's PR). Optional `--auto-merge`.
+
+---
+
 ## Setup & Configuration
 
 ### `/setup-repo`
@@ -428,5 +468,7 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/dispatch` | Dispatch parallel tasks via git worktrees | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
+| `/ship-it` | End-to-end: kickoff → implement → self-review → PR | Per task |
+| `/address-feedback` | Resolve all PR comments + checks; `--auto-merge` flag | Per PR review cycle |
 | `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project |
 | `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
