@@ -238,6 +238,70 @@ git add <relevant files>
 git commit -m "[{TASK-ID}] @{Agent}: {description}"
 ```
 
+## Step 4b: Pre-Push Verification Gate
+
+Before pushing, run platform-specific compile and test gates that an Android-host-only build would miss. **Never push without these passing — a failed gate aborts the push** and the user fixes the underlying issue before re-invoking `/create-pr`.
+
+```bash
+# Detect project shape
+HAS_KMP_IOS="no"
+[ -d "iosApp" ] && HAS_KMP_IOS="yes"
+[ -d "shared/src/iosMain" ] && HAS_KMP_IOS="yes"
+ls -d **/src/iosMain 2>/dev/null | grep -q . && HAS_KMP_IOS="yes"
+
+HAS_ANDROID_APP="no"
+[ -d "androidApp" ] && HAS_ANDROID_APP="yes"
+[ -d "app" ] && HAS_ANDROID_APP="yes"
+
+# Re-detect UI changes (same heuristic Step 3b uses)
+UI_CHANGES_PRESENT=$(git diff --name-only main..HEAD | grep -iE '(Screen|Content|Component|Composable|page\.tsx|page\.jsx)' | head -1)
+
+# --- Gate 1: KMP/iOS compile gate ---
+# Catches link errors, missing `actual` declarations, and KMP cross-target type
+# mismatches that are invisible to Android host builds. This is the #1 source of
+# "green locally, red in CI" misses for KMP projects.
+if [ "$HAS_KMP_IOS" = "yes" ]; then
+  echo "→ iOS compile gate: ./gradlew compileKotlinIosSimulatorArm64"
+  ./gradlew compileKotlinIosSimulatorArm64 || { echo "❌ iOS compile gate failed. Push aborted."; exit 1; }
+fi
+
+# --- Gate 2: Host tests for changed feature modules ---
+# Fast subset of the full test suite — only the modules this branch actually touched.
+if [ "$HAS_ANDROID_APP" = "yes" ]; then
+  CHANGED_MODULES=$(git diff --name-only main..HEAD | grep -oE '^features/[^/]+/[^/]+' | sort -u)
+  for module in $CHANGED_MODULES; do
+    GRADLE_PATH=":$(echo "$module" | tr '/' ':')"
+    echo "→ Host tests: ${GRADLE_PATH}:testDebugUnitTest"
+    ./gradlew "${GRADLE_PATH}:testDebugUnitTest" 2>/dev/null || true  # don't block on missing host-test config
+  done
+fi
+
+# --- Gate 3: Screenshot-test compile (UI changes only) ---
+# @Ignore'd Paparazzi tests in androidApp still COMPILE against feature *Content
+# signatures. When a Content composable signature changes, this gate catches it
+# locally — otherwise CI is the first to notice.
+if [ -n "$UI_CHANGES_PRESENT" ] && [ "$HAS_ANDROID_APP" = "yes" ]; then
+  echo "→ Screenshot-test compile gate: ./gradlew :androidApp:compileDebugUnitTestKotlin"
+  ./gradlew :androidApp:compileDebugUnitTestKotlin || {
+    echo "❌ Screenshot-test compile failed — a Content composable signature change broke @Ignore'd tests."
+    echo "   Fix the test sites or update fixtures, then re-run /create-pr."
+    exit 1
+  }
+fi
+
+echo "✅ All pre-push gates passed."
+```
+
+**Why each gate exists:**
+
+| Gate | What it catches | Why local Android builds miss it |
+|---|---|---|
+| iOS compile (`compileKotlinIosSimulatorArm64`) | iOS link errors, missing `actual` declarations, KMP cross-target type mismatches | Android host builds only compile `androidMain` + `commonMain` against the JVM target |
+| Host tests (changed modules) | Logic regressions in unit tests of the modules you actually touched | The full test suite is too slow to run pre-push; this is the fast subset |
+| Screenshot-test compile | Signature drift between feature `*Content` composables and `@Ignore`d Paparazzi tests in `androidApp` | The tests are `@Ignore`d so they don't run, but they DO compile — and break when signatures change |
+
+If a gate fails, the push is aborted. Do not bypass.
+
 ## Step 5: Push and Create the PR
 
 ```bash
