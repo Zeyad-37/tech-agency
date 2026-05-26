@@ -52,6 +52,11 @@ BRANCH="tech/improve-git-hooks"  # example — use the appropriate prefix
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 git worktree add -b "$BRANCH" "$WORKTREE_DIR"
 
+# Copy local.properties (gitignored) into the worktree so Gradle can resolve
+# sdk.dir, Android SDK paths, and any other host-machine config. Without this,
+# the first build in a fresh worktree fails with "SDK location not found".
+[ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
+
 # Repeat for additional tasks (each gets its own BRANCH and WORKTREE_DIR)
 # ...
 
@@ -193,6 +198,7 @@ BRANCHES=("US-042/login-screen" "tech/monitoring" "US-043/dashboard")
 for branch in "${BRANCHES[@]}"; do
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${branch//\//-}"
   git worktree add -b "$branch" "$WORKTREE_DIR"
+  [ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 done
 
 # Return to main
