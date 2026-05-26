@@ -175,6 +175,41 @@ Rules:
 - All event callbacks as lambdas with default `= {}` for previews.
 - `Modifier` as the first optional parameter after required params.
 
+### Event Callback Shape — `process: (Input) -> Unit` vs Named Lambdas
+
+Content composables expose user events to the wrapper in one of two shapes. Pick per-screen based on what the wrapper actually does — don't mix them in a single Content.
+
+**Default: single `process: (Input) -> Unit` callback.** Use when the wrapper is a thin dispatcher and every event maps 1:1 to a feature `Input`. Content imports the feature's `Input` sealed type and emits Inputs directly:
+
+```kotlin
+@Composable
+private fun SettingsContent(
+    state: SettingsState,
+    process: (SettingsInput) -> Unit,
+) {
+    SteadyToggleRow(
+        checked = state.isAppLockEnabled,
+        onCheckedChange = { process(ToggleAppLockInput) },
+    )
+    SteadyTimePickerRow(
+        time = state.notificationTime,
+        onClick = { process(ShowTimePickerInput) },
+    )
+}
+```
+
+This is the default for any screen where events are predominantly 1:1 dispatches — settings panels, list screens, simple toggles.
+
+**Exception: named lambdas.** Use when the wrapper genuinely *translates* between UI events and Inputs and that translation work shouldn't leak into Content. Concrete triggers:
+
+- **State derivation** — wrapper composes a new `Input` from current `state` (e.g. `process(ValidateFormInput(state.form.copy(name = ...)))`). Pushing this into Content forces Content to import the form-state shape.
+- **Permission / coroutine flows** — wrapper awaits a `PermissionsController` inside `coroutineScope.launch` before dispatching. Content must not import permission APIs or launch coroutines.
+- **Local UI state mutation** — handler also touches `remember`-scoped state (T-013 cat-(e)) such as `activeSurface`, sheet state, focus requesters. The mutation isn't an Input and shouldn't be one.
+
+A Content with a mix of pure-dispatch and translating events still takes named lambdas for *all* of them — don't pass both `process` and named lambdas to the same composable.
+
+Form screens with field validation, screens with permission-gated actions, and screens with multiple ephemeral surfaces are typical exception cases.
+
 ### Compose Rules
 
 - **Composable functions are PascalCase** (they represent UI elements).
