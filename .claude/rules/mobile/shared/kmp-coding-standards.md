@@ -57,6 +57,30 @@ project/
     └── libs.versions.toml              # Version catalog
 ```
 
+## Compose Multiplatform UI in commonMain
+
+When the project ships one Compose UI tree to all KMP targets (Android + iOS, plus optionally Web/Wasm), each screen-feature module exposes `ui/` and `viewmodel/` as sibling packages under one `commonMain` source set. The platform-app modules (`androidApp/`, `iosApp/`) become thin hosts — navigation graph, DI bootstrap, platform receivers, entry point — and contain no screen-level composables.
+
+```
+features/{feature}/
+└── src/commonMain/kotlin/com/{org}/{feature}/
+    ├── ui/                                     # Compose screens + their helpers
+    │   ├── {Screen}Screen.kt                   # Top-level screen composable
+    │   ├── {Screen}Formatters.kt               # Pure non-Composable helpers
+    │   └── {Type}UiExtensions.kt               # UI-only extensions on shared types
+    ├── viewmodel/
+    │   ├── {Screen}ViewModel.kt
+    │   ├── {Screen}Contract.kt
+    │   └── inputhandler/
+    │       └── {Action}InputHandler.kt
+    └── di/
+        └── {Feature}Module.kt
+```
+
+Choose this variant when the team wants pixel-identical UI across platforms and the Android/iOS apps would otherwise be near-empty hosts. Choose the platform-native variant from `compose-coding-standards.md` (Compose in `androidApp/`, SwiftUI in `iosApp/`) when each platform's UX must follow its HIG or contains meaningful platform-only surfaces (widgets, complications, deep system integrations).
+
+The rules in `compose-coding-standards.md` ("Compose UI Patterns", "Render Decisions Are Typed Structures (T-013)", "Accessibility", "Performance") apply to both variants. For intra-package layout inside `ui/`, see `compose-coding-standards.md` § "File Organization in `ui/`".
+
 ## Clean Architecture Layers
 
 ### Dependency Rules (enforced by Konsist)
@@ -142,6 +166,8 @@ Rules:
 - `Effect` = one-shot events (navigation, toasts). `sealed interface` implementing `Effect`. Never reduced into State.
 - `Result` = internal outcomes of processing inputs. `sealed interface` implementing `Result`. Reduced into State by the ViewModel or InputHandlers.
 - All `Input`, `State`, and `Effect` types implement `Track` for automatic analytics.
+- **`*State` types directly implementing `State` MUST be sealed** (enforced by Konsist rule, T-013 category (a)). Leaf subtypes nested inside a sealed parent are `data class` / `data object`; the parent is `sealed class` or `sealed interface`.
+- **`*State` types MUST NOT pack 3+ `show*: Boolean` properties** (enforced by Konsist rule, T-013 category (d)). Three parallel `show*` flags are a mutually-exclusive sub-state in disguise — collapse to a single sealed field. See `shared-standards.md` "UI Render Decisions Belong to Typed Structures" for the framework and `compose-coding-standards.md` "Render Decisions Are Typed Structures (T-013)" for Compose-specific enforcement.
 
 ### ViewModel
 
@@ -629,7 +655,11 @@ Konsist tests enforce architectural rules at compile/test time:
 // 5. Repository interfaces are in domain layer with 'Repository' suffix
 // 6. RepositoryImpl classes are in data layer
 // 7. Clean architecture layer dependencies are correct
+// 8. T-013(a): Classes directly implementing architecture's State must be sealed
+// 9. T-013(d): *State classes must not declare 3+ show* Boolean flags
 ```
+
+Two further T-013 rules (b: `is *PM` discriminator in feature UI; c: variant Boolean param on design-system Composable) are implemented as custom Detekt rules in `build-logic/detekt-rules/` rather than Konsist, because they require AST-level inspection that Konsist's class-shape API does not support. See `compose-coding-standards.md` "Render Decisions Are Typed Structures (T-013)" for the full enforcement matrix.
 
 - Konsist tests live in a dedicated test module or in `src/test/`.
 - Run as part of CI — architecture violations fail the build.

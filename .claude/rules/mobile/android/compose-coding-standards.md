@@ -16,7 +16,9 @@ Owner: Kai. All Android code MUST follow these standards. This document covers A
 | Mocking HTTP | Ktor MockEngine | MockWebServer |
 | ViewModel | KMP base `ViewModel<I, S, E>` | Same (consumed via `koinViewModel()` or wrapped with Hilt) |
 
-## Project Structure (Android App Module)
+## Project Structure (Platform-Native Variant — Android App Module)
+
+This layout applies when the Android app module owns the Compose UI directly. For the Compose Multiplatform variant where UI lives in KMP `commonMain`, see `kmp-coding-standards.md` § "Compose Multiplatform UI in commonMain". The rules in the rest of this document apply to both variants unless otherwise noted.
 
 ```
 androidApp/
@@ -198,6 +200,43 @@ private fun NoteCardPreview() {
 }
 ```
 
+## File Organization in `ui/`
+
+These rules apply to both project-structure variants (replace `ui/` with `features/{feature}/` for the platform-native variant).
+
+### One screen per file
+
+Each top-level screen composable owns its file:
+- `NotesListScreen.kt` exports `fun NotesListScreen(...)` (stateful wrapper) and `private fun NotesListContent(...)` (stateless content).
+- Private sub-composables specific to that screen MAY stay in the same file. They MUST stay `private`.
+
+### Pure helpers live in sibling files, never inside the screen file
+
+Any non-Composable code — formatters, mappers, extension functions, pure constants like a `LocalDate.Format` or an ordered enum list, value classes computed from state — MUST live in a sibling file in the same package.
+
+Naming suffixes — pick the one that matches the helper's purpose; don't invent new suffixes:
+
+| Suffix | Use for | Example file name |
+|---|---|---|
+| `*Formatters.kt` | Localization-aware string builders, label resolvers | `{Screen}Formatters.kt` |
+| `*UiExtensions.kt` | UI-only extensions on shared types (icons, colors, display labels) | `{SharedType}UiExtensions.kt` |
+| `*Mapper.kt` | Conversions between PM/domain types and UI-display types | `{Domain}Mapper.kt` |
+| `*Model.kt` | UI-only value classes/data classes derived from state | `{Component}Model.kt` |
+
+A single helper file MAY mix categories (e.g., a `*Formatters.kt` file declares a `data class` for resolved label bundles alongside `internal fun` formatter helpers). Don't over-split.
+
+### Composable extensions on enums
+
+A `@Composable fun MyEnum.label(): String = stringResource(...)` lookup belongs:
+- **Next to the enum source** when the enum is owned by this feature (e.g., `NoteSortOption.label()` next to `NoteSortOption.kt`).
+- **In `{Type}UiExtensions.kt` in the consuming feature's `ui/`** when the enum is owned by a shared module (e.g., `NoteCategoryPM.displayLabel()` belongs in an extensions file since `NoteCategoryPM` lives in a cross-feature module like `notes/sharedPresentation`).
+
+Never inline the lookup inside the screen file.
+
+### Screen-local ephemeral state types
+
+T-013 category (e) sealed types that model mutually-exclusive ephemeral UI state for one screen (e.g., "which picker is open") MAY remain in the screen file as `private sealed interface`. They are not shared by definition — don't promote them to a shared package.
+
 ## Every Screen Must Handle 4 States
 
 The KMP `State` data class defines the state shape. Compose renders all four states:
@@ -218,6 +257,46 @@ data class NotesListState(
 ```
 
 No exceptions. Every screen composable covers all four.
+
+## Render Decisions Are Typed Structures (T-013)
+
+Every conditional in a composable falls into exactly one of five categories. The category determines the right typed structure. See `shared-standards.md` "UI Render Decisions Belong to Typed Structures" for the platform-agnostic framework; this section documents Compose-specific enforcement.
+
+| # | Category | Right answer in Compose | Wrong answer |
+|---|---|---|---|
+| **a** | Data-driven shape | Sealed `*State` + exhaustive `when` at the screen root | `if (state.isLoading)`/`if (state.entries.isEmpty())` chains |
+| **b** | Domain type capability | Polymorphic property on the sealed domain type (`note.canBeArchived`) | `if (note is PinnedNotePM \|\| note is ArchivedNotePM)` at the call site |
+| **c** | Component variant | Sealed enum Component Prop (`titleStyle: TitleStyle.Large`) | `useLargeTitleStyle: Boolean` parameter |
+| **d** | Mutually-exclusive sub-state | Single sealed field on State (`dialog: ActiveDialog?`) | N parallel `show*: Boolean` fields |
+| **e** | Pure Compose-local ephemeral state | `remember { mutableStateOf(...) }` | Promoting to ViewModel State just for purity |
+
+### Decision tree
+
+```
+Is the decision derived from data the ViewModel owns?
+├── YES → Is it about overall screen shape (loading/error/etc.)?
+│        ├── YES  → Category (a): sealed State + when
+│        └── NO   → Is it "which of N mutually-exclusive things is active"?
+│                 ├── YES → Category (d): single sealed field on State
+│                 └── NO  → It's a property of a domain type → Category (b)
+└── NO  → Is it about how a component looks given fixed inputs?
+         ├── YES → Category (c): sealed/enum Component Prop
+         └── NO  → Is it ephemeral UI state (scroll, focus, animation)?
+                  └── YES → Category (e): remember-based local state
+```
+
+### Enforcement
+
+| Rule | Tool | Scope |
+|---|---|---|
+| (a) `*State` types directly implementing architecture's `State` interface must be sealed | Konsist | Project-wide |
+| (b) `is *PM` / `is *Domain` discriminators in feature UI code | Detekt (custom rule, e.g. `DomainTypeCheckInUiRule`) | `features/<feature>/.../ui/...` (excluding `when`-conditions, which are the right answer) |
+| (c) Variant-named `Boolean` parameters on design-system Composables | Detekt (custom rule, e.g. `ComposeBooleanVariantRule`) | `<design-system-module>/components/...` |
+| (d) `*State` classes with 3+ `show*: Boolean` properties | Konsist | Project-wide |
+
+Allow-list markers (per-line):
+- Rule (b): `// type-discriminator-needed: <reason>`
+- Rule (c): `// component-boolean-justified: <reason>`
 
 ## Dependency Injection (Hilt — Android Only)
 
@@ -383,18 +462,17 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
 ```kotlin
 @Test
-fun mark_done_button_dispatches_check_input() {
+fun delete_button_dispatches_delete_input() {
     val dispatched = mutableListOf<Input>()
     composeTestRule.setContent {
-        AgendaItemDetailsContent(
+        NotesListContent(
             state = sampleSuccessState,
             snackBarHostState = remember { SnackbarHostState() },
             process = { dispatched += it },
-            monthLabel = "May 2026",
         )
     }
-    composeTestRule.onNodeWithText("Mark done").performClick()
-    assertTrue(dispatched.any { it is CheckAgendaEntryDetailInput })
+    composeTestRule.onNodeWithText("Delete").performClick()
+    assertTrue(dispatched.any { it is DeleteNoteInput })
 }
 ```
 

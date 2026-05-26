@@ -17,6 +17,22 @@
 - No deliverable ships without at least one other agent's review
 - All artifacts version-controlled
 
+## UI Render Decisions Belong to Typed Structures (platform-agnostic)
+
+Every "what should the UI do here?" question must resolve to a typed structure — a sealed type, an enum, or a polymorphic property — not a chain of `if`/`else` over scalar fields. This applies across all UI platforms (Compose, SwiftUI, React).
+
+Five categories of UI decision (RFC T-013):
+
+| # | Category | Right answer |
+|---|---|---|
+| **a** | Data-driven screen shape (loading / empty / error / success) | Sealed `State` hierarchy + exhaustive `when`/`switch` at the screen root |
+| **b** | Domain type capability ("does *this kind of entry* support *this action*?") | Polymorphic property on the sealed domain type, not `is FooPM` at the call site |
+| **c** | Component variant / style ("how should this component look in *this slot*?") | Sealed enum prop type (`titleStyle: TitleStyle.Large`), not `useLargeTitleStyle: Boolean` |
+| **d** | Mutually-exclusive sub-state ("which of N things is currently active?") | Single sealed field on State (`dialog: ActiveDialog?`), not N parallel Booleans |
+| **e** | Pure UI-local ephemeral state (scroll, focus, animation frame) | Platform-native ephemeral state (`remember`/`@State`/`useState`); do not promote to ViewModel |
+
+Each platform enforces this via its own static analysis: Kotlin/Compose uses Konsist + custom Detekt rules (see `compose-coding-standards.md` and `kmp-coding-standards.md`). SwiftUI and React adopt equivalent enforcement when their teams reach this RFC. The principle is platform-agnostic; the enforcement plumbing is platform-specific.
+
 ## Git Commit Policy
 
 - Commit after every logical change — do not batch unrelated changes
