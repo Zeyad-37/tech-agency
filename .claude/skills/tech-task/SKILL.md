@@ -23,16 +23,18 @@ Check existing context:
 
 ## Step 2: Create a Branch
 
-Before any implementation, create a working branch:
+Before any implementation, create a working branch. Always branch from the latest `origin/main`, never from the currently checked-out branch:
 
 ```bash
-git checkout -b tech/{short-description}
+git fetch origin main
+git checkout -b tech/{short-description} origin/main
 # e.g., tech/improve-git-hooks, tech/design-system, tech/refactor-auth-module
 ```
 
 If the task already has a board story ID, use the standard convention instead:
 ```bash
-git checkout -b {STORY-ID}/{short-description}
+git fetch origin main
+git checkout -b {STORY-ID}/{short-description} origin/main
 ```
 
 ## Step 3: Route by Scope
