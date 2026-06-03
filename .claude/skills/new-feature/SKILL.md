@@ -52,10 +52,11 @@ Then follow the full chain: Diana (BRD) → Sage (ADR if needed) → Atlas (boar
 
 ## Step 3: Create a Branch
 
-Before any implementation begins, create a feature branch:
+Before any implementation begins, create a feature branch. Always branch from the latest `origin/main`, never from the currently checked-out branch:
 
 ```bash
-git checkout -b {STORY-ID}/{short-description}
+git fetch origin main
+git checkout -b {STORY-ID}/{short-description} origin/main
 # e.g., US-042/social-sharing, FEAT-007/push-notifications
 ```
 

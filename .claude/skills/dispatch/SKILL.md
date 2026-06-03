@@ -50,7 +50,9 @@ git pull --rebase
 # For EACH task, create a worktree:
 BRANCH="tech/improve-git-hooks"  # example — use the appropriate prefix
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
-git worktree add -b "$BRANCH" "$WORKTREE_DIR"
+# Always branch from origin/main — never from whatever happens to be checked out.
+git fetch origin main
+git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
 
 # Copy local.properties (gitignored) into the worktree so Gradle can resolve
 # sdk.dir, Android SDK paths, and any other host-machine config. Without this,
@@ -193,11 +195,12 @@ When the user dispatches multiple tasks at once:
 MAIN_REPO="$(pwd)"
 git checkout main && git pull --rebase
 
-# Create all worktrees from the main repo
+# Create all worktrees from the main repo — each branched from origin/main
+git fetch origin main
 BRANCHES=("US-042/login-screen" "tech/monitoring" "US-043/dashboard")
 for branch in "${BRANCHES[@]}"; do
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${branch//\//-}"
-  git worktree add -b "$branch" "$WORKTREE_DIR"
+  git worktree add -b "$branch" "$WORKTREE_DIR" origin/main
   [ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 done
 

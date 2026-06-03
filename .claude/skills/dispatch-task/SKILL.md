@@ -162,7 +162,9 @@ git pull --rebase
 # For each implementation task identified in Phase 1:
 BRANCH="{STORY-ID}/{short-description}"   # use board task ID
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
-git worktree add -b "$BRANCH" "$WORKTREE_DIR"
+# Always branch from origin/main — never from the current checkout.
+git fetch origin main
+git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
 
 # Repeat per task...
 

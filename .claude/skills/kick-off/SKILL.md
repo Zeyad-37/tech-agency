@@ -160,7 +160,7 @@ Wait for user confirmation before writing any code.
 
 Once confirmed:
 
-1. Create feature branch: `git checkout -b {story-id}/{short-description}`
+1. Create feature branch from the latest `origin/main` (never from the current checkout): `git fetch origin main && git checkout -b {story-id}/{short-description} origin/main`
 2. Implement following coding standards and ADR decisions
 3. Write tests per the test plan
 4. Commit after each logical change: `[STORY-ID] @{YourAgent}: description`

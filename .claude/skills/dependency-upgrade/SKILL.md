@@ -151,10 +151,13 @@ Save to `docs/{feature-or-infra}/adr-XXX-upgrade-{package}.md`. Get @Zeyad appro
 
 ### 4a. Create a Branch
 
+Always branch from the latest `origin/main`, never from the currently checked-out branch:
+
 ```bash
-git checkout -b deps/{package}-{version}
+git fetch origin main
+git checkout -b deps/{package}-{version} origin/main
 # Or for batched minor updates:
-git checkout -b deps/monthly-update-{date}
+git checkout -b deps/monthly-update-{date} origin/main
 ```
 
 ### 4b. Apply the Upgrade

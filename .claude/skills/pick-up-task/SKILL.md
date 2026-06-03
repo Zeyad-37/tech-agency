@@ -149,9 +149,10 @@ Present this plan to the user for confirmation before proceeding with implementa
 
 Once the user confirms the plan:
 
-1. Create a feature branch following the branch strategy:
+1. Create a feature branch following the branch strategy. Always branch from the latest `origin/main`, never from the currently checked-out branch:
    ```bash
-   git checkout -b {story-id}/{short-description}
+   git fetch origin main
+   git checkout -b {story-id}/{short-description} origin/main
    ```
 
 2. Implement the task following:
