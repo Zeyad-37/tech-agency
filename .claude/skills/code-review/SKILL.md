@@ -1,11 +1,37 @@
 ---
 name: code-review
-description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
+description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. When invoked in the same conversation that wrote the code, the review runs in a fresh-context subagent (diff-only, no implementation memory) to stay unbiased. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
 ---
 
 # Code Review
 
 This skill performs a structured, multi-dimensional code review. It goes beyond "does the code work" to verify that it aligns with architecture decisions, follows coding standards, has adequate test coverage, and doesn't introduce security risks.
+
+## Step 0: Run the Review in a Fresh Context (mandatory)
+
+A reviewer who carries the implementation conversation in context is biased — it already "knows" why each choice was made and tends to rubber-stamp its own work. The review MUST be performed by an agent that has no memory of how the code was written and sees **only the diff**.
+
+**If this skill was invoked inside a conversation that also planned or wrote the code under review** (e.g. directly after implementing, or as part of `/ship-it`), do not review inline. Instead spawn a fresh subagent and have it run Steps 1–9. Use the `Agent` tool with `subagent_type: general-purpose` (or a dedicated reviewer agent if the project defines one):
+
+```
+Prompt to the subagent:
+  You are performing an unbiased code review. You have NO prior context —
+  review only what is in the diff and the project's committed docs/standards.
+  Do not assume any rationale that is not evidenced in the code or docs.
+
+  1. Run `git diff main..HEAD` (or the branch/PR the user named) to see the change.
+  2. Read board-context.md to find the task ID and acceptance criteria.
+  3. Locate feature docs in docs/{prd,brd,adr,rfc,design-spec}/ matching the task ID.
+  4. Apply every step of the /code-review skill (Steps 1–9 in
+     .claude/skills/code-review/SKILL.md), including posting the verdict to the PR.
+  5. Return the verdict and the list of findings.
+```
+
+Then relay the subagent's verdict to the user. The orchestrating agent does not second-guess or soften the findings — it reports them as-is.
+
+**If this skill was invoked in a clean/standalone session** (the reviewer did not plan or write this code — e.g. a reviewer agent picking up a PR cold), there is no bias to clear: proceed directly with Steps 1–9 inline.
+
+When in doubt about whether the current context is "tainted," prefer the subagent path — a fresh review is never wrong, only slightly slower.
 
 ## Step 1: Gather Review Context
 
