@@ -400,6 +400,33 @@ This installs three hooks:
 
 See `.claude/rules/git-hooks.md` for full details on what each hook enforce.
 
+## Step 7b: Android/Kotlin Agent Toolchain (Android / KMP projects only)
+
+Skip this step unless the project targets Android or KMP. The agency ships a curated set of **Android & Kotlin Agent Skills** vendored under `.claude/skills/` (`android-*` and `kotlin-*` — see `.claude/skills/VENDORED-SKILLS.md`), and the mobile/kotlin rule files wire them into Kai, Link, Forge, and Sentinel. The skill *files* ship with the plugin and need no install. What does need installing is the underlying `android` CLI so agents can actually run `android docs`, `android run`, `android emulator`, etc.
+
+```bash
+# Is the android CLI already available?
+command -v android && android --version && echo "ANDROID_CLI=present" || echo "ANDROID_CLI=missing"
+```
+
+If missing, tell the user how to install it (do not silently download binaries):
+
+1. Download the `android` CLI from https://developer.android.com/tools/agents (a.k.a. `/tools/agents/android-cli`).
+2. `android update` — pull the latest version.
+3. (Optional) `android init` — installs Android's own `android-cli` skill for your default agent. The agency already vendors `android-cli`, so this is only needed if you want Android's canonical copy at the user level too.
+4. (Optional) `android skills add --all --project=.` to drop the full upstream Android skill set into *this* project's `.claude/skills/` — only if you want skills beyond the curated vendored set.
+
+For the **Kotlin agent skills**, the agency vendors a pinned subset. If the user wants the always-latest JetBrains set instead of the pin:
+
+```bash
+claude plugin marketplace add Kotlin/kotlin-agent-skills
+claude plugin install kotlin-agent-skills@Kotlin
+```
+
+> Note: the `npx skills add Kotlin/kotlin-agent-skills` route requires Node.js. If Node isn't installed, use the `claude plugin marketplace` route or the vendored pin — no Node needed.
+
+For **CI runners** (Sentinel): document `android sdk install <packages>` + `android emulator create/start` + `android run` in the relevant `.github/workflows/*.yml` so Android builds/tests are reproducible without a full Android Studio install. Add `Bash(android *)` to `.claude/settings.json` `permissions.allow` (via `/update-config`) to avoid per-call prompts.
+
 ## Step 8: GitHub Actions — CI/CD Pipelines (Gap-Filling)
 
 Check which workflows are missing and create only those.

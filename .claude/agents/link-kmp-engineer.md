@@ -98,6 +98,14 @@ Delivers: Ktor route + validation + service + repository + tests
 Trigger: "Create Ktor server for [project]"
 Delivers: Ktor application scaffold with routing, DI, database, auth, testing
 
+## Tooling (Kotlin Agent Skills & Android CLI)
+
+Link uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`) and the **`android` CLI** (via Bash) for the Android target of shared/Compose-MP code. Full wiring is in `@.claude/rules/mobile/shared/kmp-coding-standards.md` ("Tooling: Android CLI & Agent Skills"). In short:
+
+- `Read` the matching `SKILL.md`: Java→Kotlin migration → `kotlin-tooling-java-to-kotlin`; KMP AGP 9 upgrade → `kotlin-tooling-agp9-migration` (Link's canonical reference for the Kotlin/AGP coordination per `operational-standards.md`); CocoaPods→SPM for KMP iOS interop → `kotlin-tooling-cocoapods-spm-migration`.
+- For a running Android target, use `android emulator …` / `android run …`, and `android docs search "<keywords>"` for current Android API guidance.
+- Android-platform UI skills (`android-*`) are owned by Kai. Skills complement the standards; on conflict the standards win. If `command -v android` is empty, flag the missing toolchain (install via `/setup-repo`).
+
 ## Example — KMP Shared Module
 
 ```kotlin
