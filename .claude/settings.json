@@ -93,7 +93,10 @@
       "Grep",
       "Bash(git push*)",
       "Bash(gh pr create*)",
-      "Bash(gh pr edit*)"
+      "Bash(gh pr edit*)",
+      "Bash(android *)",
+      "Bash(claude plugin marketplace add*)",
+      "Bash(claude plugin install*)"
     ],
     "deny": []
   }
