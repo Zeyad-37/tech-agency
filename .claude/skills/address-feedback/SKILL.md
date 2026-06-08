@@ -1,11 +1,26 @@
 ---
 name: address-feedback
-description: "Address all open PR feedback in one pass: fetches unresolved review comments (human + Copilot + bot) and failing quality gates, plans fixes, applies them, pushes, and re-watches checks until green. Use after /ship-it once external review is in. Pass --auto-merge to merge automatically once green; otherwise stops at a final approval gate. Triggers: 'address feedback', 'handle PR feedback', 'fix review comments', 'resolve PR comments', 'address PR', 'finish PR'."
+description: "Address all open PR feedback in one pass: fetches unresolved review comments (human + Copilot + bot) and failing quality gates, plans fixes, applies them, pushes, and re-watches checks until green. Use after /ship-it once external review is in. The bias-sensitive work (judging feedback, planning and applying fixes) runs in a fresh-context subagent every invocation, so the current conversation can never bias how reviewer feedback is judged. Pass --auto-merge to merge automatically once green; otherwise stops at a final approval gate. Triggers: 'address feedback', 'handle PR feedback', 'fix review comments', 'resolve PR comments', 'address PR', 'finish PR'."
 ---
 
 # Address Feedback — Resolve PR Comments and Quality Gates
 
 This skill is the back half of the delivery loop. It assumes a PR exists (typically created by `/ship-it`) and external review has produced feedback. It collects every unresolved comment and failing check, applies fixes, and lands the PR.
+
+## Step 0: Run the Feedback Pass in a Fresh Context (mandatory, unconditional)
+
+If the agent carries the session conversation into this pass, it is biased — it already "knows" why the code was written the way it was, and will tend to dismiss reviewer feedback ("the reviewer is wrong, I know this code") or apply a fix that rationalizes the original choice. The judgment about *whether a reviewer is right* and *what the fix should be* MUST be made by an agent with no memory of the current session, working only from the PR's committed state and the reviewers' comments.
+
+**Always run the bias-sensitive work in a fresh-context subagent — every invocation, no exceptions.** Spawn it with the `Agent` tool using `subagent_type: general-purpose`. The orchestrating agent passes the subagent **only** the PR number/branch and the `--auto-merge` flag — never any "what we did / why we did it" narrative from the session, because that narrative is exactly the bias being excluded. The subagent re-derives all feedback fresh from `gh`/git.
+
+Run order with the interactive gates preserved:
+
+1. **Subagent pass A (fresh context):** runs Steps 2–4 — ensure branch matches remote, gather all feedback, classify and plan. Returns the feedback summary table and the proposed fix plan as its result. Asks the user nothing.
+2. **Parent relays Step 5:** the orchestrating agent presents the returned plan to the user and gets confirmation (or auto-approves under `--auto-merge`). Relaying a plan the subagent produced carries no code bias.
+3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, push, watch checks. If new failures appear it loops within its own pass (cap 3). Returns what it changed and the final check status.
+4. **Parent relays Step 8:** the orchestrating agent presents the merge gate to the user and, on approval (or under `--auto-merge`), performs the mechanical merge and Step 9 cleanup. Merging is mechanical and needs no fresh context.
+
+Each subagent pass starts clean and never sees this conversation. The parent's role is limited to relaying gates and the final mechanical merge — it must not inject session rationale into either subagent prompt.
 
 ## Step 1: Parse Arguments
 

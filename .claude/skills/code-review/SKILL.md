@@ -1,17 +1,17 @@
 ---
 name: code-review
-description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. When invoked in the same conversation that wrote the code, the review runs in a fresh-context subagent (diff-only, no implementation memory) to stay unbiased. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
+description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. Every invocation runs in a fresh-context subagent (diff-only, no session memory) so the current conversation can never bias the verdict. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
 ---
 
 # Code Review
 
 This skill performs a structured, multi-dimensional code review. It goes beyond "does the code work" to verify that it aligns with architecture decisions, follows coding standards, has adequate test coverage, and doesn't introduce security risks.
 
-## Step 0: Run the Review in a Fresh Context (mandatory)
+## Step 0: Run the Review in a Fresh Context (mandatory, unconditional)
 
-A reviewer who carries the implementation conversation in context is biased — it already "knows" why each choice was made and tends to rubber-stamp its own work. The review MUST be performed by an agent that has no memory of how the code was written and sees **only the diff**.
+A reviewer who carries the session conversation in context is biased — it already "knows" why each choice was made and tends to rubber-stamp its own work. The review MUST be performed by an agent that has no memory of the current session and sees **only the diff** plus the project's committed docs.
 
-**If this skill was invoked inside a conversation that also planned or wrote the code under review** (e.g. directly after implementing, or as part of `/ship-it`), do not review inline. Instead spawn a fresh subagent and have it run Steps 1–9. Use the `Agent` tool with `subagent_type: general-purpose` (or a dedicated reviewer agent if the project defines one):
+**Always run the review in a fresh-context subagent — every invocation, no exceptions.** Do not review inline, even if the current session looks "clean." The point is a guaranteed clean slate that never includes this conversation, so the verdict cannot be influenced by anything said or done in the session. Spawn the subagent with the `Agent` tool using `subagent_type: general-purpose` (or a dedicated reviewer agent if the project defines one):
 
 ```
 Prompt to the subagent:
@@ -27,11 +27,9 @@ Prompt to the subagent:
   5. Return the verdict and the list of findings.
 ```
 
-Then relay the subagent's verdict to the user. The orchestrating agent does not second-guess or soften the findings — it reports them as-is.
+Then relay the subagent's verdict to the user verbatim. The orchestrating agent does not second-guess or soften the findings — it reports them as-is.
 
-**If this skill was invoked in a clean/standalone session** (the reviewer did not plan or write this code — e.g. a reviewer agent picking up a PR cold), there is no bias to clear: proceed directly with Steps 1–9 inline.
-
-When in doubt about whether the current context is "tainted," prefer the subagent path — a fresh review is never wrong, only slightly slower.
+The only thing the orchestrating agent passes to the subagent is the review target (branch name or PR number the user named, defaulting to the current branch vs `main`). It passes **no** rationale, summary, or "what we did" narrative from the session — that narrative is exactly the bias being excluded.
 
 ## Step 1: Gather Review Context
 
