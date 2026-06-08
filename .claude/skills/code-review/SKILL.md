@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. Every invocation runs in a fresh-context subagent (diff-only, no session memory) so the current conversation can never bias the verdict. The review is posted directly as a comment on the PR — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
+description: "Perform a structured code review on a PR or branch. Checks architecture alignment, coding standards compliance, test coverage, security concerns, and produces an approval or change-request verdict. Every invocation runs in a fresh-context subagent (diff-only, no session memory) so the current conversation can never bias the verdict. The review is posted directly on the PR as one GitHub review carrying both the summary verdict and inline comments on the specific flagged file lines — no Markdown file is written to the repo. Use when the user says 'review this PR', 'code review', 'review this branch', 'check this code', 'review before merge', or 'is this ready to merge'."
 ---
 
 # Code Review
@@ -312,35 +312,70 @@ Produce the final review report:
 - **CHANGES REQUESTED**: Any dimension scores 1-2, or missing tests, or coding standard violations
 - **BLOCKED**: Security FAIL, architecture violation of an accepted ADR, or acceptance criteria not met
 
-## Step 8: Post the Review to the PR
+### Record a location for every actionable finding
 
-The review verdict from Step 7 is posted **directly as a comment on the PR**. Do NOT write a Markdown file into the repo — no `docs/.../review-*.md`, nothing added to the working tree or any commit.
+In addition to listing findings in the report, capture each actionable finding (Required Change, Blocking Issue, or location-specific Recommendation) as a structured record so Step 8 can post it **inline on the file**:
 
-Write the full Step 7 report to a temp file (keeps Markdown intact, avoids shell-quoting issues) and post it with `gh`:
+```
+{ path, line, side, severity, body }
+```
+
+- `path` — repo-relative file path exactly as it appears in the diff (e.g. `app/src/main/kotlin/.../NotesViewModel.kt`).
+- `line` — the line number in the **new** version of the file (the right side of the diff). For a finding about a *removed* line, use the old-file line number and set `side: "LEFT"`.
+- `side` — `"RIGHT"` for added/context lines (default), `"LEFT"` for removed lines.
+- `severity` — `required`, `blocking`, or `recommended` (prefix the inline body with this, e.g. `**[required]**`).
+- `body` — the specific, actionable comment for that line.
+
+**A finding can only be posted inline if its line is part of the diff.** Confirm with `gh pr diff "$PR_NUMBER"` (or the `git diff` from Step 1). Findings that refer to code *outside* the diff (e.g. "you should have also changed X elsewhere") can't be anchored — keep those in the summary body only. Every inline finding must also remain in the summary report, so the report stays a complete standalone record.
+
+## Step 8: Post the Review to the PR (summary + inline comments)
+
+The review is posted **directly on the PR** as a single GitHub review that carries **both** the summary report (the review body) **and** an inline comment on each file/line from Step 7's findings. Do NOT write a Markdown file into the repo — no `docs/.../review-*.md`, nothing added to the working tree or any commit.
+
+A single review combining body + inline comments is created via the REST reviews endpoint (`gh pr review` cannot attach inline comments, so use `gh api`).
 
 ```bash
+OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+# 1. Summary body — the full Step 7 report. Temp file keeps Markdown intact.
 REVIEW_BODY_FILE=$(mktemp /tmp/code-review-XXXXXX.md)
 # ... write the complete Step 7 report into "$REVIEW_BODY_FILE" ...
 
+# 2. Inline comments — one object per actionable finding that anchors to a diff line
+#    (built from the {path,line,side,severity,body} records captured in Step 7).
+#    Prefix each body with its severity. Findings not anchorable to the diff are
+#    omitted here and remain in the summary body only.
+COMMENTS_JSON=$(jq -n '[
+  { path: "app/.../NotesViewModel.kt", line: 42, side: "RIGHT",
+    body: "**[required]** NPE when `user` is null — guard with `?: return`." },
+  { path: "app/.../NotesApi.kt",       line: 10, side: "RIGHT",
+    body: "**[recommended]** Hardcoded base URL — move to `BuildConfig.API_BASE_URL`." }
+]')
+# If there are no anchorable findings, use:  COMMENTS_JSON='[]'
+
+# 3. Map the verdict to a review event.
 case "$VERDICT" in
-  APPROVED)
-    gh pr review "$PR_NUMBER" --approve --body-file "$REVIEW_BODY_FILE" ;;
-  "CHANGES REQUESTED"|BLOCKED)
-    gh pr review "$PR_NUMBER" --request-changes --body-file "$REVIEW_BODY_FILE" ;;
-  *)
-    gh pr review "$PR_NUMBER" --comment --body-file "$REVIEW_BODY_FILE" ;;
+  APPROVED)              EVENT=APPROVE ;;
+  "CHANGES REQUESTED"|BLOCKED) EVENT=REQUEST_CHANGES ;;
+  *)                     EVENT=COMMENT ;;
 esac
 
-rm -f "$REVIEW_BODY_FILE"
+# 4. Assemble the payload and submit one review (body + inline comments together).
+PAYLOAD=$(mktemp /tmp/code-review-payload-XXXXXX.json)
+jq -n --rawfile body "$REVIEW_BODY_FILE" --arg event "$EVENT" --argjson comments "$COMMENTS_JSON" \
+  '{body: $body, event: $event, comments: $comments}' > "$PAYLOAD"
+
+gh api -X POST "repos/$OWNER_REPO/pulls/$PR_NUMBER/reviews" --input "$PAYLOAD"
+
+rm -f "$REVIEW_BODY_FILE" "$PAYLOAD"
 ```
 
 Notes:
-- `gh pr review` maps the verdict to GitHub's review states: APPROVED → approve, CHANGES REQUESTED/BLOCKED → request-changes (GitHub has no "blocked" state — the body text carries the BLOCKED designation and blocking issues).
-- The temp file lives in `/tmp`, never inside the repo, and is deleted after posting.
-- **Fallback — `gh pr review` rejects self-review** ("Can not request changes / approve your own pull request"): post the same body as a regular issue comment instead, so the review is still recorded on the PR:
-  ```bash
-  gh pr comment "$PR_NUMBER" --body-file "$REVIEW_BODY_FILE"
-  ```
+- One review carries everything: the summary in the body and a threaded comment on each flagged line, so the author sees the specific ask in context **and** the overall verdict.
+- `event` maps the verdict to GitHub's review states: APPROVED → `APPROVE`, CHANGES REQUESTED/BLOCKED → `REQUEST_CHANGES` (GitHub has no "blocked" state — the body text carries the BLOCKED designation and blocking issues), anything else → `COMMENT`.
+- Inline `line` values MUST fall on lines that are part of the diff, or the API rejects the whole review. If a `comments` entry is rejected, drop that entry back to the summary body and re-submit. When in doubt, anchor to a line you can see in `gh pr diff "$PR_NUMBER"`.
+- All temp files live in `/tmp`, never inside the repo, and are deleted after posting.
+- **Fallback — self-review** ("Can not request changes / approve your own pull request"): GitHub blocks `APPROVE`/`REQUEST_CHANGES` on your own PR but **allows `COMMENT`**. Re-submit the same payload with `EVENT=COMMENT` — this keeps every inline comment and the full summary body; the verdict text inside the body still records the real APPROVED/CHANGES-REQUESTED/BLOCKED designation. (Only if even the `COMMENT` review fails, fall back to a plain `gh pr comment "$PR_NUMBER" --body-file "$REVIEW_BODY_FILE"`, which loses inline anchoring but still records the review.)
 - **Fallback — no PR exists for the branch** (`PR_NUMBER` is empty from Step 1): do not create a file. Either run `/create-pr` first and then post, or, if the user only wanted the review, output the full report inline in the response and tell them no PR was found to post to.
 
 After posting:
