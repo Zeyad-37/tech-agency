@@ -15,7 +15,7 @@ If the agent carries the session conversation into this pass, it is biased — i
 
 Run order with the interactive gates preserved:
 
-1. **Subagent pass A (fresh context):** runs Steps 2–4 — ensure branch matches remote, gather all feedback, classify and plan. Returns the feedback summary table and the proposed fix plan as its result. Asks the user nothing.
+1. **Subagent pass A (fresh context):** runs Steps 2–4 — locate or create the branch's worktree, gather all feedback, classify and plan. Returns the feedback summary table and the proposed fix plan as its result. Asks the user nothing.
 2. **Parent relays Step 5:** the orchestrating agent presents the returned plan to the user and gets confirmation (or auto-approves under `--auto-merge`). Relaying a plan the subagent produced carries no code bias.
 3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, push, watch checks. If new failures appear it loops within its own pass (cap 3). Returns what it changed and the final check status.
 4. **Parent relays Step 8:** the orchestrating agent presents the merge gate to the user and, on approval (or under `--auto-merge`), performs the mechanical merge and Step 9 cleanup. Merging is mechanical and needs no fresh context.
@@ -35,15 +35,52 @@ Confirm the parsed values with the user in one line:
 PR: #123 (branch: feature/foo)  |  Auto-merge: ON/OFF
 ```
 
-## Step 2: Ensure Local Branch Matches Remote
+## Step 2: Locate (or Create) the Branch's Worktree, Then Sync
+
+Per the worktree-first rule (`@.claude/rules/shared/worktree-first.md`), the fix work must run in a worktree — never the main checkout. First **search for an existing worktree** already checked out on `{branch}`; if one exists, reuse it; only if none exists do you **create a new one**.
 
 ```bash
+BRANCH="{branch}"
+
+# 1. Search every existing worktree (this includes the main checkout) for one
+#    already on BRANCH.
+WT_PATH=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
+  $1=="worktree" {p=$2}
+  $1=="branch" && $2==b {print p; exit}')
+
+if [ -n "$WT_PATH" ] && [ "$WT_PATH" != "$(git rev-parse --show-toplevel)" ]; then
+  # 2a. Found a dedicated worktree on this branch — reuse it.
+  echo "Reusing existing worktree: $WT_PATH"
+  cd "$WT_PATH"
+elif [ -n "$WT_PATH" ]; then
+  # 2b. The branch is checked out in the MAIN checkout. That violates
+  #     worktree-first — move it into a dedicated worktree instead.
+  MAIN_REPO="$WT_PATH"
+  WT_PATH="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+  git -C "$MAIN_REPO" checkout main        # free the branch from the main checkout
+  git worktree add "$WT_PATH" "$BRANCH"
+  cd "$WT_PATH"
+else
+  # 2c. No worktree on this branch anywhere — create one.
+  MAIN_REPO=$(git rev-parse --show-toplevel)
+  WT_PATH="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+  git worktree add "$WT_PATH" "$BRANCH"    # branch already exists (the PR branch)
+  cd "$WT_PATH"
+fi
+
+# 3. Confirm location, then sync with remote.
+pwd                              # must be inside the worktree, not the main checkout
+git branch --show-current        # must equal $BRANCH
 git fetch origin
-git checkout {branch}
-git pull --ff-only origin {branch}
+git pull --ff-only origin "$BRANCH"
 ```
 
-If the pull is not fast-forward, surface the conflict to the user and stop. Do not auto-rebase or auto-merge.
+Notes:
+- The search in step 1 uses `git worktree list`, which includes the main checkout — so if the branch happens to be checked out there, it's found (and step 2b relocates it to a dedicated worktree to honor worktree-first).
+- `git worktree add <path> <branch>` (no `-b`) attaches the **existing** PR branch; don't create a new branch.
+- This resolution is idempotent: subagent pass A may create the worktree, and pass B's identical Step 2 then finds and reuses it.
+- If the pull is not fast-forward, surface the conflict to the user and stop. Do not auto-rebase or auto-merge.
+- Cleanup of a worktree created here is handled in Step 9 (`git worktree remove`) after merge.
 
 ## Step 3: Gather Feedback
 
@@ -205,11 +242,15 @@ Use `--squash` by default to keep `main` history clean; the project's `shared-st
 ## Step 9: Post-Merge Cleanup
 
 ```bash
+MAIN_REPO=$(git rev-parse --path-format=absolute --git-common-dir | xargs dirname)
+cd "$MAIN_REPO"                       # step out of the worktree before removing it
 git checkout main
 git pull --ff-only
-git branch -d {branch}
-git worktree remove {path}  # only if this was a worktree
+git worktree remove "$WT_PATH"        # the worktree resolved/created in Step 2
+git branch -d "$BRANCH"               # safe-delete now that the branch isn't checked out
 ```
+
+Remove the worktree before deleting the branch (git refuses to delete a branch that's still checked out in a worktree). If `$WT_PATH` was the main checkout itself (none was created — rare), skip `git worktree remove` and just `git checkout main`.
 
 Run `/update-board {TASK-ID} → Done` to commit the final board transition on `main`.
 
