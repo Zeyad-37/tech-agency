@@ -1,0 +1,70 @@
+name: Release on main
+
+# Creates a GitHub release on every push or PR-merge to `main`.
+#
+# The release version is read from the ./VERSION file (the same file the
+# pre-commit hook auto-bumps on commits to main). The workflow is idempotent:
+# it only creates a release when no tag/release for the current VERSION exists
+# yet, so it's safe to run on every push — a release is cut only when VERSION
+# has changed since the last one.
+#
+# This complements the client-side version-bump hook, which cannot fire on
+# GitHub-side merges (squash/merge button or `gh pr merge`). Together: the hook
+# bumps VERSION on local commits, this workflow publishes the release server-side.
+
+on:
+  push:
+    branches: [main]
+
+# Needed to create tags and releases with the default GITHUB_TOKEN.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-on-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for changelog + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from VERSION file
+        id: ver
+        run: |
+          VERSION="$(tr -d ' \t\r\n' < VERSION)"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::VERSION file does not contain a valid semver (got: '$VERSION')"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ steps.ver.outputs.tag }} already exists — nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # --generate-notes lets GitHub build the changelog automatically,
+          # grouping by merged PRs and contributors since the previous release.
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes \
+            --target "${{ github.sha }}"
+          echo "Created release ${{ steps.ver.outputs.tag }}."
