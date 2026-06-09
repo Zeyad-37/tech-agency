@@ -235,6 +235,46 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 8. Auto-bump the version on commits to main
+#    Runs only when all checks above passed AND the commit is on `main`.
+#    Increments the patch segment of ./VERSION and stages it, so the bump
+#    rides along in the same commit. To bump minor/major instead, edit VERSION
+#    by hand and stage it — the idempotency guard below leaves it untouched.
+#
+#    NOTE: this is a client-side hook. It fires on *local* commits made while
+#    on main. PR merges performed on the GitHub server (squash/merge button or
+#    `gh pr merge`) do NOT run local hooks, so those won't bump — use a CI
+#    workflow if you need server-side merges bumped too.
+# ---------------------------------------------------------------------------
+if [ $ERRORS -eq 0 ]; then
+    BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    if [ "$BRANCH" = "main" ]; then
+        echo -n "  Bumping version (main)... "
+        VERSION_FILE="VERSION"
+
+        if git diff --cached --name-only | grep -qx "$VERSION_FILE"; then
+            # VERSION is already staged — either an intentional manual bump, or
+            # a prior commit attempt that a later hook aborted. Don't bump again
+            # (prevents double-bumps across retried commits).
+            echo -e "${YELLOW}already staged — leaving as-is${NC}"
+        else
+            CURRENT=$(tr -d ' \t\r\n' < "$VERSION_FILE" 2>/dev/null || echo "")
+            if ! echo "$CURRENT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                CURRENT="0.0.0"
+            fi
+            MAJOR=${CURRENT%%.*}
+            REST=${CURRENT#*.}
+            MINOR=${REST%%.*}
+            PATCH=${REST#*.}
+            NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+            printf '%s\n' "$NEW" > "$VERSION_FILE"
+            git add "$VERSION_FILE"
+            echo -e "${GREEN}$CURRENT → $NEW${NC}"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
 echo ""
