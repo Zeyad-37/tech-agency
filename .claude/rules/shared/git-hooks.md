@@ -28,6 +28,7 @@ Exceptions (not validated): merge commits (`Merge ...`), initial commits (`Initi
 | Swift `!` force-unwraps | Warning | Use `guard let`, `if let`, `??` |
 | Lint/format (detekt, eslint, ruff, swiftlint) | Yes | Run the fixer: `./gradlew detekt`, `npx eslint --fix`, `ruff check --fix` |
 | Large files (>5MB) | Yes | Use Git LFS or exclude from repo |
+| Auto version bump on `main` | No (action, not a check) | Patch segment of `./VERSION` is incremented and staged into the commit when committing on `main`. To bump minor/major, edit `VERSION` manually and stage it — the hook leaves an already-staged `VERSION` untouched. Client-side only: GitHub-side PR merges (`gh pr merge`, merge button) do not run it. |
 
 ## Pre-Push Checks (run before push)
 
