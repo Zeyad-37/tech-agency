@@ -70,6 +70,7 @@ Dependency direction: Controller → Service → Repository → JPA/JDBC. No rev
 ## Kotlin Conventions (preferred language)
 
 - Prefer Kotlin over Java for new code. Java 21+ when Kotlin is not an option.
+- When converting existing `.java` files to Kotlin, invoke the `kotlin-tooling-java-to-kotlin` skill first (see @.claude/rules/shared/kotlin-agent-skills.md) — it handles framework-aware conversion (Spring, Lombok, Hibernate, JUnit, Mockito).
 - Use `data class` for DTOs and value objects.
 - Use `val` (immutable) by default; `var` only when mutation is required.
 - Use `?.let {}`, `?:`, `?.` for null handling — no manual null checks.
@@ -231,6 +232,8 @@ data class PaginationParams(
 - Use Spring Data `Pageable` only for admin/dashboard offset pagination.
 
 ## JPA Entity Patterns
+
+Before creating or reviewing JPA entities, or diagnosing N+1 / `LazyInitializationException` issues, invoke the JetBrains `kotlin-backend-jpa-entity-mapping` skill (see @.claude/rules/shared/kotlin-agent-skills.md). The patterns below are the project baseline; the skill governs the Kotlin-specific ORM mechanics.
 
 ```kotlin
 @Entity

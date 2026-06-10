@@ -1,5 +1,16 @@
 {
   "board_backend": "markdown",
+  "extraKnownMarketplaces": {
+    "Kotlin": {
+      "source": {
+        "source": "github",
+        "repo": "Kotlin/kotlin-agent-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "kotlin-agent-skills@Kotlin": true
+  },
   "agentModelRouting": {
     "atlas-orchestrator": "opus",
     "sage-solutions-architect": "opus",
