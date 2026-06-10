@@ -73,6 +73,8 @@ Classify each upgrade by urgency:
 
 ## Step 3: Risk Assessment (Major Bumps & Kotlin Upgrades)
 
+**JetBrains skill check (Kotlin ecosystem upgrades):** Before assessing risk manually, check whether the upgrade has a dedicated JetBrains skill (see `@.claude/rules/shared/kotlin-agent-skills.md`). Currently covered: AGP 9.0+ (`kotlin-tooling-agp9-migration`), `kotlinx.collections.immutable` 0.5.x (`kotlin-tooling-immutable-collections-0-5-x-migration`), CocoaPods → SPM (`kotlin-tooling-cocoapods-spm-migration`). If a skill matches, invoke it — it replaces the manual changelog walkthrough for that dependency's migration mechanics.
+
 For major version bumps and Kotlin upgrades, assess the risk before proceeding:
 
 ### 3a. Read the Changelog

@@ -714,6 +714,7 @@ plugins {
 - **Convention plugins** in `build-logic/plugins/` for consistent module setup.
 - **Configuration cache** and **build cache** enabled.
 - Modules must build independently — no circular module dependencies.
+- **JetBrains Kotlin skills for build/tooling migrations** (see @.claude/rules/shared/kotlin-agent-skills.md): AGP 9.0+ upgrades → `kotlin-tooling-agp9-migration`; CocoaPods → Swift Package Manager → `kotlin-tooling-cocoapods-spm-migration`; `kotlinx.collections.immutable` 0.5.x bumps → `kotlin-tooling-immutable-collections-0-5-x-migration`. Invoke the matching skill before performing the migration.
 
 ## Platform Integration
 

@@ -707,6 +707,8 @@ Reference `@.claude/rules/shared/operational-standards.md` for SLO definitions. 
 
 ## Gradle / Build Configuration
 
+For AGP 9.0+ upgrades or KMP+AGP incompatibilities, invoke the JetBrains `kotlin-tooling-agp9-migration` skill before changing build files (see @.claude/rules/shared/kotlin-agent-skills.md).
+
 ```kotlin
 android {
     compileSdk = 35
