@@ -22,7 +22,7 @@
 
 | Task ID | Agent | Description | Reviewer | Waiting Since |
 |---------|-------|-------------|----------|---------------|
-| — | — | — | — | — |
+| T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 
 ## Blocked
 

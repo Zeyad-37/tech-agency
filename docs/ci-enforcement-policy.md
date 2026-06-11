@@ -106,6 +106,12 @@ Tag pushed
   └── Deploy (staging → canary → production)
 ```
 
+## Auto-Release on Main (this repo only)
+
+The `release-on-main.yml` workflow auto-creates a GitHub release on every push or merge to `main` of **this meta/template repo**: if the current `VERSION` is unreleased it releases it directly; if it is already released, the workflow patch-bumps `VERSION` (committed as github-actions[bot]) and releases the new version. A "release" here is a snapshot of the agency configuration — there are no build artifacts or deployments.
+
+This is intentionally outside the gated Release Process in `.claude/rules/shared/shared-standards.md` (QA sign-off, security review, release notes, go/no-go), which governs product repos. Product repos use the `release-on-tag.yml` flow above instead.
+
 ## Hotfix Workflow
 
 Hotfix branches (`hotfix/**`) are validated by `verify-prs.yml` (same as regular PRs) with an expedited review process:
