@@ -89,4 +89,5 @@ Tag release after successful production deploy: git tag v[X.Y.Z]
 - Scroll updates public documentation
 - Echo prepares support for new features
 - Save release record to `docs/releases/v[X.Y.Z].md`
+- If a marketing-agency shared context exists for this product (directory containing `releases.md` + `config.md`, e.g. a `*-shared-context` sibling of the repo), append a row to its `releases.md`: date, version, user-facing summary, size (patch/minor/major/tier-1), Consumed = no — this feeds marketing-agency's `launch-from-release`
 - Update `board-context.md` — clear Done column, note the release
