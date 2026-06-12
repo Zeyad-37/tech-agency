@@ -1,0 +1,36 @@
+# Headless proactive weekly sync.
+# Adapt paths/secrets to your claude-code-action setup before enabling.
+# Runs Monday 07:00 Europe/Madrid (06:00 UTC, 05:00 UTC in summer — adjust as preferred).
+
+name: marketing-weekly-sync
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  weekly-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Optional: refresh metrics snapshot before the sync reads it.
+      # - name: Pull RevenueCat + analytics snapshot
+      #   run: ./scripts/snapshot-metrics.sh   # writes shared-context/metrics/YYYY-MM-DD.json
+      #   env:
+      #     REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
+
+      - name: Run weekly sync headlessly
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run the marketing-agency weekly-sync skill end to end.
+            Write the report to shared-context/syncs/$(date +%F).md.
+            Open a pull request titled "Marketing sync $(date +%F)" containing the report
+            and any proposed board/handoff changes. Do NOT execute proposed tasks —
+            proposals only; the human approves via PR review.

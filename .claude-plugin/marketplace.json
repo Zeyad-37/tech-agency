@@ -13,6 +13,13 @@
       "category": "development",
       "source": "./.claude",
       "homepage": "https://github.com/Zeyad-37/tech-agency"
+    },
+    {
+      "name": "marketing-agency",
+      "description": "Proactive, self-improving marketing system that complements tech-agency. Runs funnel audits, proposes experiments, hands engineering work to tech-agency, turns releases into launch content, and teaches the marketing craft as it works (mentor mode).",
+      "category": "marketing",
+      "source": "./marketing-agency",
+      "homepage": "https://github.com/Zeyad-37/tech-agency"
     }
   ]
 }
