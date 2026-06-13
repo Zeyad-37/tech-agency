@@ -341,6 +341,39 @@ if [ ! -f ".claude/hooks.json" ]; then
 fi
 ```
 
+### 6h. Sandbox Enforcement (Gap-Filling)
+
+All agency work runs inside the OS sandbox. The template `settings.json` ships a
+`sandbox` block (enabled, `failIfUnavailable: true`, `autoAllowBashIfSandboxed: true`,
+plus a build-tool/registry allowlist). New projects get it for free via 6g. For an
+**existing** project that already had its own `.claude/settings.json` (so 6g was
+skipped), add the block if missing — and adapt the worktree write path to this repo's
+name, since the worktree-first protocol creates worktrees at `../{repo}-worktrees`.
+
+```bash
+if [ -f ".claude/settings.json" ] && ! grep -q '"sandbox"' .claude/settings.json; then
+    REPO="$(basename "$(git rev-parse --show-toplevel)")"
+    echo "Adding sandbox block to existing .claude/settings.json (worktree path: ../${REPO}-worktrees)"
+    # Merge the template's `sandbox` block into the existing settings.json,
+    # replacing the template's "../tech-agency-worktrees" allowWrite entry with
+    # "../${REPO}-worktrees". Use jq (or hand-edit) to insert the key — do NOT
+    # overwrite the whole file; preserve the project's existing keys.
+    #   jq --arg wt "../${REPO}-worktrees" \
+    #     '.sandbox = (input.sandbox | .filesystem.allowWrite |=
+    #        map(if . == "../tech-agency-worktrees" then $wt else . end))' \
+    #     .claude/settings.json {project-template}/.claude/settings.json > .tmp \
+    #     && mv .tmp .claude/settings.json
+fi
+```
+
+Notes:
+- The sandbox auto-allows sandboxed Bash (no extra prompts), so it does not slow agents down.
+- `excludedCommands` keeps VCS network ops (`git push/fetch/pull`, `gh`) unsandboxed so SSH/auth work.
+- Linux/WSL2 runners must have `bubblewrap` + `socat` installed, or `failIfUnavailable: true`
+  will refuse to start. macOS uses built-in Seatbelt (nothing to install).
+- If a project's builds need extra hosts or write paths, extend `sandbox.network.allowedDomains`
+  / `sandbox.filesystem.allowWrite` rather than disabling the sandbox.
+
 ## Step 7: Install Git Hooks (Gap-Filling)
 
 ```bash
