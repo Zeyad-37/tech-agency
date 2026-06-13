@@ -49,6 +49,14 @@ Each platform enforces this via its own static analysis: Kotlin/Compose uses Kon
 - HTTPS only; TLS 1.2+ minimum
 - Authentication: JWT (RS256) with refresh token rotation, OAuth2 for third-party, API keys stored hashed
 
+## Sandboxed Execution (Mandatory)
+
+- All agent work runs inside the OS sandbox configured in `.claude/settings.json` (`sandbox.enabled: true`, `failIfUnavailable: true`). This is enforced for every agent and every spawned subagent — they inherit the session's sandbox.
+- Inside the sandbox, Bash writes are confined to the worktree (cwd) + the allowlisted tool-cache paths, and network is restricted to the allowlisted registries/hosts. Sandboxed commands auto-run without extra permission prompts.
+- When a build legitimately needs a host or write path that is blocked, **extend** `sandbox.network.allowedDomains` / `sandbox.filesystem.allowWrite` in a PR — do not disable the sandbox and do not reach for `dangerouslyDisableSandbox` as a workaround.
+- VCS network operations (`git push/fetch/pull`, `gh`) are intentionally excluded from the sandbox so SSH/auth work; they remain gated by the normal push policy (never push unless @Zeyad says so).
+- Linux/WSL2 runners require `bubblewrap` + `socat`; macOS uses built-in Seatbelt. With `failIfUnavailable: true`, Claude Code refuses to run unsandboxed if those deps are missing.
+
 ## Observability Baseline
 
 - Structured JSON logging: `level`, `timestamp`, `service`, `traceId`, `userId`

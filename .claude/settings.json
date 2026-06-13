@@ -1,5 +1,59 @@
 {
   "board_backend": "markdown",
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "excludedCommands": [
+      "git push *",
+      "git fetch *",
+      "git pull *",
+      "gh *"
+    ],
+    "filesystem": {
+      "allowWrite": [
+        "../tech-agency-worktrees",
+        "~/.gradle",
+        "~/.m2",
+        "~/.konan",
+        "~/.npm",
+        "~/.cache",
+        "~/.cocoapods",
+        "~/.android",
+        "~/Library/Caches",
+        "~/Library/Developer"
+      ],
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.kube",
+        "~/.gnupg"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "codeload.github.com",
+        "objects.githubusercontent.com",
+        "raw.githubusercontent.com",
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "repo.maven.apache.org",
+        "repo1.maven.org",
+        "dl.google.com",
+        "plugins.gradle.org",
+        "services.gradle.org",
+        "*.gradle.org",
+        "cdn.cocoapods.org",
+        "*.cocoapods.org",
+        "rubygems.org"
+      ]
+    }
+  },
   "extraKnownMarketplaces": {
     "Kotlin": {
       "source": {
