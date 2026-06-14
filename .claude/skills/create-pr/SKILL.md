@@ -375,6 +375,28 @@ EOF
   --base main
 ```
 
+## Step 5b: Request a Copilot Review (Mandatory, Non-Blocking)
+
+This repo's settings do **not** auto-request a Copilot review on new PRs, so `/create-pr` requests it explicitly via the GitHub API immediately after the PR is created. Skip this step entirely when `--no-push` was passed (no PR exists yet) — the parent skill owns the request in that path.
+
+```bash
+# Resolve owner/repo and the PR number just created
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq '.number')
+
+# Request Copilot as a reviewer. The Copilot reviewer is a bot account, so it
+# must be added through the requested_reviewers REST endpoint, not --reviewer.
+gh api --method POST "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+  -f "reviewers[]=copilot-pull-request-reviewer[bot]" \
+  && echo "✅ Copilot review requested on PR #${PR_NUMBER}" \
+  || echo "⚠️  Could not request a Copilot review (feature may be disabled for this account/repo, or already requested). Continuing — this does not block the PR."
+```
+
+Rules for this step:
+- **Non-blocking.** If the request fails — Copilot code review not enabled for the account/org, the bot already requested, insufficient permissions, or `gh` unavailable — log the warning and continue. Never abort PR creation over a failed Copilot request.
+- Requesting Copilot is in **addition** to the human reviewers from the Reviewer Assignment matrix, not a replacement.
+- Copilot code review must be enabled for the account/org (GitHub Copilot Pro/Business/Enterprise with code review turned on) for the request to succeed. The disabled auto-request setting only affects the automatic trigger — manual API requests still work when the feature itself is on.
+
 ## Step 6: Sweep Merged Worktrees (Auto-Cleanup)
 
 Immediately after the PR is created, scan all existing worktrees and remove any whose branch has already been merged. This is how worktrees created by `/dispatch` and `/dispatch-task` get cleaned up — there is no separate cleanup command.
@@ -418,6 +440,7 @@ PR created: #{pr_number}
   Branch: {branch} → main
   Author: @{PrimaryAgent}
   Participants: @{Agent1}, @{Agent2}
+  Copilot review: requested (or "not requested — {reason}")
   URL: {pr_url}
 
 Next: Run `/code-review` to get a structured review, or tag a specific agent for review.
@@ -445,6 +468,8 @@ Add `--reviewer` flags to `gh pr create` when reviewers can be determined:
 ```bash
 gh pr create ... --reviewer "shield" --reviewer "link"
 ```
+
+A **Copilot review is always requested in addition** to these human reviewers (see Step 5b). Copilot is a bot account and cannot be added via `--reviewer` — it goes through the `requested_reviewers` API call in Step 5b.
 
 ## Multi-Agent PRs
 
