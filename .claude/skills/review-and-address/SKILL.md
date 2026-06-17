@@ -12,6 +12,8 @@ This skill closes out a PR in two phases, each starting from a **clean context**
 
 This skill is a thin orchestrator. It does **not** re-implement the review or the fix logic — it sequences the two child skills and passes the PR target and flags through. The clean-context guarantee comes from each child's own Step 0; this skill must not inject any "what we did / why" narrative from the session into either phase.
 
+Between the two phases it also handles the **external Copilot review**: it triggers Copilot up front so its review latency overlaps Phase 1, then waits on a short data-driven poll before Phase 2 so `/address-feedback`'s single gather pass actually sees Copilot's comments (instead of missing them and forcing a re-run). The poll runs in the background, so no conversation turns are burned sitting idle.
+
 It assumes a PR already exists. To go from nothing → implemented → PR, use `/ship-it` first, then this skill.
 
 ## Step 1: Parse Arguments
@@ -31,7 +33,29 @@ Confirm in one line, then proceed:
 Review & Address → PR #123 (branch: feature/foo)  |  Auto-merge: ON/OFF
 ```
 
-## Step 2: Phase 1 — Review (clean context)
+## Step 2: Kick Off the Copilot Review Early (parallel with Phase 1)
+
+Copilot's review latency on this org's PRs is tightly clustered — **median ~4m, P90 ~6m, max observed ~9m** (measured across 64 PRs on `Zeyad-37/Steady`). That wait is pure idle time if you trigger Copilot and then sit. So trigger it **now**, before Phase 1 runs, and let those minutes elapse *while* `/code-review` does its work.
+
+First capture the review baseline — the latest commit time. Copilot re-reviews on every push, so the wait gate (Step 5) must key on a review submitted **after the current HEAD**, not just "any Copilot review":
+
+```bash
+PR={n}; REPO={owner}/{repo}
+HEAD_TIME=$(gh pr view "$PR" --repo "$REPO" --json commits --jq '.commits[-1].committedDate')
+```
+
+If no Copilot review already exists for this HEAD and no request is pending, request one. This is best-effort — if the org auto-requests Copilot on PR open (or Copilot is already requested), the call is a harmless no-op:
+
+```bash
+gh api "repos/$REPO/pulls/$PR/requested_reviewers" \
+  -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null \
+  && echo "Copilot review requested." \
+  || echo "Copilot already requested / auto-review enabled / not requestable — continuing."
+```
+
+Carry `HEAD_TIME` forward to Step 5. Do not block here — move straight to Phase 1.
+
+## Step 3: Phase 1 — Review (clean context)
 
 Invoke the `/code-review` skill targeting the resolved PR/branch.
 
@@ -39,9 +63,9 @@ Invoke the `/code-review` skill targeting the resolved PR/branch.
 - Pass it only the review target (PR number or branch). Do **not** pass any session rationale.
 - Relay the returned verdict to the user verbatim — do not soften or second-guess it.
 
-Capture the verdict for Step 3's branch decision: `APPROVED`, `CHANGES REQUESTED`, or `BLOCKED`.
+Capture the verdict for Step 4's branch decision: `APPROVED`, `CHANGES REQUESTED`, or `BLOCKED`.
 
-## Step 3: Decide Whether to Continue to Phase 2
+## Step 4: Decide Whether to Continue to Phase 2
 
 The review is now on the PR. Decide how to proceed:
 
@@ -49,15 +73,50 @@ The review is now on the PR. Decide how to proceed:
 - **Verdict was CHANGES REQUESTED or BLOCKED** — proceed to Phase 2 to address it.
 - **The review hit the self-review fallback** (GitHub rejects approving/requesting-changes on your own PR, so `/code-review` posted the verdict as a regular issue comment instead) — that comment is still feedback. Phase 2's gathering step (`/address-feedback` Step 3b, issue-level comments) picks it up. Proceed normally.
 
-If `--auto-merge` is **off**, briefly confirm with the user before starting Phase 2:
+If `--auto-merge` is **off**, briefly confirm with the user before waiting on Copilot and starting Phase 2:
 
 ```
-Review posted (verdict: CHANGES REQUESTED). Proceed to address all feedback now? (y/n)
+Review posted (verdict: CHANGES REQUESTED). Wait for Copilot, then address all feedback now? (y/n)
 ```
 
 If `--auto-merge` is **on**, proceed without asking.
 
-## Step 4: Phase 2 — Address (clean context)
+## Step 5: Wait for Copilot's Review (data-driven poll)
+
+Phase 1 has now run, so several minutes have already elapsed against Copilot's ~4m median — often its review for this HEAD is already in. Confirm it (or wait out the remainder) before handing to Phase 2, so `/address-feedback`'s single gather pass sees Copilot's comments.
+
+Run the poll as a **background** command so no conversation turns are spent idling — the harness re-invokes you the instant it exits:
+
+```bash
+PR={n}; REPO={owner}/{repo}; HEAD_TIME="{from Step 2}"
+INITIAL=60; INTERVAL=30; TIMEOUT=600       # tuned to the measured distribution
+deadline=$(( $(date +%s) + TIMEOUT )); first=1
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  # Check first — if Copilot already reviewed this HEAD (e.g. auto-review on push),
+  # pass immediately instead of waiting out INITIAL.
+  hit=$(gh api "repos/$REPO/pulls/$PR/reviews" \
+        | jq --arg t "$HEAD_TIME" \
+          '[.[] | select(.user.login=="copilot-pull-request-reviewer[bot]" and .submitted_at > $t)] | length')
+  if [ "${hit:-0}" -gt 0 ]; then echo "COPILOT_REVIEW_READY"; exit 0; fi
+  if [ "$first" = 1 ]; then sleep "$INITIAL"; first=0; else sleep "$INTERVAL"; fi
+done
+echo "COPILOT_REVIEW_TIMEOUT"; exit 0
+```
+
+Schedule rationale (from the 64-PR sample): first check at **60s** catches the fast returns (a handful land in 1–2m); the **30s** cadence stays tight through the 3–6m cluster where ~84% land; the **600s** timeout sits comfortably past the 8m50s max, so a non-arrival by then is a real signal (Copilot disabled / errored), not "still thinking." These three constants are the only knobs — re-measure and adjust them if the distribution shifts.
+
+- **`COPILOT_REVIEW_READY`** → proceed to Phase 2.
+- **`COPILOT_REVIEW_TIMEOUT`** → Copilot is overdue past its historical max, which almost always means it's broken / disabled / not-requestable rather than just slow. **Notify the user and halt for their decision — in both modes, including `--auto-merge`.** The background poll exists precisely because the user has stepped away, so a chat-only prompt isn't enough; pull their attention back with a push notification, then wait. Send it with the `PushNotification` tool:
+
+  ```
+  PushNotification(
+    status="proactive",
+    message="PR #{n}: Copilot review didn't arrive in 10m (likely disabled/broken). Address without it, keep waiting, or abort?")
+  ```
+
+  Then present the same three options in chat and wait for the answer: **(a)** proceed to Phase 2 without Copilot — safe, since this skill is idempotent and a later Copilot review can be addressed by re-running; **(b)** keep waiting another poll cycle; **(c)** abort. **`--auto-merge` does not bypass this halt** — a timeout is exactly when an unattended merge must not happen: Copilot reviews are advisory (always `COMMENTED` state in practice, never a blocking `CHANGES_REQUESTED`), so auto-merging on Copilot's silence would ship without its comments ever being addressed and with no second chance once the PR is merged. Auto-merge resumes its autonomy only after the user picks (a).
+
+## Step 6: Phase 2 — Address (clean context)
 
 Invoke the `/address-feedback` skill targeting the same PR, forwarding the `--auto-merge` flag if it was set.
 
@@ -70,7 +129,7 @@ Invoke the `/address-feedback` skill targeting the same PR, forwarding the `--au
 
 Do not pass session narrative into `/address-feedback` either — hand it only the PR number and the flag.
 
-## Step 5: Report
+## Step 7: Report
 
 Summarize the full run:
 
@@ -78,6 +137,7 @@ Summarize the full run:
 ## Review & Address — PR #{n}
 
 **Phase 1 (Review):** verdict {APPROVED / CHANGES REQUESTED / BLOCKED} — posted to PR
+**Copilot:** {review arrived in {m}m{s}s / timed out after 10m — user notified, chose {proceed without / kept waiting / aborted}}
 **Phase 2 (Address):** {required fixes applied} applied, {recommended} applied/deferred, checks {GREEN/RED}
 **Outcome:** {merged / awaiting merge gate / blocked on {reason}}
 ```
@@ -89,3 +149,5 @@ Each phase ran from a clean context: the Phase 1 verdict was produced with no se
 - **Why two phases instead of one big subagent:** the review must be posted to the PR *before* feedback is gathered, so that Phase 2 sees the review as one of its inputs. Folding them into a single context would also re-introduce the bias this skill exists to prevent — the agent that wrote the review would then be the one judging how to address it.
 - **Relationship to `/ship-it`:** `/ship-it` takes implemented code → self-review → fixes → **opens** a PR and stops. `/review-and-address` starts from an **existing** PR and takes it review → addressed → mergeable. They compose: `/ship-it` to open, then `/review-and-address` to close out.
 - **Idempotent:** safe to re-run on the same PR. Phase 1 posts a fresh review; Phase 2 re-derives feedback from the live PR state each time.
+- **Why trigger Copilot early then poll, instead of just polling:** triggering it in Step 2 lets its ~4m latency run *concurrently* with Phase 1's review work, so by the time Step 5's gate runs the review is usually already in — the poll then confirms rather than waits. The poll keys on a review `submitted_at` newer than the current HEAD commit, because Copilot re-reviews on every push; matching "any Copilot review" would falsely pass on a stale review from an earlier push.
+- **Background, not idle:** Step 5 runs as a backgrounded Bash loop. The harness re-invokes the agent when it exits, so the gap between "Copilot requested" and "Phase 2 starts" collapses to Copilot's actual turnaround with zero turns burned polling-and-rechecking. This is the in-session, no-CI alternative to the GitHub Actions webhook approach (`pull_request_review` → headless Claude) noted in `address-feedback`'s Notes; use that workflow instead when the close-out must run while you're away from the session.
