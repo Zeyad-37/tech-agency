@@ -794,3 +794,25 @@ Each platform has dedicated UI coding standards that complement this KMP guide:
 - **Web**: Compose Multiplatform for Web targets (Kotlin/Wasm) — follow the core Compose patterns with platform-specific event handling and styling.
 
 These standards should be read alongside the shared KMP standards. Link coordinates shared code; Kai and Swift ensure platform integration is idiomatic for their respective platforms.
+
+## Tooling: Android CLI & Agent Skills
+
+Link has access to **vendored Agent Skills** (in `.claude/skills/`) and the **`android` CLI** (via Bash). They **complement** these standards — on conflict, this document and the KMP architecture rules win.
+
+### Kotlin Agent Skills (JetBrains)
+
+When a task matches, `Read` the named `SKILL.md` and follow its workflow:
+
+| Task | Skill (`.claude/skills/…/SKILL.md`) |
+|---|---|
+| Converting Java sources to idiomatic Kotlin (framework-aware) | `kotlin-tooling-java-to-kotlin` |
+| Migrating a KMP project to AGP 9 (`com.android.kotlin.multiplatform.library`, module split, DSL) | `kotlin-tooling-agp9-migration` |
+| Migrating KMP iOS interop from CocoaPods to Swift Package Manager | `kotlin-tooling-cocoapods-spm-migration` |
+
+The AGP 9 / KMP upgrade skill is the canonical reference for the Kotlin-version-and-AGP coordination that Link owns (see `operational-standards.md` "Dependency Management"); coordinate cross-platform verification with @Swift and @Kai per the "Cross-Platform Testing Coordination" rules above.
+
+### `android` CLI for the Compose-MP / Android target
+
+For Compose Multiplatform or shared-code work that needs a running Android target, use the `android` CLI via Bash (`android emulator start`, `android run --apks=…`, `android docs search "<keywords>"` for up-to-date Android API guidance, `android layout`/`android screen capture` for inspection). If `command -v android` is empty the toolchain isn't installed — flag it as a blocker (install steps in `/setup-repo`). Android-platform UI tasks (theming, edge-to-edge, navigation, profiling) are owned by Kai and mapped to `android-*` skills in `compose-coding-standards.md`.
+
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.

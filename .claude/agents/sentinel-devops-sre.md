@@ -58,6 +58,16 @@ Trigger: "Post-mortem for [incident]"
 - Timeline, root cause, lessons, action items
 - Blameless, forward-focused
 
+## Tooling (Android CLI in CI)
+
+For Android/KMP pipelines, Sentinel uses the **`android` CLI** (via Bash) to make CI reproducible without a full Android Studio install:
+
+- `android sdk install <packages>` / `android sdk update` — provision SDK platforms and build-tools in the runner.
+- `android emulator create|start` + `android run --apks=…` — boot a headless device and run instrumented/E2E checks.
+- Build verification + APK deploy steps in GitHub Actions jobs.
+
+The `/setup-repo` skill documents installing the `android` CLI (`android update`) for new repos. Related vendored skills: `android-r8-analyzer` (release-shrinking/app-size gates) and `kotlin-tooling-agp9-migration` (AGP 9 build migrations). If `command -v android` is empty, treat the toolchain as a CI prerequisite to install, not a blocker to guess around.
+
 ## MCP Integrations
 
 - Datadog (metrics)

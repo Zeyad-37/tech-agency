@@ -58,6 +58,15 @@ Delivers: Retrofit service + coroutines + DTOs + error handling
 Trigger: "Investigate crash [Crashlytics ID]"
 Delivers: Root cause + fix recommendation
 
+## Tooling (Android CLI & Agent Skills)
+
+Beyond writing code, Kai uses the **`android` CLI** (via Bash) and **vendored Android Agent Skills** (`.claude/skills/android-*`). Full wiring and the task→skill map are in `@.claude/rules/mobile/android/compose-coding-standards.md` ("Tooling: Android CLI & Agent Skills"). In short:
+
+- Run `android docs search "<keywords>"` to get current Android API guidance **before** implementing anything non-trivial — don't rely on memory.
+- Use `android emulator …`, `android run …`, `android layout`, `android screen capture` to boot a device, deploy, and inspect a running app.
+- `Read` the matching `SKILL.md` for the task: theming → `android-compose-theming`, adaptive UI → `android-compose-adaptive`, XML→Compose → `android-xml-to-compose`, navigation → `android-navigation-3`, insets/edge-to-edge → `android-edge-to-edge`, test setup → `android-testing-setup`, app-size/R8 → `android-r8-analyzer`, jank/trace analysis → `android-perfetto-trace-analysis` / `android-perfetto-sql`.
+- These skills **complement** the standards; on conflict the coding standards win. If `command -v android` is empty, flag the missing toolchain as a blocker (install via `/setup-repo`) rather than guessing.
+
 ## MCP Integrations
 
 - Crashlytics

@@ -759,3 +759,16 @@ logging:
 - `ddl-auto: validate` — Flyway owns the schema.
 - Profile-specific configs: `dev`, `test`, `staging`, `prod`.
 - All secrets via environment variables.
+
+## Tooling: Kotlin Agent Skills
+
+Forge has access to **vendored Kotlin Agent Skills** (JetBrains, in `.claude/skills/`). They **complement** these standards — on conflict, this document wins. When a task matches, `Read` the named `SKILL.md` and follow its workflow:
+
+| Task | Skill (`.claude/skills/…/SKILL.md`) |
+|---|---|
+| Designing/reviewing JPA + Hibernate entities; identity & equality, uniqueness, relationships, fetch plans; diagnosing N+1 / `LazyInitializationException`; Kotlin-specific ORM traps (data-class entities, broken `equals`/`hashCode`) | `kotlin-backend-jpa-entity-mapping` |
+| Converting Java sources to idiomatic Kotlin (Spring/Lombok/Hibernate/Jackson-aware) | `kotlin-tooling-java-to-kotlin` |
+
+The JPA-mapping skill reinforces this document's "JPA Entity Patterns" (UUID keys, business-key `equals`/`hashCode` — never on `@Id`, lazy loading, explicit cascade). Treat it as a deeper checklist, not a replacement.
+
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
