@@ -164,7 +164,7 @@ Follow `@.claude/rules/kmp-coding-standards.md` — Project Structure section:
 ```
 project/
 ├── build-logic/plugins/
-├── core/architecture/, core/database/, core/network/, core/test-base/, core/utils/
+├── core/architecture/, core/database/, core/network/, core/test-base/, core/time/, core/utils/
 ├── features/{feature}/domain/, data/, sharedPresentation/
 ├── gradle/libs.versions.toml
 ```
