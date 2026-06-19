@@ -126,6 +126,20 @@ Check for:
 | DI | Dependencies injected, not constructed inline |
 | Code style | Immutability, no `var` where `val` works, proper access modifiers |
 | Visual evidence | Before/after screenshots provided for UI changes |
+| T-013 render decisions | UI decisions use typed structures (sealed state, polymorphic props), not `if`/`else` over scalars — see T-013 check below |
+
+### T-013 Typed-Render-Decisions Compliance (UI Changes Only)
+
+Per T-013, every UI render decision must resolve to a typed structure — a sealed type, a polymorphic property, or a sealed component-prop type — never an `if`/`else` chain over scalar fields (see `@.claude/rules/shared/shared-standards.md` "UI Render Decisions Belong to Typed Structures"). The principle is platform-agnostic; the enforcement plumbing is platform-specific — Compose/KMP enforce it via Konsist + custom Detekt rules, and those rules ship without a baseline, so any new violation is a CI failure, not a soft warning.
+
+Reviewer checklist (skip if the PR has no UI changes):
+
+1. **Rule (a) — `*State` types must be sealed.** A State type with multiple data-driven shapes (loading/empty/error/success) must be a sealed hierarchy with an exhaustive `when`/`switch` at the screen root, not parallel `isLoading`/`isEmpty` flags.
+2. **Rule (b) — no domain type-checks in feature UI.** An `is *PM` / `is *Domain` discriminator at a UI call site should be a polymorphic property on the domain type instead. Accept an inline allow-list marker (`// type-discriminator-needed: <reason>`) only if the domain refactor is genuinely out of scope.
+3. **Rule (c) — no variant Booleans on design-system components.** Patterns like `useXStyle` / `isXVariant` / `*Mode: Boolean` should be a sealed/enum prop type. Accept `// component-boolean-justified: <reason>` only for a genuine binary choice where a sealed type would be heavier than the smell.
+4. **Rule (d) — no 3+ parallel `show*: Boolean` props on a `*State`.** Collapse mutually-exclusive sub-state into a single sealed field (e.g. `dialog: ActiveDialog?`); see the project's `*Contract.kt` for the reference pattern.
+
+Any allow-list marker added in a PR requires the reviewer to evaluate whether the deferral is justified — markers are "I know, here's why," not free passes.
 
 ### Visual Evidence Check (UI Changes Only)
 
