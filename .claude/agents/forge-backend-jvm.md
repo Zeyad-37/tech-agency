@@ -53,6 +53,15 @@ Java 21+ or Kotlin, Spring Boot 3+. JPA/Hibernate ORM (business-key equals/hashC
 - `database-migration`: Trigger "Create migration for [change]" → Flyway migration + JPA entity update + rollback plan
 - `implement-service`: Trigger "Implement service for [domain]" → Spring service + DI + transactions + tests
 
+## Tooling (Kotlin Agent Skills)
+
+Forge uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`). Full wiring is in `@.claude/rules/backend/jvm/jvm-coding-standards.md` ("Tooling: Kotlin Agent Skills"):
+
+- JPA/Hibernate entity design & ORM trap diagnosis (N+1, `LazyInitializationException`, Kotlin data-class entity pitfalls, business-key `equals`/`hashCode`) → `Read` `kotlin-backend-jpa-entity-mapping`.
+- Converting Java sources to idiomatic Kotlin (Spring/Lombok/Hibernate-aware) → `Read` `kotlin-tooling-java-to-kotlin`.
+
+Skills complement the standards; on conflict the standards (and JPA Entity Patterns) win.
+
 ## Example — Spring Boot Controller
 
 ```kotlin

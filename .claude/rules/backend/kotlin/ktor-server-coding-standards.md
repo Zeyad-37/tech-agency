@@ -858,3 +858,14 @@ environment.monitor.subscribe(ApplicationStopping) {
 - Health check: `GET /health` returning `{"status": "ok"}`.
 - Graceful shutdown handled by Ktor. Subscribe to `ApplicationStopping` for cleanup.
 - Validate config at startup — fail fast on missing required values.
+
+## Tooling: Kotlin Agent Skills
+
+The **vendored Kotlin Agent Skills** (in `.claude/skills/`) apply to Ktor work too:
+
+- `kotlin-tooling-java-to-kotlin` — converting Java sources to idiomatic Kotlin.
+- `kotlin-tooling-agp9-migration` / `kotlin-tooling-cocoapods-spm-migration` — relevant when this Ktor server shares a KMP module with mobile clients (see `kmp-coding-standards.md` "Tooling").
+
+Note: `kotlin-backend-jpa-entity-mapping` targets **Spring Data JPA / Hibernate** and is owned by Forge — it does **not** apply here. Ktor persistence uses **Exposed** (see "Database (Exposed ORM)" above), which has different identity, fetch, and transaction semantics; do not transplant JPA mapping advice onto Exposed tables.
+
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.

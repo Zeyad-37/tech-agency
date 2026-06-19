@@ -741,3 +741,34 @@ android {
 - Version catalog (`libs.versions.toml`) for all dependencies — shared with KMP modules.
 - `minSdk = 24`.
 - Compose BOM for aligned Compose library versions.
+
+## Tooling: Android CLI & Agent Skills
+
+Kai has two external aids beyond the standards above: the **`android` CLI** (run via Bash) and a set of **vendored Android Agent Skills** (in `.claude/skills/`). These **complement** these standards — they never override them. On any conflict between an upstream skill's advice and this document, **this document wins** (e.g. our MVI/KMP architecture, T-013 typed-render rules, and `process: (Input) -> Unit` callback shape stand regardless of what a generic skill suggests).
+
+### When to reach for the `android` CLI
+
+Use it via Bash for device-and-environment tasks that source edits can't cover. If `command -v android` is empty, the toolchain isn't installed yet — note it as a blocker rather than guessing (install steps live in `/setup-repo`). Key subcommands:
+
+- `android docs search "<keywords>"` / `android docs fetch …` — **canonical way to pull up-to-date Android API guidance** from the Android Knowledge Base. Prefer this over recalling APIs from memory before implementing anything non-trivial.
+- `android emulator create|start|stop`, `android run --apks=…` — boot a device and deploy a build to verify behaviour.
+- `android layout --pretty` — dump the running app's UI hierarchy as JSON (useful for debugging a screen).
+- `android screen capture` — screenshot a running app (pairs with our Paparazzi screenshot-test workflow for manual before/after checks).
+- `android sdk install|update|list` — manage SDK packages.
+
+### Task → vendored skill map
+
+When a task matches one of these, `Read` the named `SKILL.md` and follow its workflow (adapted to our standards):
+
+| Task | Skill (`.claude/skills/…/SKILL.md`) |
+|---|---|
+| Theming, design-system styles, `Modifier.styleable` | `android-compose-theming` |
+| Adaptive / responsive UI (phones, tablets, foldables, multi-pane) | `android-compose-adaptive` |
+| Migrating a legacy XML View to Compose | `android-xml-to-compose` |
+| Navigation (Nav 3, deep links, multi-backstack, scenes) | `android-navigation-3` |
+| Edge-to-edge, system-bar/IME insets bugs | `android-edge-to-edge` |
+| Setting up test infrastructure / harnesses | `android-testing-setup` (reconcile with this doc's Testing section) |
+| Optimizing app size / auditing R8 keep rules | `android-r8-analyzer` |
+| Diagnosing jank, latency, memory from a trace | `android-perfetto-trace-analysis`, `android-perfetto-sql` |
+
+Provenance and the full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
