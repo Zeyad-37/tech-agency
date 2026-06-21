@@ -12,7 +12,7 @@ This skill closes out a PR in two phases, each starting from a **clean context**
 
 This skill is a thin orchestrator. It does **not** re-implement the review or the fix logic — it sequences the two child skills and passes the PR target and flags through. The clean-context guarantee comes from each child's own Step 0; this skill must not inject any "what we did / why" narrative from the session into either phase.
 
-Between the two phases it also handles the **external Copilot review**: it triggers Copilot up front so its review latency overlaps Phase 1, then waits on a short data-driven poll before Phase 2 so `/address-feedback`'s single gather pass actually sees Copilot's comments (instead of missing them and forcing a re-run). The poll runs in the background, so no conversation turns are burned sitting idle.
+Between the two phases it also handles the **external Copilot review**. Copilot is *not* requested here — it was already requested upstream when the PR was opened (`/create-pr` Step 5b is the single Copilot requester), and Copilot auto-re-reviews on every push. This skill only **waits** for that review to land: it records the current-HEAD baseline up front, then runs a short data-driven background poll before Phase 2 so `/address-feedback`'s single gather pass actually sees Copilot's comments (instead of missing them and forcing a re-run). The poll runs in the background, so no conversation turns are burned sitting idle.
 
 It assumes a PR already exists. To go from nothing → implemented → PR, use `/ship-it` first, then this skill.
 
@@ -33,27 +33,20 @@ Confirm in one line, then proceed:
 Review & Address → PR #123 (branch: feature/foo)  |  Auto-merge: ON/OFF
 ```
 
-## Step 2: Kick Off the Copilot Review Early (parallel with Phase 1)
+## Step 2: Capture the Copilot Review Baseline (parallel with Phase 1)
 
-Copilot's review latency on this org's PRs is tightly clustered — **median ~4m, P90 ~6m, max observed ~9m** (measured across 64 PRs on `Zeyad-37/Steady`). That wait is pure idle time if you trigger Copilot and then sit. So trigger it **now**, before Phase 1 runs, and let those minutes elapse *while* `/code-review` does its work.
+Copilot's review latency on this org's PRs is tightly clustered — **median ~4m, P90 ~6m, max observed ~9m** (measured across 64 PRs on `Zeyad-37/Steady`). The request that triggers that review is **not** issued here — `/create-pr` (Step 5b) already requested Copilot when the PR was opened, and Copilot re-reviews automatically on every push. This skill's job is only to *wait* for the review for the current HEAD, and to let that wait overlap Phase 1 instead of becoming idle time.
 
-First capture the review baseline — the latest commit time. Copilot re-reviews on every push, so the wait gate (Step 5) must key on a review submitted **after the current HEAD**, not just "any Copilot review":
+So capture the review baseline now — the latest commit time. Because Copilot re-reviews on every push, the wait gate (Step 5) must key on a review submitted **after the current HEAD**, not just "any Copilot review":
 
 ```bash
 PR={n}; REPO={owner}/{repo}
 HEAD_TIME=$(gh pr view "$PR" --repo "$REPO" --json commits --jq '.commits[-1].committedDate')
 ```
 
-If no Copilot review already exists for this HEAD and no request is pending, request one. This is best-effort — if the org auto-requests Copilot on PR open (or Copilot is already requested), the call is a harmless no-op:
+Carry `HEAD_TIME` forward to Step 5. Do not block here — move straight to Phase 1, so Copilot's latency elapses *while* `/code-review` does its work.
 
-```bash
-gh api "repos/$REPO/pulls/$PR/requested_reviewers" \
-  -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>/dev/null \
-  && echo "Copilot review requested." \
-  || echo "Copilot already requested / auto-review enabled / not requestable — continuing."
-```
-
-Carry `HEAD_TIME` forward to Step 5. Do not block here — move straight to Phase 1.
+> If this skill is ever run on a PR that was **not** opened via `/create-pr` (so Copilot was never requested), the Step 5 poll will simply hit its `COPILOT_REVIEW_TIMEOUT` path and ask the user how to proceed — no review is silently lost. Re-open the PR through `/create-pr`, or request Copilot manually, if you need the review.
 
 ## Step 3: Phase 1 — Review (clean context)
 
@@ -149,5 +142,5 @@ Each phase ran from a clean context: the Phase 1 verdict was produced with no se
 - **Why two phases instead of one big subagent:** the review must be posted to the PR *before* feedback is gathered, so that Phase 2 sees the review as one of its inputs. Folding them into a single context would also re-introduce the bias this skill exists to prevent — the agent that wrote the review would then be the one judging how to address it.
 - **Relationship to `/ship-it`:** `/ship-it` takes implemented code → self-review → fixes → **opens** a PR and stops. `/review-and-address` starts from an **existing** PR and takes it review → addressed → mergeable. They compose: `/ship-it` to open, then `/review-and-address` to close out.
 - **Idempotent:** safe to re-run on the same PR. Phase 1 posts a fresh review; Phase 2 re-derives feedback from the live PR state each time.
-- **Why trigger Copilot early then poll, instead of just polling:** triggering it in Step 2 lets its ~4m latency run *concurrently* with Phase 1's review work, so by the time Step 5's gate runs the review is usually already in — the poll then confirms rather than waits. The poll keys on a review `submitted_at` newer than the current HEAD commit, because Copilot re-reviews on every push; matching "any Copilot review" would falsely pass on a stale review from an earlier push.
-- **Background, not idle:** Step 5 runs as a backgrounded Bash loop. The harness re-invokes the agent when it exits, so the gap between "Copilot requested" and "Phase 2 starts" collapses to Copilot's actual turnaround with zero turns burned polling-and-rechecking. This is the in-session, no-CI alternative to the GitHub Actions webhook approach (`pull_request_review` → headless Claude) noted in `address-feedback`'s Notes; use that workflow instead when the close-out must run while you're away from the session.
+- **Why capture the baseline early then poll, instead of just polling:** Copilot was requested upstream by `/create-pr` at PR-open time, so its ~4m latency is already running *concurrently* with Phase 1's review work — by the time Step 5's gate runs the review is usually already in, and the poll then confirms rather than waits. Recording `HEAD_TIME` in Step 2 is what lets the poll key on a review `submitted_at` newer than the current HEAD commit, because Copilot re-reviews on every push; matching "any Copilot review" would falsely pass on a stale review from an earlier push. This skill does **not** request Copilot itself — `/create-pr` Step 5b is the single requester, so every PR-open path funnels through one place.
+- **Background, not idle:** Step 5 runs as a backgrounded Bash loop. The harness re-invokes the agent when it exits, so the gap between "baseline captured" and "Phase 2 starts" collapses to Copilot's actual turnaround with zero turns burned polling-and-rechecking. This is the in-session, no-CI alternative to the GitHub Actions webhook approach (`pull_request_review` → headless Claude) noted in `address-feedback`'s Notes; use that workflow instead when the close-out must run while you're away from the session.

@@ -1,15 +1,30 @@
 ---
 name: ship-it
-description: "End-to-end feature delivery: kicks off a new feature / tech task / bug fix, implements it, runs a fresh-context self-review, applies required fixes, and opens a PR ready for external review. Stops after the PR is opened — use /address-feedback to handle review comments and quality gates. Triggers: 'ship it', 'ship a feature', 'ship-it', 'deliver this', 'end to end this', 'take this to PR'."
+description: "End-to-end feature delivery as a pure composition of the agency's skills: kicks off a new feature / tech task / bug fix, implements it, opens a PR (/create-pr), then reviews and addresses all feedback (/review-and-address) — merging automatically when --auto-merge is passed and all quality gates pass. Triggers: 'ship it', 'ship a feature', 'ship-it', 'deliver this', 'end to end this', 'take this to PR', 'take this all the way'."
 ---
 
-# Ship It — Kickoff to PR
+# Ship It — Kickoff to Merge
 
-This skill chains the front half of the delivery loop: kickoff → implement → self-review → PR. It stops once the PR is open. The back half (addressing review comments and quality gates) is handled by `/address-feedback`.
+This skill chains the **entire** delivery loop as a thin composition of existing skills — it re-implements none of their logic:
+
+```
+kickoff (/new-feature | /tech-task | /investigate-bug | /investigate-crash)
+  → implement & test
+  → /update-board → Review
+  → /ship-pr   (── /create-pr ──→ /review-and-address ──→ merge)
+```
+
+The back half — open PR, review, address, merge — is entirely `/ship-pr`. So the code review is **not** done inline here: it happens downstream inside `/review-and-address` (Phase 1 runs `/code-review` against the open PR and posts the verdict). There is no separate pre-PR self-review step — the PR is opened first, then reviewed and addressed from a clean context.
+
+**`--auto-merge`:** pass it to `/ship-it` and it is forwarded straight to `/ship-pr` (and on to `/review-and-address`), which merges the PR once all quality gates are green. Without the flag, the run stops at the merge gate for a human decision.
+
+**Push authorization:** per `shared-standards.md`, never push without explicit user approval. The approval gate lives in `/ship-pr` (before `/create-pr` auto-pushes) — ship-it does not push anything itself.
 
 ## Step 1: Determine Work Type
 
-Parse the user's prompt to decide which kickoff skill to invoke. Ask if ambiguous.
+First, note whether the user passed **`--auto-merge`** — it is not consumed here, only carried through to `/review-and-address` in Step 6.
+
+Then parse the user's prompt to decide which kickoff skill to invoke. Ask if ambiguous.
 
 | User said | Kickoff |
 |---|---|
@@ -36,66 +51,28 @@ Follow the implementation per the kickoff's standards. Hard requirements before 
 - No `!!` in Kotlin / no force-unwraps in Swift
 - Commits follow `[STORY-ID] @AgentName: description` format
 
-If any of these fail, fix before continuing. Do not push broken code expecting the self-review or CI to catch it.
+If any of these fail, fix before continuing. Do not push broken code expecting the downstream `/review-and-address` pass or CI to catch it.
 
 ## Step 4: Update Board
 
 Run `/update-board {TASK-ID} → Review` to move the task and commit the board change on the branch.
 
-## Step 5: Fresh-Context Self-Review (subagent)
+## Step 5: Take the Branch to Merge (`/ship-pr`)
 
-This is the step that replaces the manual "clear context, ask for code-review" loop. Spawn a fresh subagent that has no memory of the implementation conversation — it sees only the diff.
+The branch now has the implemented work committed and the board updated, but no PR yet — exactly the entry condition `/ship-pr` expects. Hand it off:
 
-Use the `Agent` tool with `subagent_type: general-purpose` (or a more specific reviewer if available in the project):
+Invoke **`/ship-pr`**, forwarding `--auto-merge` if the user passed it to `/ship-it`. `/ship-pr` owns the entire open → review → address → merge tail, and ship-it re-implements none of it:
 
-```
-description: "Pre-PR code review on current branch"
-prompt: |
-  You are performing a code review on the current branch before a PR is opened.
-  You have no prior context — review only what's in the diff.
+- collects the **push-approval gate** (per `shared-standards.md`, never push without explicit user approval),
+- runs `/create-pr` (rebase, screenshots, verification gate, push, `gh pr create`, **Copilot request**, worktree sweep),
+- runs `/review-and-address` (`/code-review` → background Copilot wait → `/address-feedback`),
+- merges under `--auto-merge` once all gates are green, or stops at the merge gate otherwise.
 
-  Steps:
-  1. Identify the base branch (usually `main`) and the current branch.
-  2. Run: git diff main...HEAD --stat, then git diff main...HEAD for full diff.
-  3. Read board-context.md to find the task ID and acceptance criteria.
-  4. Locate any feature docs in docs/{prd,brd,adr,rfc,design-spec}/ matching the task ID.
-  5. Apply the project's /code-review skill criteria:
-     - Architecture / ADR compliance
-     - Coding standards (see .claude/rules/*-coding-standards.md for the touched stack)
-     - Test coverage adequacy vs acceptance criteria
-     - Security (light pass — auth, input validation, secrets, PII in logs)
-     - T-013 render-decision rules if Compose code is touched
-     - Force-unwraps, hardcoded values, missing error states
-  6. Produce a verdict: APPROVED / CHANGES REQUESTED / BLOCKED
-  7. Group findings as REQUIRED (must fix before PR) and RECOMMENDED (nice to have).
+Do not pass any session narrative — hand `/ship-pr` only the `--auto-merge` flag. If `/ship-pr` aborts (rebase conflict, failed verification gate, or — unexpectedly — an existing PR for this branch), surface its reason and stop.
 
-  Report under 400 words. Be specific — include file:line for every finding.
-```
+## Step 6: Report
 
-## Step 6: Apply Required Fixes
-
-Read the subagent's report. For every REQUIRED finding:
-
-1. Apply the fix.
-2. Re-run the relevant tests.
-3. Commit per finding (or per logical group) with the standard commit format.
-
-For RECOMMENDED findings, present them to the user and ask whether to apply now or defer. Default to applying small ones (rename, missing test) and deferring larger ones (refactors, broader cleanups) as follow-up tasks.
-
-If the subagent returned BLOCKED, stop and surface the blocker to the user — do not open a PR.
-
-## Step 7: Create the PR
-
-Run `/create-pr --no-push`. This commits any uncommitted changes, runs the pre-push verification gate (Step 4b of `/create-pr`), and prepares the PR title and body — but does NOT push or call `gh pr create`. Per the project rule in `shared-standards.md`, wait for explicit user approval ("push it", "go ahead") before pushing.
-
-After approval:
-- `git push -u origin <branch>`
-- `gh pr create` using the title and body `/create-pr` prepared
-- Capture the PR URL and pass it to Step 8
-
-## Step 8: Hand Off to `/address-feedback`
-
-Print a clear handoff message:
+Relay `/ship-pr`'s final report verbatim under a ship-it header so the whole run reads as one:
 
 ```markdown
 ## ✅ Ship-It Complete
@@ -103,23 +80,15 @@ Print a clear handoff message:
 **PR:** {url}
 **Branch:** {branch}
 **Task:** {task-id} — {description}
-**Self-review:** {n} required fixes applied, {n} recommended deferred
-
-### Next Step
-
-External review will run automatically (CI, Copilot, human reviewers).
-When feedback is in, run:
-
-    /address-feedback
-
-Add `--auto-merge` if you want it to merge once everything is green and resolved:
-
-    /address-feedback --auto-merge
+**Review:** verdict {APPROVED / CHANGES REQUESTED} — posted to PR
+**Feedback:** {n} required applied, {n} recommended applied/deferred, checks {GREEN/RED}
+**Outcome:** {merged / awaiting merge gate / blocked on {reason}}
 ```
-
-Stop. Do not begin polling for feedback in this session.
 
 ## Notes
 
-- This skill stops at PR creation by design. The wait for external review is wall-clock minutes-to-hours; tying up a session polling for it wastes tokens and gives no value over running `/address-feedback` when you're ready.
-- If the user wants the back half automated event-driven (e.g., Copilot finishes → auto-respond), that lives in `.github/workflows/`, not in this skill.
+- **Pure composition.** ship-it re-implements nothing. Its front half routes to a kickoff skill and `/update-board`; its back half is entirely `/ship-pr` (which is itself just `/create-pr` + `/review-and-address`). ship-it owns only the kickoff/implement gate and the `--auto-merge` hand-through. If any downstream skill changes, ship-it inherits it for free.
+- **ship-it vs `/ship-pr`.** They differ by exactly the front end: `/ship-it` kicks off and implements, then delegates the rest to `/ship-pr`; run `/ship-pr` directly when the code is already written and committed on a branch with no PR yet.
+- **One Copilot requester.** The Copilot review is requested in exactly one place — `/create-pr` Step 5b, reached via `/ship-pr` — so every PR opened through ship-it gets it, and `/review-and-address` only waits for it (it does not request). Don't re-add a request anywhere in this chain.
+- **Not idle while waiting for Copilot.** The external-review wait is absorbed by `/review-and-address`'s background poll (the harness re-invokes on exit), so the session isn't tied up burning turns. This is why ship-it can run all the way to merge instead of stopping at PR-open.
+- **Fully unattended runs** (e.g., Copilot finishes → auto-respond with no session open) still belong in a `.github/workflows/` webhook, not here — use `--auto-merge` for in-session end-to-end, that workflow for away-from-keyboard.

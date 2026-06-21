@@ -368,18 +368,64 @@ Creates a pull request with a standardized format. The PR title includes the tas
 
 ### `/ship-it`
 
-End-to-end feature delivery in one command. Routes to the appropriate kickoff (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) based on intent, drives implementation through to passing tests, runs a **fresh-context self-review** via a subagent (replacing the manual "clear context, ask for code-review" step), applies REQUIRED fixes, and opens the PR via `/create-pr`. Stops once the PR is open — external review (CI, Copilot, humans) runs out-of-band.
+End-to-end feature delivery in one command, as a **pure composition** of the agency's skills — it re-implements nothing. Routes to the appropriate kickoff (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) based on intent, drives implementation through to passing tests, updates the board, then hands the ready branch to **`/ship-pr`** for the entire back half: open the PR (`/create-pr`), review and address feedback (`/review-and-address`), and merge. No inline self-review — the code review happens downstream inside `/review-and-address` against the open PR.
 
-**Human gate kept:** after the kickoff plan, before code is written.
+**Human gates kept:** after the kickoff plan, before code is written; and the push-approval gate (inside `/ship-pr`) before the PR is opened.
 
-**When to use:** Any time you'd otherwise type `/new-feature`, work through it, then manually clear context for review and open the PR.
+**Flags:**
+- `--auto-merge` — forwarded through `/ship-pr` to `/review-and-address`; merges the PR once all quality gates are green. Without it, the run stops at the merge gate.
+
+**When to use:** Any time you'd otherwise type `/new-feature`, work through it, then manually open and close out the PR.
 
 **Example triggers:**
 - "ship it: add dark mode toggle to settings"
 - "ship a feature for offline mode"
 - "end to end this bug fix"
+- "take this all the way and merge it" (implies `--auto-merge`)
 
-**Arguments:** Free-text description, optionally prefixed with `feature:` / `tech-task:` / `bug:` to skip the work-type prompt.
+**Arguments:** Free-text description, optionally prefixed with `feature:` / `tech-task:` / `bug:` to skip the work-type prompt. Optional `--auto-merge`.
+
+---
+
+### `/ship-pr`
+
+The back two-thirds of `/ship-it` for an **already-implemented branch** — code committed, no PR yet. A thin composition that opens the PR via `/create-pr`, then reviews and addresses all feedback via `/review-and-address`, merging when `--auto-merge` is passed and all gates pass. This is `/ship-it` without the kickoff/implement front end.
+
+Preflight guards: refuses if you're on the default branch, if there are no commits ahead of `main`, or if a PR already exists for the branch (in which case it points you to `/review-and-address`).
+
+**Human gate kept:** the push-approval gate before `/create-pr` opens the PR.
+
+**Flags:**
+- `--auto-merge` — forwarded to `/review-and-address`; merges once all quality gates are green. Without it, stops at the merge gate.
+
+**When to use:** The code is done and committed on a branch, and you want it opened, reviewed, addressed, and (optionally) merged in one command.
+
+**Example triggers:**
+- "ship pr"
+- "take this branch to merge"
+- "PR this and review it"
+- "open and close this PR with auto-merge" (implies `--auto-merge`)
+
+**Arguments:** None required (infers branch/task). Optional `--auto-merge`.
+
+---
+
+### `/review-and-address`
+
+Close out an **existing** PR in two clean-context phases: **Phase 1** runs `/code-review` and posts the verdict to the PR; **Phase 2** runs `/address-feedback` to resolve every comment and failing check. Between them it waits (background poll, zero idle turns) for Copilot's review — which it does **not** request; `/create-pr` is the single Copilot requester at PR-open time. Each phase starts from a clean context so neither the review nor the fix work is biased by the current session.
+
+**Flags:**
+- `--auto-merge` — passed through to Phase 2; merges once everything is green and resolved. Without it, stops at the merge gate.
+
+**When to use:** A PR already exists and you want it reviewed and driven to mergeable in one command. (To go from a ready branch → PR → merged, use `/ship-pr`; from nothing → implemented → merged, use `/ship-it`.)
+
+**Example triggers:**
+- "review and address"
+- "close out this PR"
+- "land this PR" (implies `--auto-merge`)
+- "review then fix PR #123"
+
+**Arguments:** Optional PR number (defaults to the current branch's PR). Optional `--auto-merge`.
 
 ---
 
@@ -468,7 +514,9 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/dispatch` | Dispatch parallel tasks via git worktrees | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
-| `/ship-it` | End-to-end: kickoff → implement → self-review → PR | Per task |
+| `/ship-it` | End-to-end: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag | Per task |
+| `/ship-pr` | Ready branch → PR → review-and-address → merge; `--auto-merge` flag | Per ready branch |
+| `/review-and-address` | Existing PR → `/code-review` → `/address-feedback`; `--auto-merge` flag | Per PR close-out |
 | `/address-feedback` | Resolve all PR comments + checks; `--auto-merge` flag | Per PR review cycle |
 | `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project |
 | `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
