@@ -22,7 +22,7 @@ The back half — open PR, review, address, merge — is entirely `/ship-pr`. So
 
 ## Step 1: Determine Work Type
 
-First, note whether the user passed **`--auto-merge`** — it is not consumed here, only carried through to `/review-and-address` in Step 6.
+First, note whether the user passed **`--auto-merge`** — it is not consumed here, only carried through to `/ship-pr` (and on to `/review-and-address`) in Step 5.
 
 Then parse the user's prompt to decide which kickoff skill to invoke. Ask if ambiguous.
 

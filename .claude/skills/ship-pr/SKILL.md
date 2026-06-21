@@ -33,7 +33,7 @@ DEFAULT=$(git remote show origin | sed -n 's/.*HEAD branch: //p')
 
 # Guard 2: there are commits to ship.
 AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
-[ "$AHEAD" -eq 0 ] && echo "⚠️  No commits ahead of $DEFAULT — nothing to open a PR for."
+[ "$AHEAD" -eq 0 ] && { echo "⚠️  No commits ahead of $DEFAULT — nothing to open a PR for."; exit 1; }
 
 # Guard 3: no PR exists yet for this branch.
 EXISTING=$(gh pr view "$BRANCH" --json number,url --jq '.number' 2>/dev/null)
