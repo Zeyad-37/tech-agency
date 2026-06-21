@@ -75,7 +75,9 @@ The system is designed around Kotlin Multiplatform (KMP) projects but supports t
 | `/dispatch` | Dispatch a task to an agent in an isolated git worktree for parallel execution |
 | `/code-review` | Perform a structured code review on a PR or branch |
 | `/create-pr` | Create a pull request with standardized format |
-| `/ship-it` | End-to-end delivery: kickoff → implement → fresh-context self-review → PR |
+| `/ship-it` | End-to-end delivery: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag |
+| `/ship-pr` | Ready branch → open PR → `/review-and-address` → merge; `--auto-merge` flag |
+| `/review-and-address` | Existing PR → `/code-review` (post verdict) → `/address-feedback`; `--auto-merge` flag |
 | `/address-feedback` | Resolve all PR comments + failing checks; `--auto-merge` flag to merge once green |
 | `/investigate-bug` | Investigate a functional bug with root cause analysis |
 | `/investigate-crash` | Investigate a Crashlytics crash spike and identify the culprit commit |
