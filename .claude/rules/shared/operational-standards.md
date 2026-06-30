@@ -107,3 +107,29 @@
 - High-severity debt (security vulnerabilities, architectural blockers, reliability risks) is treated as P1 — pulled into the queue immediately
 - @Sage reviews architecture-level debt quarterly and proposes refactoring initiatives as RFCs
 - Completed debt items are moved to `docs/tech-debt/resolved.md` with the resolution date and approach taken
+
+## Security / Privacy Feature Classification
+
+A **security/privacy feature** is any feature whose job is to protect user data or restrict access — e.g. app lock / biometric gating, encryption or secure storage, authentication/session handling, PII collection or export/deletion, consent management. These MUST NOT enter the codebase through the lightest path (a plain settings toggle, or a stray `expect`/`actual` stub that compiles but is never wired in). A security control that fails **silently** — no crash, no error, no signal — can ship broken and slip every quality gate that keys off errors, line coverage, or happy-path tests, and stay broken for a long time because nothing surfaces it.
+
+When a feature is classified security/privacy, the following are **required before merge** (in addition to the normal Quality Gates):
+
+1. **ADR** — @Sage records an ADR covering the threat it addresses, the platform mechanisms used **and their lifecycle/edge cases** (e.g. process death, backgrounding vs destruction, no-credential devices, token expiry), and the chosen defaults. @Zeyad approves. (Scope: required whenever the feature introduces a new security mechanism or changes a security-relevant default; a trivial tweak to an existing, already-ADR'd control may reference the existing ADR.)
+2. **Cross-platform acceptance criteria** — explicit Given/When/Then for **every** platform the feature ships on (Android, iOS, Web, server), including the **negative cases** (disabled, no credential enrolled, backgrounded, cold start, expired/invalid). @Diana/@Apex own these.
+3. **Behavioral test coverage** — not just a happy-path unit test. The control's decision logic is extracted into a **pure, unit-tested helper**, and at least one test exercises the real enable→enforce path per platform. A security control with no test is treated as not done.
+4. **Observability** — the control emits a no-PII signal when it activates (e.g. prompt-shown / auth-success / auth-failure / skipped-disabled) so that "it silently never runs" is detectable in logs/metrics. A control with no signal is indistinguishable from one that was never built.
+5. **Mandatory @Shield review** — regardless of which domain authored it. (This extends the Code Review Matrix's existing auth/encryption/PII rule to the full security/privacy-feature set, and makes the ADR + per-platform tests + observability explicit pre-merge gates.)
+
+**PR checklist (paste into the PR description for any security/privacy feature):**
+
+```
+Security/Privacy feature — pre-merge gates:
+- [ ] ADR recorded and @Zeyad-approved (or references an existing ADR for an unchanged mechanism)
+- [ ] Per-platform acceptance criteria (incl. disabled / no-credential / backgrounded / cold-start)
+- [ ] Decision logic extracted to a pure, unit-tested helper
+- [ ] At least one per-platform test exercises the real enable→enforce path
+- [ ] No-PII observability signal on activate / success / failure / skipped
+- [ ] @Shield review completed
+```
+
+The implementing agent self-identifies a feature as security/privacy and applies this gate; reviewers (and @Atlas at sync) flag any security/privacy feature that arrived without it.
