@@ -226,19 +226,19 @@ Compute readiness:
 
 If any box is unchecked, report what's missing and stop.
 
-If all green:
+If all green, both modes run the **same pre-merge sequence**. The only difference between them is whether a human confirms first — nothing merges immediately in either mode, because the board commit has to land in the PR first.
 
-- **Without `--auto-merge`**: print a summary and ask the user "Merge now? (y/n)". Wait for explicit confirmation.
-- **With `--auto-merge`**: merge immediately.
+**Pre-merge board sequence (both modes):**
 
-Once the merge is approved, write the final board transition **onto the PR branch before merging** — the board update must land in the same PR as the change, never as a separate commit on `main` (see `@.claude/rules/shared/board-in-pr.md`):
+1. Run `/update-board {TASK-ID} → Done`. The board update must land in the same PR as the change, never as a separate commit on `main` (see `@.claude/rules/shared/board-in-pr.md`). `/update-board` Step 3 commits **and pushes** for a `→ Done` transition — it is the single owner of that push, so do not run `git push` again here.
+2. That push is a new head and re-triggers required checks. **Re-evaluate the readiness checklist above against the new head** — "All required checks GREEN" and "Branch up to date with base" were computed against the pre-board-commit head and no longer hold. Wait for the new run to finish.
+3. If the new run fails, drop the Done commit off the branch (`git reset --hard HEAD~1` then `git push --force-with-lease`), move the task back to Review, and re-enter Step 3 with the new failure — bounded by the same 3-iteration cap as Step 7c.
+4. Once the new run is green, merge.
 
-```bash
-# Run /update-board {TASK-ID} → Done, then push so it joins the PR
-git push
-```
+Then take the merge decision:
 
-Then wait for the pushed commit's required checks to report green before merging — the board commit is a new head and re-triggers CI.
+- **Without `--auto-merge`**: print a summary and ask the user "Merge now? (y/n)". Wait for explicit confirmation, then run the pre-merge board sequence and merge.
+- **With `--auto-merge`**: skip the confirmation prompt only — proceed straight into the pre-merge board sequence, then merge.
 
 Merge command:
 

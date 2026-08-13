@@ -50,9 +50,19 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 [Items reviewed but not pulled, with brief reason]
 ```
 
-After producing the report, update `board-context.md` to move the selected items to Ready.
+## Saving the Report
 
-This board edit has no code change of its own, so it does **not** get its own PR and is **never** committed on `main` (see `@.claude/rules/shared/board-in-pr.md`):
+**Always save the report** to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/retros/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
 
-- If this replenishment run also wrote a document (a saved replenishment report, PRD, RFC), commit the board edit on that document's branch — both merge in one PR.
-- If it produced no committed document, leave the board edit uncommitted and say so in the summary. The first implementation PR for these tasks carries it: the agent that picks one up commits the pending edit alongside its own `→ In Progress` transition.
+Then update `board-context.md` to move the selected items to Ready.
+
+## Committing
+
+The board edit and the replenishment report are one change. Commit them together on the same branch, and both merge in that one PR (see `@.claude/rules/shared/board-in-pr.md`):
+
+```bash
+git add docs/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
+git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
+```
+
+Never open a board-only PR, and never commit the board on `main`. Do **not** leave the board edit uncommitted for a later PR to carry: the next agent's worktree is cut from `origin/main`, so it would see neither the pending edit nor the Ready tasks this run created, and the edit would be discarded when this worktree is removed.

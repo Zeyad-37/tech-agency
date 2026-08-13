@@ -81,6 +81,14 @@ board.update_task(task_id, { completed: "YYYY-MM-DD", artifact: "PR #{pr_number}
 ```
 Push right after committing (see Step 3), then let the pushed commit's required checks go green before merging — the board commit is a new head and re-triggers CI.
 
+**If that re-triggered run fails**, the Done commit is on the branch while the PR is still open — the exact state this design exists to prevent. Undo it:
+
+1. `git reset --hard HEAD~1` (the Done commit is the branch tip) then `git push --force-with-lease`.
+2. Move the task back to Review.
+3. Hand the failure back to `/address-feedback` Step 3 as new feedback.
+
+Bounded by the same **3-iteration cap** as `/address-feedback` Step 7c — on the third failed run, stop and surface it to the user instead of looping again.
+
 ## Step 3: Commit the Board Change
 
 After updating `board-context.md`, commit it on the current branch so the board state travels with the code:
@@ -112,8 +120,11 @@ git push
 
 Some board edits have no code change to accompany: `/replenish` moving Backlog → Ready, `/new-feature` or `/tech-task` creating tasks, `/retro` filing action items.
 
-- If the planning run produced a document (PRD, BRD, ADR, RFC, retro report), commit the board edit on the **same branch as that document** — both merge in one PR.
-- If it produced no document, **leave the board edit uncommitted**. Do not commit it to `main` and do not open a PR for it. Tell the user it's pending, and let the first implementation PR for those tasks carry it: the agent picking up the task commits the pending edit alongside its own `→ In Progress` transition.
+Every planning run saves a document, so **there is always a carrier** and a planning board edit is never left uncommitted:
+
+- Commit the board edit on the **same branch as the document that run produced** — PRD, BRD, ADR, RFC, retro report (`docs/retros/`), or replenishment report (`docs/replenishment/`). Both merge in one PR.
+- If a run looks like it produced no document, that run is incomplete: it must save its report first, then commit the board edit with it. Do **not** leave the edit uncommitted for a later PR to carry — the agent that would carry it works in a worktree cut from `origin/main`, so it never sees the pending edit nor the Ready tasks the edit created, and the edit is discarded when the planning worktree is removed.
+- Still never commit it to `main`, and never open a board-only PR.
 
 ## Step 4: Confirm the Update
 
