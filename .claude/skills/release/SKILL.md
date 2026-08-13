@@ -90,4 +90,4 @@ Tag release after successful production deploy: git tag v[X.Y.Z]
 - Echo prepares support for new features
 - Save release record to `docs/releases/v[X.Y.Z].md`
 - If a marketing-agency shared context exists for this product (directory containing `releases.md` + `config.md`, e.g. a `*-shared-context` sibling of the repo), append a row to its `releases.md`: date, version, user-facing summary, size (patch/minor/major/tier-1), Consumed = no — this feeds marketing-agency's `launch-from-release`
-- Update `board-context.md` — clear Done column, note the release
+- Update `board-context.md` — clear Done column, note the release. This is a board edit, so it rides with the release record above rather than landing on `main` on its own (see `@.claude/rules/shared/board-in-pr.md`): commit `board-context.md` on the **same branch** as `docs/releases/v[X.Y.Z].md` and open one PR carrying both. Do not commit the Done-column clear directly on `main` as a post-merge cleanup step.
