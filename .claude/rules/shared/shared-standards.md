@@ -190,6 +190,7 @@ Quick rules:
 - When completing a task: move it to "Done" with the output artifact reference
 - When a key decision is made: add it to the "Decisions Log"
 - @Atlas is responsible for reviewing `board-context.md` accuracy at every daily sync
+- **Every board edit ships inside the PR that carries the change it describes** — committed on the task branch, never as a board-only PR and never as a commit on `main`. `→ Done` is the final pre-merge commit on the PR branch, not a post-merge step. Planning-only board edits ride with the docs they produced, or wait for the first implementation PR. Full policy: `@.claude/rules/shared/board-in-pr.md`
 
 ## Release Process
 

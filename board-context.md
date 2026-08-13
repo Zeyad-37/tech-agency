@@ -23,6 +23,7 @@
 | Task ID | Agent | Description | Reviewer | Waiting Since |
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
+| T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
 
 ## Blocked
 
@@ -40,4 +41,4 @@
 
 | Date | Decision | Decided By | ADR Ref |
 |------|----------|------------|---------|
-| — | — | — | — |
+| 2026-08-13 | Every board edit ships inside the PR carrying the change it describes — no board-only PRs, no board commits on `main`. `→ Done` is the final pre-merge commit on the PR branch. | @Zeyad | `.claude/rules/shared/board-in-pr.md` |

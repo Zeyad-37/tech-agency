@@ -397,7 +397,7 @@ After posting:
 1. Tag the author agent and @Atlas with the verdict (in the PR comment body or the response).
 2. If BLOCKED, also tag @Sage (architecture issues) or @Shield (security issues).
 3. If APPROVED and the change is security-sensitive, confirm @Shield has separately reviewed.
-4. Run `/update-board` to update the board and commit that board change:
-   - If **APPROVED**: `/update-board {TASK-ID} → Done` — the board commit will be included in the merge
+4. Update the board — any board commit goes on the PR branch, never on `main` and never as its own PR (see `@.claude/rules/shared/board-in-pr.md`):
+   - If **APPROVED**: no board update here. The task stays in Review until the merge gate, where `→ Done` is committed onto the PR branch immediately before merging. Approving is not merging — checks can still fail.
    - If **CHANGES REQUESTED**: task stays in Review (no board update needed)
-   - If **BLOCKED**: `/update-board {TASK-ID} → Blocked` with the blocking reason
+   - If **BLOCKED**: `/update-board {TASK-ID} → Blocked` with the blocking reason, committed on the PR branch

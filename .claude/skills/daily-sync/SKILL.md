@@ -44,3 +44,7 @@ Produce a status report in this format:
 ```
 
 After producing the report, update `board-context.md` to reflect any status changes discovered during the sync.
+
+Each correction is committed on the branch of the task it describes, not centrally by Atlas and never on `main` (see `@.claude/rules/shared/board-in-pr.md`). A sync only *reviews* board accuracy — where a task's real state differs from the board, the owning agent commits the transition on that task's branch. If a correction has no branch to ride with (a task whose branch is already merged, say), record it in the sync report and raise it with the owning agent rather than committing it on `main`.
+
+Note that the merged board under-reports in-flight work: In Progress and Blocked entries live on unmerged branches. Cross-check the counts above against open PRs and branches (`gh pr list`, `git branch -r`) — see `board-in-pr.md` § "What the Committed Board Records".
