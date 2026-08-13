@@ -231,6 +231,15 @@ If all green:
 - **Without `--auto-merge`**: print a summary and ask the user "Merge now? (y/n)". Wait for explicit confirmation.
 - **With `--auto-merge`**: merge immediately.
 
+Once the merge is approved, write the final board transition **onto the PR branch before merging** — the board update must land in the same PR as the change, never as a separate commit on `main` (see `@.claude/rules/shared/board-in-pr.md`):
+
+```bash
+# Run /update-board {TASK-ID} → Done, then push so it joins the PR
+git push
+```
+
+Then wait for the pushed commit's required checks to report green before merging — the board commit is a new head and re-triggers CI.
+
 Merge command:
 
 ```bash
@@ -252,7 +261,7 @@ git branch -d "$BRANCH"               # safe-delete now that the branch isn't ch
 
 Remove the worktree before deleting the branch (git refuses to delete a branch that's still checked out in a worktree). If `$WT_PATH` was the main checkout itself (none was created — rare), skip `git worktree remove` and just `git checkout main`.
 
-Run `/update-board {TASK-ID} → Done` to commit the final board transition on `main`.
+No board update happens here — `→ Done` was already committed and pushed onto the PR branch in Step 8, so it merged with the change. Never commit `board-context.md` on `main`.
 
 Print:
 

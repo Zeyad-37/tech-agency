@@ -16,5 +16,5 @@ At the end of any task:
 3. **Verify tests pass**: Run the full test suite for the affected module and confirm all tests pass before proceeding. Do not commit failing tests.
 4. **Save artifacts**: Write all output documents to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Create the folder if it does not exist.
 5. **Commit**: Commit with `[STORY-ID] @YourAgentName: description` format (e.g., `[US-042] @Kai: Add email validation`). Commits happen inside the worktree on the task branch — never on `main`.
-6. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass. The board edit is committed on the task branch and merges back to `main` via the PR, just like the code change.
+6. **Update the board**: Move your task to "Review" in `board-context.md` only after tests pass. The board edit is committed on the task branch and merges back to `main` via the PR, just like the code change — never as a board-only PR and never as a commit on `main` (see `@.claude/rules/shared/board-in-pr.md`).
 7. **Handoff**: Use the appropriate handoff template from @.claude/rules/shared/handoff-protocol.md. Tag the receiving agent and @Atlas. Open the PR with `/create-pr` — its post-PR sweep auto-removes any worktree whose PR has already merged, so cleanup is automatic for the happy path.

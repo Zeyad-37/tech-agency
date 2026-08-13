@@ -19,6 +19,8 @@ your-project/                        # Copy project-template/ into each new proj
 │   │   ├── operational-standards.md # API versioning, dependencies, feature flags, performance, privacy
 │   │   ├── handoff-protocol.md      # All handoff templates + archiving convention
 │   │   ├── crash-investigation.md   # Crash triage & post-mortem protocol
+│   │   ├── worktree-first.md        # Every task runs in its own git worktree
+│   │   ├── board-in-pr.md           # Board edits ship inside the PR carrying the change
 │   │   ├── node-coding-standards.md # Node.js/Fastify/Prisma coding standards (Flux)
 │   │   ├── python-coding-standards.md # Python/FastAPI/SQLAlchemy coding standards (Pyra)
 │   │   ├── jvm-coding-standards.md  # JVM/Spring Boot/JPA coding standards (Forge)
