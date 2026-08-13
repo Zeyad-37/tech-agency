@@ -71,6 +71,8 @@ Hotfix branches cut from the release tag instead of `origin/main` — replace st
 
 `board-context.md` is edited in the worktree alongside the task work. The board update commits onto the task branch and merges back to `main` via the same PR as the code change. There is no "Atlas updates the board in the main checkout" path — that would violate the worktree-first rule.
 
+**Every board edit ships inside the PR that carries the change it describes.** There is no board-only PR, and no board commit directly on `main`. See `@.claude/rules/shared/board-in-pr.md` for the full policy — where each transition commits, when `→ Done` is written, and where planning-only board edits land.
+
 If multiple worktrees touch `board-context.md` in parallel, the second PR to merge will hit a conflict and must rebase. That's expected and acceptable — the cost is small, the alternative (a privileged main-checkout writer) is worse.
 
 ## Parallel Sessions

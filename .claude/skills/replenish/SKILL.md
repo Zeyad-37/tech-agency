@@ -51,3 +51,8 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 ```
 
 After producing the report, update `board-context.md` to move the selected items to Ready.
+
+This board edit has no code change of its own, so it does **not** get its own PR and is **never** committed on `main` (see `@.claude/rules/shared/board-in-pr.md`):
+
+- If this replenishment run also wrote a document (a saved replenishment report, PRD, RFC), commit the board edit on that document's branch — both merge in one PR.
+- If it produced no committed document, leave the board edit uncommitted and say so in the summary. The first implementation PR for these tasks carries it: the agent that picks one up commits the pending edit alongside its own `→ In Progress` transition.
