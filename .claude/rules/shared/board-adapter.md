@@ -110,6 +110,8 @@ The exact mapping depends on the project's board configuration. When setting up 
 
 ## Agent Guidelines
 
+0. **Board writes ship inside the PR carrying the change.** Whatever the backend, a `board-context.md` write is committed on the branch that carries the change it describes and merges in that change's PR — never as a board-only PR, never as a commit on `main`. See `@.claude/rules/shared/board-in-pr.md`. (External backends like Jira write through their API, where this doesn't apply; the local mirror still follows the rule.)
+
 1. **Always check `board_backend`** before any board interaction. Read `.claude/settings.json` at the start of any skill that touches the board.
 
 2. **Use operations, not raw access.** Never write `cat board-context.md` directly in a skill. Always go through the operation abstraction. If the backend is markdown, the operation translates to `cat board-context.md` — but the skill shouldn't know that.

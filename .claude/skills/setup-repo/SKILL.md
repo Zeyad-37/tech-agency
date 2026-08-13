@@ -87,7 +87,7 @@ test -f board-context.md && echo "[✓] board-context.md exists" || echo "[✗] 
 
 # 4. Rules
 echo "--- Rules ---"
-for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter; do
+for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter board-in-pr worktree-first; do
     test -f ".claude/rules/${rule}.md" && echo "[✓] ${rule}.md" || echo "[✗] ${rule}.md missing"
 done
 
@@ -239,7 +239,7 @@ For each missing item from the audit, copy it from the project template. Skip it
 mkdir -p .claude/rules
 
 # Copy only missing rule files
-for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter; do
+for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter board-in-pr worktree-first; do
     if [ ! -f ".claude/rules/${rule}.md" ]; then
         cp {project-template}/.claude/rules/${rule}.md .claude/rules/
         echo "Copied: ${rule}.md"

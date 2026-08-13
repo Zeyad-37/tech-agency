@@ -67,4 +67,6 @@ After saving the retrospective, you MUST complete these steps to ensure action i
 
 3. **Cross-reference previous retros** — read `docs/retros/` for the last 2 retros. Check if any previous action items are still open in `board-context.md`. If so, flag them in the current retro under a "Carry-Over Items" section and escalate overdue items to @Atlas.
 
+4. **Commit the board edit with the retro document** — the action items and the retro report are one change, so commit `board-context.md` on the same branch as `docs/retros/[date]-retro.md`; both merge in that PR. Never open a board-only PR and never commit the board on `main` (see `@.claude/rules/shared/board-in-pr.md`).
+
 Action items are only considered resolved when the fix is deployed and verified — not just when the code is written. Reference `docs/incident-response.md` for the full feedback loop closure policy.
