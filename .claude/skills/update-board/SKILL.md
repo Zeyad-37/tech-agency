@@ -123,7 +123,7 @@ Some board edits have no code change to accompany: `/replenish` moving Backlog �
 Every planning run saves a document, so **there is always a carrier** and a planning board edit is never left uncommitted:
 
 - Commit the board edit on the **same branch as the document that run produced** — PRD, BRD, ADR, RFC, retro report (`docs/retros/`), or replenishment report (`docs/replenishment/`). Both merge in one PR.
-- If a run looks like it produced no document, that run is incomplete: it must save its report first, then commit the board edit with it. Do **not** leave the edit uncommitted for a later PR to carry — the agent that would carry it works in a worktree cut from `origin/main`, so it never sees the pending edit nor the Ready tasks the edit created, and the edit is discarded when the planning worktree is removed.
+- If a run looks like it produced no document, that run is incomplete: it must save its report first, then commit the board edit with it. Do **not** leave the edit uncommitted for a later PR to carry — the agent that would carry it works in a worktree cut from its resolved base branch (`origin/main` or an epic integration branch — see `.claude/rules/shared/worktree-first.md` § Base Branch Resolution), so it never sees the pending edit nor the Ready tasks the edit created, and the edit is discarded when the planning worktree is removed.
 - Still never commit it to `main`, and never open a board-only PR.
 
 ## Step 4: Confirm the Update

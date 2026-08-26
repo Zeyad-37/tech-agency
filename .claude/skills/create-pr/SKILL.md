@@ -31,6 +31,8 @@ The base branch is where this PR merges into AND what the branch is rebased onto
 2. **Auto-detect an epic base** — if any `origin/epic/*` branch exists, pick the candidate (`main` + every `origin/epic/*`) whose merge-base with `HEAD` is the most recent commit. If an epic branch wins, confirm with @Zeyad before proceeding: "This branch appears to be cut from `epic/US-100-checkout` — target it instead of `main`?"
 3. **Default** — `main`.
 
+(The hotfix step from `worktree-first.md`'s resolution order is intentionally absent here: hotfix PRs are opened and merged by the `/hotfix` process, which owns its own release-branch + `main` merge flow — they don't go through `/create-pr`'s base detection.)
+
 ```bash
 BASE="${BASE_FLAG:-main}"
 if [ -z "$BASE_FLAG" ] && git ls-remote --heads origin 'epic/*' | grep -q .; then

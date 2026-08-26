@@ -59,7 +59,7 @@ Ready to open PR for {task-id} — {AHEAD} commits on {branch}. Push and open th
 
 On approval, invoke **`/create-pr`** (the default auto-push path — do **not** pass `--no-push`). That single call owns everything PR-open:
 
-- rebases onto `main` if behind,
+- resolves the PR base (its Pre-flight 0: `--base` flag → auto-detected epic integration branch → `main`) and rebases onto it if behind,
 - captures before/after screenshots for any UI changes,
 - runs the pre-push verification gate (iOS compile / host tests / screenshot-test compile),
 - pushes the branch and runs `gh pr create` with the standard template,
