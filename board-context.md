@@ -24,7 +24,6 @@
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
-| T-015 | @Claude | Dynamic base-branch resolution for /dispatch, /dispatch-task, /create-pr (epic integration branches) | @Zeyad | 2026-08-26 |
 
 ## Blocked
 
@@ -36,7 +35,7 @@
 
 | Task ID | Agent | Description | Output | Completed |
 |---------|-------|-------------|--------|-----------|
-| — | — | — | — | — |
+| T-015 | @Claude | Dynamic base-branch resolution for /dispatch, /dispatch-task, /create-pr (epic integration branches) + optional Copilot gate | PR #15 | 2026-08-26 |
 
 ## Decisions Log
 
