@@ -39,9 +39,14 @@ else
   # 3. Build the worktree path. Convention: ../{repo}-worktrees/{branch-slug}
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 
-  # 4. Make sure main is current, then create the worktree.
-  git -C "$MAIN_REPO" fetch origin main
-  git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
+  # 4. Resolve the base branch, make sure it's current, then create the worktree.
+  #    BASE is main by default. It is an epic integration branch (epic/{EPIC-ID}-{slug})
+  #    when the task belongs to an epic that has one — the worktree then branches off
+  #    the integration branch AND its PR merges back into it. See "Base Branch
+  #    Resolution" below.
+  BASE="main"   # or "epic/US-100-checkout" when working inside an epic
+  git -C "$MAIN_REPO" fetch origin "$BASE"
+  git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
 
   # 5. Move into the worktree. EVERY subsequent command runs here.
   cd "$WORKTREE_DIR"
@@ -64,8 +69,20 @@ If either verification fails, **stop immediately and report**. Do not proceed in
 | Hotfix | `hotfix/{version}/{slug}` | `hotfix/v1.2.1/fix-login-crash` |
 | Bug fix | `{BUG-ID}/{slug}` | `BUG-017/null-profile-crash` |
 | Triage before ID assigned | `triage/{slug}` | `triage/crash-spike-2026-05-21` |
+| Epic integration branch | `epic/{EPIC-ID}-{slug}` | `epic/US-100-checkout` |
 
 Hotfix branches cut from the release tag instead of `origin/main` — replace step 4 above with `git worktree add -b "$BRANCH" "$WORKTREE_DIR" v{X.Y.Z}`.
+
+## Base Branch Resolution
+
+The base branch — what a worktree branches **off from** and what its PR merges **into** — is the same branch on both ends (hotfixes excepted: they cut from a release tag and merge per the hotfix process), and is resolved per task in this order:
+
+1. **Explicit instruction** — @Zeyad (or the dispatching skill) named a base: `--base <branch>` or "branch off `epic/US-100-checkout`". Use it verbatim after verifying it exists on the remote.
+2. **Epic integration branch** — the task belongs to an epic with an `epic/{EPIC-ID}-{slug}` branch. Story branches for that epic cut from and PR back into the integration branch; the integration branch itself merges to `main` in one reviewed PR when the epic completes. If the epic linkage is inferred rather than stated, confirm before creating the worktree.
+3. **Hotfix** — cut from the release tag `v{X.Y.Z}`; merge per the hotfix process (release branch + `main`).
+4. **Default** — `origin/main`.
+
+An epic integration branch is itself created from `origin/main` (`git branch epic/{EPIC-ID}-{slug} origin/main && git push -u origin epic/{EPIC-ID}-{slug}`) and is NOT a worktree task branch — no direct commits on it; it only receives story-branch PR merges and periodic `main` merges to stay current.
 
 ## Board Updates Happen in the Worktree
 

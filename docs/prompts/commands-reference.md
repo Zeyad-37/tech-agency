@@ -312,7 +312,9 @@ Covers: tooling improvements, CI/CD changes, refactoring, design system creation
 
 ### `/dispatch`
 
-Dispatches one or more tasks to run in parallel using git worktrees. Each task gets its own isolated worktree and branch so agents don't interfere with each other's work. Handles the full lifecycle: parse the task list, create worktrees with proper branch naming, hand off to the assigned agent, and track progress. After work is complete, the agent pushes and creates a PR. Worktrees are cleaned up after merge.
+Dispatches one or more tasks to run in parallel using git worktrees. Each task gets its own isolated worktree and branch so agents don't interfere with each other's work. Handles the full lifecycle: parse the task list, resolve the base branch per task, create worktrees with proper branch naming, hand off to the assigned agent, and track progress. After work is complete, the agent pushes and creates a PR. Worktrees are cleaned up after merge.
+
+**Base branch resolution (per task):** the branch a worktree cuts off from is also the branch its PR merges into. Resolved in order: explicit `--base <branch>` (or saying "branch off X") → epic integration branch (`epic/{EPIC-ID}-{slug}`, confirmed with you if inferred) → hotfix release tag → `main`. Different tasks in one multi-dispatch can have different bases. See `.claude/rules/shared/worktree-first.md` § Base Branch Resolution.
 
 **When to use:** When you have multiple independent tasks that can be worked on simultaneously — e.g., two features on different modules, a backend task and a frontend task, or any set of tasks that don't share files.
 
@@ -321,8 +323,25 @@ Dispatches one or more tasks to run in parallel using git worktrees. Each task g
 - "work on these at the same time"
 - "run these tasks simultaneously"
 - "parallel execution: US-042 and US-043"
+- "dispatch @Kai the checkout screen, branch off the epic branch"
 
-**Arguments:** Provide the task list — either task IDs from the board or inline descriptions with assigned agents.
+**Arguments:** Provide the task list — either task IDs from the board or inline descriptions with assigned agents. Optionally `--base <branch>` to branch off (and PR back into) an epic integration branch instead of `main`.
+
+---
+
+### `/dispatch-task`
+
+Meta-skill that combines upfront planning with parallel worktree execution — effectively `/tech-task` (or `/new-feature`, `/investigate-bug`, `/investigate-crash`) followed by `/dispatch`. **Phase 1** runs the full planning chain for the given task type in the main repo — docs (RFC/BRD/ADR/triage report), board tasks, agent routing — and stops for explicit @Zeyad approval. **Phase 2** creates one worktree per implementation task off the approved base branch and hands off to each agent in parallel, same mechanics as `/dispatch`.
+
+**When to use:** When a piece of work needs both planning AND parallel implementation. Use `/dispatch` instead when planning is already done, and the plain planning skills (`/tech-task`, `/new-feature`, …) when the implementation is sequential.
+
+**Example triggers:**
+- "/dispatch-task --type tech-task 'migrate the design system to tokens'"
+- "dispatch a new feature"
+- "plan then dispatch"
+- "plan this and parallelize the implementation"
+
+**Arguments:** `--type <new-feature | tech-task | investigate-bug | investigate-crash>` (inferred from the description if omitted), optionally `--base <branch>` for epic work, and the task description.
 
 ---
 
@@ -349,7 +368,7 @@ Supports all lifecycle transitions: Ready → In Progress, In Progress → Block
 
 ### `/create-pr`
 
-Creates a pull request with a standardized format. The PR title includes the task ID (e.g., `[US-042] Add email validation`), and the body lists the primary authoring agent and all participating agents, a summary of changes, related docs, a test plan, and a review checklist. Suggests reviewers based on the code review matrix.
+Creates a pull request with a standardized format. The PR title includes the task ID (e.g., `[US-042] Add email validation`), and the body lists the primary authoring agent and all participating agents, a summary of changes, related docs, a test plan, and a review checklist. Suggests reviewers based on the code review matrix. The PR base is resolved dynamically (Pre-flight 0): `--base <branch>` if passed, else auto-detected (an `epic/*` integration branch the current branch was cut from, confirmed with you), else `main` — and the branch is rebased onto that base before the PR opens.
 
 **When to use:** After an agent finishes a task and the board has been updated to Review. Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke this automatically, but you can also call it directly.
 
@@ -360,7 +379,7 @@ Creates a pull request with a standardized format. The PR title includes the tas
 - "push and create PR"
 - "ready for review"
 
-**Arguments:** None required — infers task ID, branch, and agents from the current context.
+**Arguments:** None required — infers task ID, branch, and agents from the current context. Optionally `--base <branch>` to target an epic integration branch instead of `main` (dispatched agents receive this from `/dispatch` / `/dispatch-task`).
 
 ---
 
@@ -412,7 +431,7 @@ Preflight guards: refuses if you're on the default branch, if there are no commi
 
 ### `/review-and-address`
 
-Close out an **existing** PR in two clean-context phases: **Phase 1** runs `/code-review` and posts the verdict to the PR; **Phase 2** runs `/address-feedback` to resolve every comment and failing check. Between them it waits (background poll, zero idle turns) for Copilot's review — which it does **not** request; `/create-pr` is the single Copilot requester at PR-open time. Each phase starts from a clean context so neither the review nor the fix work is biased by the current session.
+Close out an **existing** PR in two clean-context phases: **Phase 1** runs `/code-review` and posts the verdict to the PR; **Phase 2** runs `/address-feedback` to resolve every comment and failing check. Between them it waits (background poll, zero idle turns) for Copilot's review — an **optional gate**: it first probes whether Copilot is actually available for the repo (request pending, or has ever reviewed there) and silently skips the wait when it isn't, reserving the halt for a review that is genuinely still in flight. It does **not** request Copilot; `/create-pr` is the single Copilot requester at PR-open time. Each phase starts from a clean context so neither the review nor the fix work is biased by the current session.
 
 **Flags:**
 - `--auto-merge` — passed through to Phase 2; merges once everything is green and resolved. Without it, stops at the merge gate.
@@ -511,7 +530,8 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/rfc` | Write an RFC for large features | Per epic / large feature |
 | `/sprint-report` | Sprint metrics, throughput, cycle times, trends | Per sprint / monthly |
 | `/tech-task` | Technical/infrastructure task kickoff | As needed |
-| `/dispatch` | Dispatch parallel tasks via git worktrees | As needed |
+| `/dispatch` | Dispatch parallel tasks via git worktrees (dynamic base: `--base` / epic branch / main) | As needed |
+| `/dispatch-task` | Plan (tech-task/new-feature/bug/crash chain) then dispatch to parallel worktrees | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
 | `/ship-it` | End-to-end: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag | Per task |

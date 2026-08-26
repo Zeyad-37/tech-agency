@@ -73,6 +73,7 @@ The system is designed around Kotlin Multiplatform (KMP) projects but supports t
 | `/update-board` | Move a task between board columns (In Progress, Blocked, Review, Done) |
 | `/replenish` | Review backlog, prioritize items, move them to Ready |
 | `/dispatch` | Dispatch a task to an agent in an isolated git worktree for parallel execution |
+| `/dispatch-task` | Plan (tech-task / new-feature / bug / crash chain) then dispatch the implementation in parallel |
 | `/code-review` | Perform a structured code review on a PR or branch |
 | `/create-pr` | Create a pull request with standardized format |
 | `/ship-it` | End-to-end delivery: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag |
@@ -227,7 +228,9 @@ Work happens on branches following the naming convention `{STORY-ID}/{descriptio
 
 ### Parallel Execution
 
-The `/dispatch` command creates isolated git worktrees so multiple agents can work simultaneously without file conflicts. Each agent gets its own branch and working directory.
+The `/dispatch` command creates isolated git worktrees so multiple agents can work simultaneously without file conflicts. Each agent gets its own branch and working directory. Worktrees branch off — and PR back into — a dynamically resolved base: an explicit `--base <branch>`, an epic integration branch (`epic/{EPIC-ID}-{slug}`), a hotfix release tag, or `main` by default.
+
+`/dispatch-task` layers planning on top: it runs the appropriate planning chain (`/tech-task`, `/new-feature`, `/investigate-bug`, or `/investigate-crash`) first, waits for approval, then dispatches the resulting implementation tasks to parallel worktrees.
 
 ---
 
