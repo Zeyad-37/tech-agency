@@ -75,7 +75,7 @@ Hotfix branches cut from the release tag instead of `origin/main` — replace st
 
 ## Base Branch Resolution
 
-The base branch — what a worktree branches **off from** and what its PR merges **into** — is always the same branch on both ends, and is resolved per task in this order:
+The base branch — what a worktree branches **off from** and what its PR merges **into** — is the same branch on both ends (hotfixes excepted: they cut from a release tag and merge per the hotfix process), and is resolved per task in this order:
 
 1. **Explicit instruction** — @Zeyad (or the dispatching skill) named a base: `--base <branch>` or "branch off `epic/US-100-checkout`". Use it verbatim after verifying it exists on the remote.
 2. **Epic integration branch** — the task belongs to an epic with an `epic/{EPIC-ID}-{slug}` branch. Story branches for that epic cut from and PR back into the integration branch; the integration branch itself merges to `main` in one reviewed PR when the epic completes. If the epic linkage is inferred rather than stated, confirm before creating the worktree.

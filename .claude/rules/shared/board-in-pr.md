@@ -47,7 +47,7 @@ Some board edits have no code change to ride with: `/replenish` moving Backlog �
 
 These ride with the **documents they produced**. A planning run that writes a PRD, BRD, ADR, RFC, retro report, or replenishment report commits the board edit on the same branch as those docs, and both merge in that PR — the docs are the change, and the board edit describes it.
 
-**There is always a carrier.** Every planning run saves a document, so no planning board edit is ever left uncommitted: `/replenish` saves `docs/replenishment/{YYYY-MM-DD}-Replenishment.md`, `/retro` saves `docs/retros/{date}-retro.md`, and `/new-feature` / `/tech-task` produce a PRD, BRD, ADR, or RFC. A run that would otherwise produce nothing must save its report rather than deferring the board edit. Leaving the edit uncommitted does not work: the next agent's worktree is cut from `origin/main`, so it never sees the pending edit — nor the Ready tasks the edit created — and the edit is discarded when the planning worktree is removed.
+**There is always a carrier.** Every planning run saves a document, so no planning board edit is ever left uncommitted: `/replenish` saves `docs/replenishment/{YYYY-MM-DD}-Replenishment.md`, `/retro` saves `docs/retros/{date}-retro.md`, and `/new-feature` / `/tech-task` produce a PRD, BRD, ADR, or RFC. A run that would otherwise produce nothing must save its report rather than deferring the board edit. Leaving the edit uncommitted does not work: the next agent's worktree is cut from its resolved base branch (`origin/main`, or an epic integration branch — see `worktree-first.md` § Base Branch Resolution), so it never sees the pending edit — nor the Ready tasks the edit created — and the edit is discarded when the planning worktree is removed.
 
 ## Conflicts
 
