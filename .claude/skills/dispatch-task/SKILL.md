@@ -15,10 +15,12 @@ This skill is a meta-skill that orchestrates two phases:
 ## Invocation
 
 ```
-/dispatch-task --type <task-type> "<description>"
+/dispatch-task --type <task-type> [--base <branch>] "<description>"
 ```
 
 Where `<task-type>` is one of: `new-feature`, `tech-task`, `investigate-bug`, `investigate-crash`.
+
+`--base <branch>` (optional) overrides where the Phase 2 worktrees branch off from and where their PRs merge into. Without it, the base is resolved per the resolution order in `.claude/skills/dispatch/SKILL.md` Step 1b: explicit user wording → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `main`.
 
 If `--type` is omitted, infer from the description:
 - "fix bug", "investigate bug", "regression", "not working" → `investigate-bug`
@@ -131,9 +133,11 @@ After the planning chain completes, present a structured summary to the user. Do
 - Recommended action: {targeted fix | rollback}
 
 ### Worktrees that will be created in Phase 2
-| # | Agent | Branch | Worktree path |
-|---|-------|--------|---------------|
-| 1 | @{Agent} | {STORY-ID}/{slug} | ../{repo}-worktrees/{slug} |
+| # | Agent | Branch | Base (off + into) | Worktree path |
+|---|-------|--------|-------------------|---------------|
+| 1 | @{Agent} | {STORY-ID}/{slug} | {main \| epic/…} | ../{repo}-worktrees/{slug} |
+
+**Base branch:** {main | epic/{EPIC-ID}-{slug} | v{X.Y.Z} tag} — {why: default | --base flag | task belongs to epic {EPIC-ID} | hotfix}. Each worktree branches off this base and its PR merges back into it.
 
 ---
 
@@ -150,7 +154,7 @@ This phase mirrors `.claude/skills/dispatch/SKILL.md` mechanics. Run only after 
 
 ### Step 1: Create all worktrees from the main repo
 
-Create every worktree sequentially from the main working directory before handing off to any agent.
+Create every worktree sequentially from the main working directory before handing off to any agent. Use the base branch that was resolved and approved in the Phase 1 plan (default `main`; an epic integration branch when the work belongs to an epic; a release tag for hotfixes).
 
 ```bash
 MAIN_REPO="$(pwd)"
@@ -161,10 +165,12 @@ git pull --rebase
 
 # For each implementation task identified in Phase 1:
 BRANCH="{STORY-ID}/{short-description}"   # use board task ID
+BASE="{main | epic/{EPIC-ID}-{slug}}"     # from the approved Phase 1 plan
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
-# Always branch from origin/main — never from the current checkout.
-git fetch origin main
-git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
+# Always branch from the resolved base on the remote — never from the current checkout.
+git fetch origin "$BASE"
+git worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+# Hotfix exception: git worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
 
 # Repeat per task...
 
@@ -202,6 +208,7 @@ Spawn one agent per implementation task using parallel `Agent` tool invocations 
 
 Task: {specific implementation task from Phase 1}
 Board task ID: {STORY-ID}
+Base branch: {BASE} — this branch was cut from origin/{BASE} and its PR MUST target {BASE}
 
 Reference docs from Phase 1:
 - RFC: {path or "n/a"}
@@ -224,7 +231,7 @@ Rules:
 2. Do NOT cd to any other directory (especially not the main repo or another worktree).
 3. Follow the coding standards in .claude/rules/ for the relevant stack.
 4. Commit format: [{STORY-ID}] @{AgentName}: short description
-5. When done: write tests, verify they pass, commit, run /update-board to move to Review on this branch, then run /create-pr.
+5. When done: write tests, verify they pass, commit, run /update-board to move to Review on this branch, then run /create-pr --base {BASE}.
 ```
 
 Spawn all agents in a single message with multiple tool calls — do not wait for one to finish before starting the next.
