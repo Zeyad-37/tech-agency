@@ -431,7 +431,7 @@ Preflight guards: refuses if you're on the default branch, if there are no commi
 
 ### `/review-and-address`
 
-Close out an **existing** PR in two clean-context phases: **Phase 1** runs `/code-review` and posts the verdict to the PR; **Phase 2** runs `/address-feedback` to resolve every comment and failing check. Between them it waits (background poll, zero idle turns) for Copilot's review — which it does **not** request; `/create-pr` is the single Copilot requester at PR-open time. Each phase starts from a clean context so neither the review nor the fix work is biased by the current session.
+Close out an **existing** PR in two clean-context phases: **Phase 1** runs `/code-review` and posts the verdict to the PR; **Phase 2** runs `/address-feedback` to resolve every comment and failing check. Between them it waits (background poll, zero idle turns) for Copilot's review — an **optional gate**: it first probes whether Copilot is actually available for the repo (request pending, or has ever reviewed there) and silently skips the wait when it isn't, reserving the halt for a review that is genuinely still in flight. It does **not** request Copilot; `/create-pr` is the single Copilot requester at PR-open time. Each phase starts from a clean context so neither the review nor the fix work is biased by the current session.
 
 **Flags:**
 - `--auto-merge` — passed through to Phase 2; merges once everything is green and resolved. Without it, stops at the merge gate.

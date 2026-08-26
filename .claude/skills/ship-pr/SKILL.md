@@ -9,7 +9,7 @@ This skill takes a **ready branch** (code already implemented and committed, no 
 
 ```
 /create-pr            (opens the PR; requests Copilot; screenshots; worktree sweep)
-  → /review-and-address   (code-review → wait for Copilot → address feedback → merge)
+  → /review-and-address   (code-review → wait for Copilot if available → address feedback → merge)
 ```
 
 It is `/ship-it` minus the kickoff and implementation steps. Reach for `/ship-pr` when the work is already done on the branch and you just want it opened, reviewed, addressed, and (optionally) merged. If you still need to kick off and write the feature, use `/ship-it`. If a PR **already exists**, skip this and use `/review-and-address` directly.
@@ -73,7 +73,7 @@ Capture the PR number / URL it reports and carry it to Step 3. If `/create-pr` a
 Invoke **`/review-and-address`** against the PR just opened, forwarding `--auto-merge` if the user passed it to `/ship-pr`. This is the entire close-out, and it runs each phase from a clean context:
 
 - **Phase 1 — Review:** runs `/code-review` against the open PR and posts the verdict.
-- **Copilot wait:** records the HEAD baseline and background-polls for Copilot's review (already requested by `/create-pr` in Step 2) so Phase 2 sees its comments. Zero idle turns.
+- **Copilot wait (optional, availability-keyed):** records the HEAD baseline, probes whether Copilot is actually available for the repo, and background-polls for its review (already requested by `/create-pr` in Step 2) so Phase 2 sees its comments — skipping the wait entirely, without halting, when Copilot is unavailable (request dropped / disabled for repo). Zero idle turns.
 - **Phase 2 — Address:** runs `/address-feedback` — gathers the posted verdict + all external/human/bot comments + failing checks, applies fixes, replies to threads, pushes, and watches checks until green.
 
 Pass it only the PR number and the flag — no session narrative, so the clean-context guarantee holds.
