@@ -38,10 +38,15 @@ BASE="${BASE_FLAG:-main}"
 if [ -z "$BASE_FLAG" ] && git ls-remote --heads origin 'epic/*' | grep -q .; then
   # Compare merge-base recency of main vs each epic/* branch
   git fetch origin main 'refs/heads/epic/*:refs/remotes/origin/epic/*'
-  BEST=main; BEST_TIME=$(git log -1 --format=%ct "$(git merge-base HEAD origin/main)")
+  # git merge-base prints nothing when there is no common ancestor — guard each
+  # result so an empty value never reaches the integer comparison.
+  BEST=main; BEST_TIME=0
+  mb=$(git merge-base HEAD origin/main 2>/dev/null) && [ -n "$mb" ] && BEST_TIME=$(git log -1 --format=%ct "$mb")
   while read -r ref; do
     b="${ref#refs/remotes/origin/}"
-    t=$(git log -1 --format=%ct "$(git merge-base HEAD "origin/$b")")
+    mb=$(git merge-base HEAD "origin/$b" 2>/dev/null) || continue
+    [ -n "$mb" ] || continue
+    t=$(git log -1 --format=%ct "$mb")
     [ "$t" -gt "$BEST_TIME" ] && { BEST="$b"; BEST_TIME="$t"; }
   done < <(git for-each-ref --format='%(refname)' 'refs/remotes/origin/epic/*')
   BASE="$BEST"   # if not main, confirm with @Zeyad before continuing

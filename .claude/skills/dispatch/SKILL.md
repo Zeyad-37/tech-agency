@@ -50,8 +50,11 @@ The base branch is both where the worktree branches **off from** and where its P
 Set `BASE` once per task and carry it through worktree creation, the agent prompt, and the PR:
 
 ```bash
-BASE="main"                    # or "epic/US-100-checkout", per the resolution above
-git ls-remote --heads origin "$BASE" | grep -q . || { echo "Base branch $BASE not on remote"; exit 1; }
+BASE="main"                    # or "epic/US-100-checkout", or "v1.2.0" for a hotfix
+case "$BASE" in
+  v*) git ls-remote --tags  origin "$BASE" | grep -q . || { echo "Base tag $BASE not on remote"; exit 1; } ;;
+  *)  git ls-remote --heads origin "$BASE" | grep -q . || { echo "Base branch $BASE not on remote"; exit 1; } ;;
+esac
 ```
 
 Different tasks in one multi-dispatch may have different bases (e.g., two epic stories off `epic/US-100-checkout`, one tech task off `main`). Resolve each independently.
@@ -226,13 +229,16 @@ git checkout main && git pull --rebase
 # Create all worktrees from the main repo — each branched from its resolved base
 # (Step 1b). Bases can differ per task: here two epic stories branch off the
 # epic integration branch and the tech task branches off main.
-declare -A TASK_BASES=(
-  ["US-042/login-screen"]="epic/US-040-auth"
-  ["tech/monitoring"]="main"
-  ["US-043/dashboard"]="epic/US-040-auth"
-)
-for branch in "${!TASK_BASES[@]}"; do
-  base="${TASK_BASES[$branch]}"
+# "branch:base" pairs — plain arrays keep this portable to macOS's bash 3.2
+# (declare -A needs bash 4+). Branch names contain "/", so colon is the delimiter:
+# strip the base with ${pair##*:} and the branch with ${pair%:*}.
+for pair in \
+  "US-042/login-screen:epic/US-040-auth" \
+  "tech/monitoring:main" \
+  "US-043/dashboard:epic/US-040-auth"
+do
+  branch="${pair%:*}"
+  base="${pair##*:}"
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${branch//\//-}"
   git fetch origin "$base"
   git worktree add -b "$branch" "$WORKTREE_DIR" "origin/$base"
