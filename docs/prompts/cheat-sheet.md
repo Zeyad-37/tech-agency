@@ -72,6 +72,33 @@ User story US-008. Refer to docs/habit-tracker/adr-002.md for the API contract.
 
 ---
 
+## Parallel Work (Dispatch)
+
+Run independent tasks simultaneously — each in its own git worktree, branch, and PR.
+
+```
+/dispatch @Kai implement the streak screen (US-013)
+/dispatch @Flux implement the habits API (US-008)
+```
+
+Working inside an epic? Point the dispatch at the epic's integration branch — the worktree
+branches off it and the PR merges back into it (not `main`):
+
+```
+/dispatch --base epic/US-100-checkout @Kai implement the checkout summary screen
+```
+
+Need planning first? `/dispatch-task` runs the planning chain (tech-task, new-feature,
+investigate-bug, or investigate-crash), waits for your approval, then dispatches the
+resulting implementation tasks in parallel:
+
+```
+/dispatch-task --type tech-task "migrate all screens to the new design tokens"
+/dispatch-task --type new-feature --base epic/US-100-checkout "add promo codes to checkout"
+```
+
+---
+
 ## Architecture & Design
 
 ```

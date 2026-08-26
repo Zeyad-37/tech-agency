@@ -9,6 +9,8 @@ This skill creates a pull request with a consistent, structured format that incl
 
 **Default: auto-push.** Invoking `/create-pr` without flags is the explicit authorization to commit, run pre-push verification, push the branch, and open the PR — no additional confirmation needed. Pass `--no-push` to stop after the verification gate (Step 4b) so a parent skill (e.g. `/ship-it`) can handle push and `gh pr create` with its own approval flow. The verification gate runs in both modes — `--no-push` defers push, not safety.
 
+**Base branch:** Pass `--base <branch>` when the PR should merge into something other than `main` — typically an epic integration branch (`epic/{EPIC-ID}-{slug}`) for branches dispatched off an epic. Without the flag, Pre-flight 0 resolves the base automatically.
+
 **Auto-screenshots:** If the branch contains UI changes, `/create-pr` automatically runs `/capture-screenshots` to generate before/after visual evidence and embeds the comparison table in the PR. This is mandatory and non-skippable for UI PRs — the only fallback is a manual screenshot request when screenshot tooling is not configured for the affected platform (see Step 3b).
 
 ## When to Use
@@ -21,17 +23,50 @@ Call `/create-pr` when:
 
 Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke this automatically at the end of their task completion flow.
 
-## Pre-flight: Rebase onto Main if Behind
+## Pre-flight 0: Resolve the Base Branch
 
-Before doing anything else, fetch the latest state of `main` and rebase the current branch onto it if it has fallen behind. A PR opened from a stale branch risks conflicts and makes review harder.
+The base branch is where this PR merges into AND what the branch is rebased onto. It is `main` for most work, but a branch that was cut from an epic integration branch must PR back into that integration branch. Resolve `BASE` in this order:
+
+1. **`--base <branch>` flag** — passed by the caller (dispatched agents receive it from `/dispatch` / `/dispatch-task`, which record the base per task). Use it verbatim.
+2. **Auto-detect an epic base** — if any `origin/epic/*` branch exists, pick the candidate (`main` + every `origin/epic/*`) whose merge-base with `HEAD` is the most recent commit. If an epic branch wins, confirm with @Zeyad before proceeding: "This branch appears to be cut from `epic/US-100-checkout` — target it instead of `main`?"
+3. **Default** — `main`.
+
+(The hotfix step from `worktree-first.md`'s resolution order is intentionally absent here: hotfix PRs are opened and merged by the `/hotfix` process, which owns its own release-branch + `main` merge flow — they don't go through `/create-pr`'s base detection.)
+
+```bash
+BASE="${BASE_FLAG:-main}"
+if [ -z "$BASE_FLAG" ] && git ls-remote --heads origin 'epic/*' | grep -q .; then
+  # Compare merge-base recency of main vs each epic/* branch
+  git fetch origin main 'refs/heads/epic/*:refs/remotes/origin/epic/*'
+  # git merge-base prints nothing when there is no common ancestor — guard each
+  # result so an empty value never reaches the integer comparison.
+  BEST=main; BEST_TIME=0
+  mb=$(git merge-base HEAD origin/main 2>/dev/null) && [ -n "$mb" ] && BEST_TIME=$(git log -1 --format=%ct "$mb")
+  while read -r ref; do
+    b="${ref#refs/remotes/origin/}"
+    mb=$(git merge-base HEAD "origin/$b" 2>/dev/null) || continue
+    [ -n "$mb" ] || continue
+    t=$(git log -1 --format=%ct "$mb")
+    [ "$t" -gt "$BEST_TIME" ] && { BEST="$b"; BEST_TIME="$t"; }
+  done < <(git for-each-ref --format='%(refname)' 'refs/remotes/origin/epic/*')
+  BASE="$BEST"   # if not main, confirm with @Zeyad before continuing
+fi
+echo "PR base: $BASE"
+```
+
+`BASE` is used everywhere below — the rebase target, `gh pr create --base`, and the PR body. Never hardcode `main` past this point.
+
+## Pre-flight: Rebase onto the Base if Behind
+
+Before doing anything else, fetch the latest state of `$BASE` and rebase the current branch onto it if it has fallen behind. A PR opened from a stale branch risks conflicts and makes review harder.
 
 ```bash
 # Fetch latest remote state without merging
-git fetch origin main
+git fetch origin "$BASE"
 
-# Check how many commits the branch is behind main
-BEHIND=$(git rev-list --count HEAD..origin/main)
-echo "Branch is $BEHIND commit(s) behind origin/main"
+# Check how many commits the branch is behind the base
+BEHIND=$(git rev-list --count HEAD.."origin/$BASE")
+echo "Branch is $BEHIND commit(s) behind origin/$BASE"
 ```
 
 **If `BEHIND` is 0** — branch is up to date. Proceed to Step 1.
@@ -39,12 +74,12 @@ echo "Branch is $BEHIND commit(s) behind origin/main"
 **If `BEHIND` is > 0** — rebase automatically:
 
 ```bash
-git rebase origin/main
+git rebase "origin/$BASE"
 ```
 
 - If the rebase succeeds cleanly, report to @Zeyad and proceed to Step 1:
   ```
-  ✅ Rebased onto origin/main ({BEHIND} commit(s) applied). Branch is now up to date.
+  ✅ Rebased onto origin/{BASE} ({BEHIND} commit(s) applied). Branch is now up to date.
   ```
 
 - If the rebase hits conflicts, abort and stop:
@@ -53,12 +88,12 @@ git rebase origin/main
   ```
   Then report:
   ```
-  ⚠️  Rebase onto origin/main failed due to merge conflicts.
+  ⚠️  Rebase onto origin/{BASE} failed due to merge conflicts.
 
   Conflicts must be resolved manually before creating the PR.
   Run the following, resolve conflicts, then re-run /create-pr:
 
-    git rebase origin/main
+    git rebase origin/{BASE}
     # resolve conflicts in each file
     git add <resolved-files>
     git rebase --continue
@@ -71,8 +106,8 @@ Collect the following from the current branch and task context:
 
 - **Task ID**: Infer from the branch name (e.g., `US-042/login-screen` → `US-042`) or the most recent commit prefix
 - **Branch name**: `git branch --show-current`
-- **Base branch**: Usually `main` (verify with `git remote show origin | grep 'HEAD branch'` if unsure)
-- **Primary author**: The agent who did the majority of the work (from commit history: `git log --format='%s' main..HEAD`)
+- **Base branch**: `$BASE` from Pre-flight 0 (`main` unless overridden or auto-detected as an epic integration branch)
+- **Primary author**: The agent who did the majority of the work (from commit history: `git log --format='%s' "origin/$BASE"..HEAD`)
 - **Participating agents**: All agents who contributed commits on this branch (extract unique `@AgentName` from commit messages)
 - **Task description**: From the board or the branch name's description slug
 - **Related docs**: Check `docs/{feature-name}/` for PRD, BRD, ADR, RFC references
@@ -83,14 +118,14 @@ BRANCH=$(git branch --show-current)
 TASK_ID=$(echo "$BRANCH" | grep -oE '^[A-Z]+-[0-9]+' || echo "$BRANCH" | cut -d'/' -f1)
 
 # Get all participating agents from commit messages
-AGENTS=$(git log --format='%s' main..HEAD | grep -oE '@[A-Za-z]+' | sort -u | tr '\n' ', ' | sed 's/,$//')
+AGENTS=$(git log --format='%s' "origin/$BASE"..HEAD | grep -oE '@[A-Za-z]+' | sort -u | tr '\n' ', ' | sed 's/,$//')
 
 # Get primary author (most commits)
-PRIMARY=$(git log --format='%s' main..HEAD | grep -oE '@[A-Za-z]+' | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
+PRIMARY=$(git log --format='%s' "origin/$BASE"..HEAD | grep -oE '@[A-Za-z]+' | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
 
 # Count commits and changed files
-COMMIT_COUNT=$(git rev-list --count main..HEAD)
-FILES_CHANGED=$(git diff --stat main..HEAD | tail -1)
+COMMIT_COUNT=$(git rev-list --count "origin/$BASE"..HEAD)
+FILES_CHANGED=$(git diff --stat "origin/$BASE"..HEAD | tail -1)
 ```
 
 ## Step 2: Build the PR Title
@@ -180,7 +215,7 @@ Use this template exactly:
 
 - **Commits:** {COMMIT_COUNT}
 - **Files changed:** {FILES_CHANGED summary}
-- **Branch:** `{BRANCH}` → `main`
+- **Branch:** `{BRANCH}` → `{BASE}`
 ```
 
 ## Step 3b: Check for UI Changes and Capture Visual Evidence (Mandatory)
@@ -189,7 +224,7 @@ Before presenting the PR, check if the branch contains UI changes that need visu
 
 ```bash
 # Detect UI-related file changes
-UI_CHANGES=$(git diff --name-only main..HEAD | grep -iE '(Screen|Content|Component|View|Composable|Preview|page\.tsx|page\.jsx|layout\.tsx|designsystem|DesignSystem|Theme|Color|Typography|Spacing)' | head -5)
+UI_CHANGES=$(git diff --name-only "origin/$BASE"..HEAD | grep -iE '(Screen|Content|Component|View|Composable|Preview|page\.tsx|page\.jsx|layout\.tsx|designsystem|DesignSystem|Theme|Color|Typography|Spacing)' | head -5)
 ```
 
 **If `UI_CHANGES` is empty** — no UI changes. Omit the Visual Changes section entirely and proceed to Step 4.
@@ -197,7 +232,7 @@ UI_CHANGES=$(git diff --name-only main..HEAD | grep -iE '(Screen|Content|Compone
 **If `UI_CHANGES` is non-empty** — before/after screenshots are mandatory. Do NOT prompt the user to opt out and do NOT proceed without visual evidence:
 
 1. If `.screenshots/before/` and `.screenshots/after/` already exist with images for the affected screens, reuse them — include the **Visual Changes** section in the PR body (see template above) and proceed to Step 4.
-2. Otherwise, automatically invoke `/capture-screenshots` to generate the before/after comparison. This runs the full per-platform capture flow (Paparazzi / swift-snapshot-testing / Playwright) on `main` and the feature branch, and produces the comparison table.
+2. Otherwise, automatically invoke `/capture-screenshots` to generate the before/after comparison. This runs the full per-platform capture flow (Paparazzi / swift-snapshot-testing / Playwright) on the base branch (`$BASE`) and the feature branch, and produces the comparison table.
 
 ```
 UI changes detected in this PR:
@@ -254,7 +289,7 @@ HAS_ANDROID_APP="no"
 [ -d "app" ] && HAS_ANDROID_APP="yes"
 
 # Re-detect UI changes (same heuristic Step 3b uses)
-UI_CHANGES_PRESENT=$(git diff --name-only main..HEAD | grep -iE '(Screen|Content|Component|Composable|page\.tsx|page\.jsx)' | head -1)
+UI_CHANGES_PRESENT=$(git diff --name-only "origin/$BASE"..HEAD | grep -iE '(Screen|Content|Component|Composable|page\.tsx|page\.jsx)' | head -1)
 
 # --- Gate 1: KMP/iOS compile gate ---
 # Catches link errors, missing `actual` declarations, and KMP cross-target type
@@ -268,7 +303,7 @@ fi
 # --- Gate 2: Host tests for changed feature modules ---
 # Fast subset of the full test suite — only the modules this branch actually touched.
 if [ "$HAS_ANDROID_APP" = "yes" ]; then
-  CHANGED_MODULES=$(git diff --name-only main..HEAD | grep -oE '^features/[^/]+/[^/]+' | sort -u)
+  CHANGED_MODULES=$(git diff --name-only "origin/$BASE"..HEAD | grep -oE '^features/[^/]+/[^/]+' | sort -u)
   for module in $CHANGED_MODULES; do
     GRADLE_PATH=":$(echo "$module" | tr '/' ':')"
     echo "→ Host tests: ${GRADLE_PATH}:testDebugUnitTest"
@@ -369,10 +404,10 @@ gh pr create \
 
 - **Commits:** {N}
 - **Files changed:** {summary}
-- **Branch:** `{branch}` → `main`
+- **Branch:** `{branch}` → `{base}`
 EOF
 )" \
-  --base main
+  --base "$BASE"
 ```
 
 ## Step 5b: Request a Copilot Review (Mandatory, Non-Blocking)
@@ -437,7 +472,7 @@ After the PR is created, report back:
 ```
 PR created: #{pr_number}
   Title: [{TASK-ID}] {description}
-  Branch: {branch} → main
+  Branch: {branch} → {base}
   Author: @{PrimaryAgent}
   Participants: @{Agent1}, @{Agent2}
   Copilot review: requested (or "not requested — {reason}")

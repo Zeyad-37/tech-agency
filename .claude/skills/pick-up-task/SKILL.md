@@ -149,10 +149,11 @@ Present this plan to the user for confirmation before proceeding with implementa
 
 Once the user confirms the plan:
 
-1. Create a feature branch following the branch strategy. Always branch from the latest `origin/main`, never from the currently checked-out branch:
+1. Create a feature branch following the branch strategy. Always branch from the latest resolved base on the remote — `origin/main` by default, or the epic integration branch (`epic/{EPIC-ID}-{slug}`) when the task belongs to an epic (see `.claude/rules/shared/worktree-first.md` § Base Branch Resolution) — never from the currently checked-out branch:
    ```bash
-   git fetch origin main
-   git checkout -b {story-id}/{short-description} origin/main
+   BASE="main"   # or the epic integration branch per the resolution order
+   git fetch origin "$BASE"
+   git checkout -b {story-id}/{short-description} "origin/$BASE"
    ```
 
 2. Implement the task following:
