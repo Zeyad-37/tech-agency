@@ -16,9 +16,12 @@ This skill wraps any task in an isolated git worktree so multiple agents can wor
 /dispatch @Kai implement login screen
 /dispatch @Sentinel set up monitoring dashboards
 /dispatch @Link refactor the network module
+/dispatch --base epic/US-100-checkout @Kai implement checkout summary screen
 
 → Each runs in its own worktree, own branch, own PR
 → No file conflicts between agents
+→ Branches off (and PRs back into) the resolved base — main by default,
+  an epic integration branch when working inside an epic
 ```
 
 ## Step 1: Parse the Task
@@ -35,6 +38,24 @@ Extract from the user's request:
 
 If the user dispatches multiple tasks at once, parse each one separately and create a worktree for each.
 
+## Step 1b: Resolve the Base Branch (Branch-Off = Branch-Into)
+
+The base branch is both where the worktree branches **off from** and where its PR merges **into**. They are always the same branch — a worktree cut from an integration branch must PR back into that integration branch, never straight to `main`. Resolve it per task, in this order:
+
+1. **Explicit override** — the user passed `--base <branch>` or said it in words ("branch off the epic branch", "cut this from `epic/US-100-checkout`"). Use exactly what they named. Verify it exists on the remote (`git ls-remote --heads origin <branch>`); if it doesn't, stop and ask rather than guessing.
+2. **Epic integration branch** — the task belongs to an epic that has an integration branch. Convention: `epic/{EPIC-ID}-{slug}` (e.g., `epic/US-100-checkout`). Detect by (a) the board task referencing an epic, or (b) a matching `origin/epic/*` branch existing. When detection is inferred rather than user-stated, **confirm with the user before creating worktrees**: "This task looks like part of epic US-100 — branch off `epic/US-100-checkout` instead of `main`?"
+3. **Hotfix** — branch from the release tag `v{X.Y.Z}` instead of a branch (per `worktree-first.md`). The PR base follows the hotfix process (merge into both the release branch and `main`).
+4. **Default** — `origin/main`.
+
+Set `BASE` once per task and carry it through worktree creation, the agent prompt, and the PR:
+
+```bash
+BASE="main"                    # or "epic/US-100-checkout", per the resolution above
+git ls-remote --heads origin "$BASE" | grep -q . || { echo "Base branch $BASE not on remote"; exit 1; }
+```
+
+Different tasks in one multi-dispatch may have different bases (e.g., two epic stories off `epic/US-100-checkout`, one tech task off `main`). Resolve each independently.
+
 ## Step 2: Create the Worktrees (Orchestrator)
 
 The orchestrator (Atlas or the dispatching agent) creates ALL worktrees from the main working directory BEFORE handing off to any agent. This ensures worktrees are ready and isolated.
@@ -49,10 +70,13 @@ git pull --rebase
 
 # For EACH task, create a worktree:
 BRANCH="tech/improve-git-hooks"  # example — use the appropriate prefix
+BASE="main"                      # from Step 1b — may be an epic integration branch
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
-# Always branch from origin/main — never from whatever happens to be checked out.
-git fetch origin main
-git worktree add -b "$BRANCH" "$WORKTREE_DIR" origin/main
+# Always branch from the resolved base on the remote — never from whatever happens to be checked out.
+git fetch origin "$BASE"
+git worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+# Hotfix exception: branch from the release tag instead:
+#   git worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
 
 # Copy local.properties (gitignored) into the worktree so Gradle can resolve
 # sdk.dir, Android SDK paths, and any other host-machine config. Without this,
@@ -106,6 +130,7 @@ git branch --show-current
 
 Task: [task description]
 Branch: [branch-name]
+Base branch: [BASE] — this branch was cut from origin/[BASE] and its PR MUST target [BASE]
 Working directory: [WORKTREE_ABSOLUTE_PATH]
 
 RULES:
@@ -115,7 +140,7 @@ RULES:
 4. Do NOT read or modify files outside this worktree
 5. Follow all coding standards from .claude/rules/
 6. Commit with the standard format: [STORY-ID] @AgentName: description
-7. When done: commit all changes, run `/create-pr` to prepare the PR summary, and report back
+7. When done: commit all changes, run `/create-pr --base [BASE]` to prepare the PR summary, and report back
 ```
 
 If the task maps to an existing skill (e.g., the user says `/dispatch /tech-task improve git hooks`), include the skill invocation in the task prompt but keep the mandatory setup preamble above it.
@@ -169,11 +194,11 @@ When multiple tasks are dispatched, maintain a dispatch tracker in the conversat
 
 ```
 ## Active Dispatches
-| # | Agent | Branch | Worktree (absolute path) | Status | PR |
-|---|-------|--------|--------------------------|--------|-----|
-| 1 | @Kai | US-042/login-screen | /path/to/project-worktrees/US-042-login-screen | In Progress | — |
-| 2 | @Sentinel | tech/monitoring | /path/to/project-worktrees/tech-monitoring | PR Created | #47 |
-| 3 | @Link | tech/refactor-network | /path/to/project-worktrees/tech-refactor-network | Done | #48 |
+| # | Agent | Branch | Base | Worktree (absolute path) | Status | PR |
+|---|-------|--------|------|--------------------------|--------|-----|
+| 1 | @Kai | US-042/login-screen | epic/US-040-auth | /path/to/project-worktrees/US-042-login-screen | In Progress | — |
+| 2 | @Sentinel | tech/monitoring | main | /path/to/project-worktrees/tech-monitoring | PR Created | #47 |
+| 3 | @Link | tech/refactor-network | main | /path/to/project-worktrees/tech-refactor-network | Done | #48 |
 ```
 
 Report this table to the user after each dispatch operation so they have visibility into all parallel work. **Use absolute paths** in the tracker so there's no ambiguity about which directory each agent is in.
@@ -195,12 +220,19 @@ When the user dispatches multiple tasks at once:
 MAIN_REPO="$(pwd)"
 git checkout main && git pull --rebase
 
-# Create all worktrees from the main repo — each branched from origin/main
-git fetch origin main
-BRANCHES=("US-042/login-screen" "tech/monitoring" "US-043/dashboard")
-for branch in "${BRANCHES[@]}"; do
+# Create all worktrees from the main repo — each branched from its resolved base
+# (Step 1b). Bases can differ per task: here two epic stories branch off the
+# epic integration branch and the tech task branches off main.
+declare -A TASK_BASES=(
+  ["US-042/login-screen"]="epic/US-040-auth"
+  ["tech/monitoring"]="main"
+  ["US-043/dashboard"]="epic/US-040-auth"
+)
+for branch in "${!TASK_BASES[@]}"; do
+  base="${TASK_BASES[$branch]}"
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${branch//\//-}"
-  git worktree add -b "$branch" "$WORKTREE_DIR" origin/main
+  git fetch origin "$base"
+  git worktree add -b "$branch" "$WORKTREE_DIR" "origin/$base"
   [ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 done
 
