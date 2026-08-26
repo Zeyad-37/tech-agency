@@ -229,9 +229,10 @@ Test plan (mandatory, on this branch):
 Rules:
 1. ALL file reads, writes, and git operations happen in {WORKTREE_ABSOLUTE_PATH} only.
 2. Do NOT cd to any other directory (especially not the main repo or another worktree).
-3. Follow the coding standards in .claude/rules/ for the relevant stack.
-4. Commit format: [{STORY-ID}] @{AgentName}: short description
-5. When done: write tests, verify they pass, commit, run /update-board to move to Review on this branch, then run /create-pr --base {BASE}.
+3. FIRST COMMIT: run /update-board {STORY-ID} → In Progress and commit it on this branch — every board transition for this task ships inside this task's PR, never separately (.claude/rules/shared/board-in-pr.md). If you get blocked, /update-board {STORY-ID} → Blocked also commits here.
+4. Follow the coding standards in .claude/rules/ for the relevant stack.
+5. Commit format: [{STORY-ID}] @{AgentName}: short description
+6. When done: write tests, verify they pass, commit, run /update-board {STORY-ID} → Review (committed on this branch), then run /create-pr --base {BASE}.
 ```
 
 Spawn all agents in a single message with multiple tool calls — do not wait for one to finish before starting the next.
@@ -241,11 +242,12 @@ Spawn all agents in a single message with multiple tool calls — do not wait fo
 Inside its worktree, every dispatched agent must:
 
 1. Verify location: `pwd && git branch --show-current`.
-2. Implement the task and write tests on the same branch (per `.claude/rules/agent-preamble.md` and the relevant coding standards).
-3. Run the project's quality gates (e.g., `./gradlew detekt`, the relevant test command). Do not raise a PR with failing checks.
-4. Stage and commit with the standard format: `[{STORY-ID}] @{AgentName}: description`.
-5. Run `/update-board` to move the task to Review and commit the board change on the branch so it merges with the code.
-6. Run `/create-pr` to create the standardized PR.
+2. Run `/update-board {STORY-ID} → In Progress` and commit it as the **first commit** on the branch — board transitions ship inside the task's own PR, never as a board-only PR or a commit on `main` (`.claude/rules/shared/board-in-pr.md`).
+3. Implement the task and write tests on the same branch (per `.claude/rules/agent-preamble.md` and the relevant coding standards).
+4. Run the project's quality gates (e.g., `./gradlew detekt`, the relevant test command). Do not raise a PR with failing checks.
+5. Stage and commit with the standard format: `[{STORY-ID}] @{AgentName}: description`.
+6. Run `/update-board {STORY-ID} → Review` and commit the board change on the branch so it merges with the code.
+7. Run `/create-pr --base {BASE}` to create the standardized PR.
 
 ### Step 4: Track active dispatches
 

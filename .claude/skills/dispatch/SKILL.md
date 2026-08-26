@@ -138,9 +138,10 @@ RULES:
 2. ALL file reads, writes, and git operations happen in THIS directory only
 3. Do NOT cd to any other directory (especially not the main repo)
 4. Do NOT read or modify files outside this worktree
-5. Follow all coding standards from .claude/rules/
-6. Commit with the standard format: [STORY-ID] @AgentName: description
-7. When done: commit all changes, run `/create-pr --base [BASE]` to prepare the PR summary, and report back
+5. FIRST COMMIT: run `/update-board [TASK-ID] → In Progress` and commit it on this branch — every board transition ships inside this task's PR, never separately (see .claude/rules/shared/board-in-pr.md)
+6. Follow all coding standards from .claude/rules/
+7. Commit with the standard format: [STORY-ID] @AgentName: description
+8. When done: commit all changes, run `/update-board [TASK-ID] → Review` (committed on this branch), then `/create-pr --base [BASE]` to prepare the PR summary, and report back
 ```
 
 If the task maps to an existing skill (e.g., the user says `/dispatch /tech-task improve git hooks`), include the skill invocation in the task prompt but keep the mandatory setup preamble above it.
@@ -148,6 +149,8 @@ If the task maps to an existing skill (e.g., the user says `/dispatch /tech-task
 **If spawning multiple agents, spawn them in parallel** — each agent gets its own `Task` invocation with its own worktree path. Do NOT spawn agents sequentially waiting for each to finish.
 
 ## Step 4: Agent Completes Work
+
+Board transitions ride inside the task's own PR (see `@.claude/rules/shared/board-in-pr.md`): the agent already committed `→ In Progress` as its first commit (preamble rule 5), and commits `→ Review` here before the PR — so the board history merges with the change it describes, never as a board-only PR or a commit on `main`. If the task gets blocked mid-flight, `/update-board {TASK-ID} → Blocked` also commits on this branch.
 
 When the agent finishes implementation, it should (still inside its worktree):
 
