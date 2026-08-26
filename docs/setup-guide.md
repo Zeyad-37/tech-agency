@@ -51,6 +51,7 @@ your-project/                        # Copy project-template/ into each new proj
 │       ├── sprint-report/SKILL.md     # Sprint metrics, cycle times, agent utilization
 │       ├── tech-task/SKILL.md         # Technical/infrastructure task kickoff
 │       ├── dispatch/SKILL.md          # Dispatch parallel tasks via git worktrees
+│       ├── dispatch-task/SKILL.md     # Plan (tech-task/feature/bug/crash) then dispatch in parallel
 │       ├── update-board/SKILL.md      # Update board status and commit on branch
 │       ├── create-pr/SKILL.md        # Create standardized PR with task ID and agents
 │       ├── capture-screenshots/SKILL.md # Before/after screenshots for UI changes
