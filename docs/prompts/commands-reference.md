@@ -244,6 +244,20 @@ Fast-tracks an agent onto a feature they haven't worked on before. Loads all fea
 
 ---
 
+### `/extract-library`
+
+Extracts a module from an app into a standalone, published KMP library. Covers the full arc: scoping the library seam (engine vs app integration layer), scaffolding the standalone repo with samples, package rename, Maven Central Portal publishing (release tags plus per-push snapshots), swapping the app onto the artifact, and the ongoing dev flow (gated composite build for the inner loop, Renovate for version bumps). Encodes the gotchas learned shipping pagecurl-cmp: AGP parity for composite builds, explicit dependency substitution for KMP, the per-namespace snapshot toggle, Central's multi-hour first-release sync, and JitPack's inability to build iOS klibs.
+
+**When to use:** Promoting in-repo code to its own library, open-sourcing a module, or publishing anything to Maven Central.
+
+**Example triggers:**
+- "extract the journal into a standalone lib"
+- "promote this module to a library"
+- "publish this to maven central"
+- "open source this module"
+
+---
+
 ### `/dependency-upgrade`
 
 Manages the full lifecycle of dependency upgrades: audit current dependencies for vulnerabilities and outdated packages, classify by urgency (P0 critical vuln → P4 Kotlin version upgrade), assess risk for major bumps, execute the upgrade with cross-platform verification (KMP), and document a rollback plan. Handles both individual upgrades and monthly batch updates.
@@ -527,6 +541,7 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/health-check` | Project health audit with action items | Weekly / pre-release |
 | `/onboard-agent` | Fast-track agent onto a feature | As needed |
 | `/dependency-upgrade` | Audit, upgrade, and verify dependencies | Monthly / as needed |
+| `/extract-library` | Extract a module into a standalone published KMP library | Per extraction |
 | `/rfc` | Write an RFC for large features | Per epic / large feature |
 | `/sprint-report` | Sprint metrics, throughput, cycle times, trends | Per sprint / monthly |
 | `/tech-task` | Technical/infrastructure task kickoff | As needed |
