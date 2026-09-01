@@ -22,7 +22,7 @@ Collect from the user before dispatching Morgan (ask only for what's missing —
 If a PRD, BRD, or related docs already exist for this feature, locate them first:
 
 ```bash
-grep -ril "{feature-name}" docs/prd/ docs/brd/ docs/adr/ docs/rfc/ 2>/dev/null
+grep -ril "{feature-name}" docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ 2>/dev/null
 cat board-context.md 2>/dev/null | grep -i "{feature-name}"
 ```
 
@@ -169,7 +169,7 @@ Per the handoff protocol (`@.claude/rules/shared/handoff-protocol.md`):
 mkdir -p docs/prd
 ```
 
-Save to `docs/prd/{Task-Id}-PRD-{Title}.md` (e.g., `docs/prd/US-042-PRD-Social Login.md`). If no task ID exists yet, use the feature slug and note that @Atlas should assign an ID when the work is boarded.
+Save to `docs/artifacts/prd/{Task-Id}-PRD-{Title}.md` (e.g., `docs/artifacts/prd/US-042-PRD-Social Login.md`). If no task ID exists yet, use the feature slug and note that @Atlas should assign an ID when the work is boarded.
 
 ## Step 4: Quality Check Before Presenting
 

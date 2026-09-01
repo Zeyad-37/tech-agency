@@ -25,16 +25,16 @@ Then gather technical context:
 git log --oneline -20
 
 # Check for existing feature docs
-ls docs/{feature-name}/ 2>/dev/null || echo "No feature docs found"
+grep -rl "{Task-Id}" docs/artifacts/ 2>/dev/null || echo "No artifacts found for this task"
 
 # Check board for related tasks
 cat board-context.md 2>/dev/null | head -100
 ```
 
 Read the relevant feature documentation:
-- PRD (`docs/{feature-name}/prd.md`) — what was the intended behavior?
-- BRD (`docs/{feature-name}/brd.md`) — what are the acceptance criteria and user stories?
-- ADR (`docs/{feature-name}/adr-*.md`) — any architectural decisions that constrain the fix?
+- PRD (`docs/artifacts/prd/{Task-Id}-PRD-{Title}.md`) — what was the intended behavior?
+- BRD (`docs/artifacts/brd/{Task-Id}-BRD-{Title}.md`) — what are the acceptance criteria and user stories?
+- ADR (`docs/artifacts/adr/{Task-Id}-*.md`) — any architectural decisions that constrain the fix?
 
 ## Step 2: Reproduce and Locate
 
@@ -137,7 +137,7 @@ Not every functional bug needs a full post-mortem. Use this decision tree:
 
 **Bug report** (always produced — this is the minimum deliverable):
 
-Save to `docs/{feature-name}/bug-{date}-{slug}.md`:
+Save to `docs/artifacts/incident-notes/{Task-Id}-Incident-Notes-{slug}.md`:
 
 ```markdown
 # Bug Report: {Title}
@@ -181,8 +181,8 @@ For severe bugs (P0/P1), produce a full post-mortem following the template in `.
 - Severity is based on user impact, not crash percentages
 - Prevention Action Points should focus on: missing test coverage, spec gaps, validation gaps, review process
 
-Save to `.claude/post-mortems/YYYY-MM-DD_{bug-slug}.md`.
-Update `.claude/post-mortems/INDEX.md` with a new entry.
+Save to `docs/artifacts/post-mortem/YYYY-MM-DD_{bug-slug}.md`.
+Update `docs/artifacts/post-mortem/INDEX.md` with a new entry.
 
 ## Step 7: Create Board Tasks (MANDATORY)
 

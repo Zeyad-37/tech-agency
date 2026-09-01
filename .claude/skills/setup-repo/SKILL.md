@@ -219,15 +219,31 @@ server/src/main/kotlin/com/example/{project}/
 ├── plugins/, features/, core/
 ```
 
-Also create the standard docs and agency scaffolding:
+Also create the standard docs and agency scaffolding. `docs/` has exactly five children — anything that does not fit one of them does not get a new top-level folder:
+
 ```
 docs/
-├── performance-budgets.md
-├── data-retention-policy.md
-├── slo/
-└── releases/
-board-context.md          # Empty Kanban board
+├── README.md             # Index: what lives where
+├── artifacts/            # Agent-written, one folder per doc type (CLOSED list —
+│   │                     #   see handoff-protocol.md). Folders are created on
+│   │                     #   demand; filenames carry the Task ID.
+│   ├── prd/  brd/  adr/  rfc/  spike/  design-spec/  api-contract/
+│   ├── api-migration/  test-plan/  code-review/  security-review/
+│   ├── static-analysis/  health-report/  incident-notes/  post-mortem/
+│   └── release-record/  runbook/  tech-task/  retro/  replenishment/
+│                        #   sprint-report/  onboarding/
+├── board/                # Board archives (see board-adapter.md)
+│   ├── README.md  backlog.md  decisions-log.md
+│   └── done-{YYYY}-Q{N}.md    # Created lazily on first completed task
+├── guides/               # Hand-maintained and long-lived: setup, references,
+│                         #   policies, and living registers (tech debt, SLOs,
+│                         #   performance budgets, data retention)
+├── assets/               # Images, GIFs, design handoff HTML/CSS
+└── archive/{year}/       # Superseded documents — moved, never deleted
+board-context.md          # Live columns only: Ready, In Progress, Review, Blocked
 ```
+
+The split is by **lifecycle**: `artifacts/` is written once per task by an agent and then read; `guides/` is maintained by hand over time; `board/` is appended to; `assets/` is binary; `archive/` is frozen.
 
 ## Step 6: Copy Agency Configuration (Gap-Filling)
 

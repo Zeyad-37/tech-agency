@@ -7,7 +7,48 @@
 - Action items tagged with `@AgentName`
 - Priority levels: P0 (critical), P1 (high), P2 (medium), P3 (low)
 - Receiving agent acknowledges within 1 daily sync cycle
-- Every handoff document must be saved to `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` (e.g., `docs/prd/US-042-PRD-User Authentication.md`, `docs/brd/US-042-BRD-User Authentication.md`, `docs/adr/US-042-ADR-JWT Strategy.md`). Document type folders are: `prd`, `brd`, `adr`, `rfc`, `design-spec`, `api-contract`, `incident-notes`, `post-mortem`, `release-record`, `api-migration`. Create the folder if it does not exist.
+- Every handoff document is saved to `docs/artifacts/{doc-type}/{Task-Id}-{Doc-Type}-{Title}.md` — e.g. `docs/artifacts/prd/US-042-PRD-User-Authentication.md`, `docs/artifacts/adr/US-042-ADR-JWT-Strategy.md`.
+
+## Document Types — A Closed List
+
+These are the only folders that may exist under `docs/artifacts/`:
+
+| Folder | Contains | Written by |
+|---|---|---|
+| `prd` | Product requirements | Morgan |
+| `brd` | Business requirements, user stories, NFRs | Diana |
+| `adr` | Architecture decisions | Sage |
+| `rfc` | Proposals for large features or changes | Any engineer |
+| `spike` | Time-boxed investigation reports | Any engineer |
+| `design-spec` | Component and screen specs, design tokens | Pixel |
+| `api-contract` | Endpoint contracts, OpenAPI notes | Backend agents |
+| `api-migration` | Version-to-version migration guides | Scroll |
+| `test-plan` | Test strategy per feature | Apex |
+| `code-review` | Review verdicts | Reviewing agent |
+| `security-review` | Security review reports, threat models, privacy audits | Shield |
+| `static-analysis` | Lint, size, and static-analysis baselines | Sentinel |
+| `health-report` | Periodic project health audits | Atlas |
+| `incident-notes` | Bug write-ups and rollback notes | Any agent |
+| `post-mortem` | Incident post-mortems (5 Whys) | Investigating agent |
+| `release-record` | Per-release record and notes | Sentinel |
+| `runbook` | Operational procedures | Sentinel |
+| `tech-task` | Technical/infrastructure task records | Any engineer |
+| `retro` | Retrospectives | Atlas |
+| `replenishment` | Replenishment reports | Atlas |
+| `sprint-report` | Period metrics reports | Atlas |
+| `onboarding` | Agent onboarding briefings | Atlas |
+
+Folder names are **singular** without exception (`runbook`, not `runbooks`; `retro`, not `retros`). Mixed plurality is how a taxonomy quietly grows a second copy of a folder.
+
+**The list is closed.** A new document type is a change to this table, reviewed like any other rule change — not a `mkdir`. When a document does not fit an existing type, the answer is almost always that it belongs to one of the above under a clearer title; propose a new type only when it is genuinely a new kind of artifact that will recur.
+
+### Why one taxonomy, not two
+
+Do **not** file documents by feature name (`docs/journal/`, `docs/agenda-detail/`) and do **not** create type-indexed cross-reference stubs (`docs/by-type/rfc/…`). Both were previously prescribed alongside this rule, which produced exactly the outcome you would expect: the same document existing twice under different names, agents finding the older copy, and a `docs/` root that grew a folder per feature.
+
+The Task ID in the filename already groups a feature's documents — `grep -r US-042 docs/artifacts/` finds every artifact for a story across all types. That is what the feature folder was for, and it costs nothing to maintain.
+
+Create the folder if it does not exist.
 
 ## Templates
 

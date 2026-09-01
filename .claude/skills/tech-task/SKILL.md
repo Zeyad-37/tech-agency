@@ -100,7 +100,7 @@ Determine:
 ```
 @Sage — Write an ADR for: [task description].
 Focus on: approach, alternatives, trade-offs, affected modules.
-Save to docs/tech-tasks/{task-name}/adr.md.
+Save to docs/artifacts/tech-task/{task-name}/adr.md.
 ```
 **Get @Zeyad approval on the ADR.** Then create board tasks.
 
@@ -109,14 +109,14 @@ Save to docs/tech-tasks/{task-name}/adr.md.
 This requires an RFC. Tell the assigned agent:
 ```
 This is a significant technical initiative. Write an RFC before starting.
-Save to docs/tech-tasks/{task-name}/rfc.md.
+Save to docs/artifacts/tech-task/{task-name}/rfc.md.
 Include: Goal, Background, Proposed Plan, Alternatives (2+), Open Questions, Estimated Scope.
 ```
 **Get @Zeyad approval on the RFC.**
 
 Then have Sage break it into tasks:
 ```
-@Sage — Break down the RFC at docs/tech-tasks/{task-name}/rfc.md into implementable tasks.
+@Sage — Break down the RFC at docs/artifacts/tech-task/{task-name}/rfc.md into implementable tasks.
 Assign each to the appropriate agent based on domain.
 ```
 
@@ -131,7 +131,7 @@ Then invoke Atlas for board setup:
 For medium and large tasks, invoke Atlas:
 ```
 @Atlas — Set up board tasks for tech task: [name].
-Reference: docs/tech-tasks/{task-name}/[adr or rfc].md
+Reference: docs/artifacts/tech-task/{task-name}/[adr or rfc].md
 Assign agents based on domain expertise.
 Type all tasks as "Tech Task" for tracking.
 ```
@@ -146,7 +146,7 @@ If the task involves creating or updating a design system:
 Target platforms: [platforms].
 Output: Design tokens (JSON), component specs with variants/states/accessibility.
 ```
-Save to `docs/tech-tasks/{task-name}/design-spec.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/tech-task/{task-name}/design-spec.md`. **Get @Zeyad approval.**
 
 2. Then fan out to platform engineers:
 ```
@@ -168,11 +168,10 @@ After implementation:
 
 ## Artifact Storage
 
-All tech task artifacts go to `docs/tech-tasks/{task-name}/`:
+All tech task artifacts go to `docs/artifacts/tech-task/{task-name}/`:
 - `rfc.md` — RFC (large tasks only)
 - `adr.md` — ADR (if architectural decisions were made)
 - `design-spec.md` — Design spec (design system tasks)
-- Cross-reference in `docs/by-type/tech-task/{task-name}.md`
 
 ## Handoff Reminders
 
