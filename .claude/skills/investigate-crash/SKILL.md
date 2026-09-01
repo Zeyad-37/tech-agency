@@ -102,4 +102,4 @@ Every "Prevention Action Points" row in the post-mortem MUST become a tracked ta
 
 3. If this incident is a recurrence of a previous incident (check `docs/artifacts/post-mortem/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
 
-This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/incident-response.md` for the full feedback loop closure policy.
+This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/guides/incident-response.md` for the full feedback loop closure policy.

@@ -79,7 +79,7 @@ If you have existing CI, layer the agency's quality gates incrementally:
 | Integration tests | Week 2 | Add if you have them. If not, start writing them for new code. |
 | Coverage thresholds | Week 3+ | Once baseline is established, set thresholds at current coverage + 5% and ratchet up. |
 
-See `docs/ci-enforcement-policy.md` for the full policy.
+See `docs/guides/ci-enforcement-policy.md` for the full policy.
 
 ### 2.4 Use `/setup-repo` for New Modules
 
@@ -103,16 +103,16 @@ Run the formatter (Prettier, ktlint, Black, Spotless, SwiftFormat) across the en
 
 If the existing project structure doesn't match the coding standards (e.g., different package layout, missing layer separation), don't refactor everything at once. Instead:
 
-1. Document the current structure in a `docs/architecture-current.md`.
-2. Document the target structure (from the coding standards) in a `docs/architecture-target.md`.
+1. Document the current structure in a `docs/guides/architecture-current.md`.
+2. Document the target structure (from the coding standards) in a `docs/guides/architecture-target.md`.
 3. Each new feature uses the target structure. Existing modules migrate when they're significantly modified.
-4. Track migration progress in `docs/tech-debt/backlog.md`.
+4. Track migration progress in `docs/guides/tech-debt/backlog.md`.
 
 ## Phase 4 — Testing Maturity (Weeks 3–6)
 
 ### 4.1 Establish a Baseline
 
-Run your existing test suite and measure coverage. Record this in `docs/test-baseline.md` with the date.
+Run your existing test suite and measure coverage. Record this in `docs/guides/test-baseline.md` with the date.
 
 ### 4.2 Ratchet Coverage
 
@@ -159,7 +159,7 @@ If using KMP, add Konsist tests to enforce layer dependencies. For other stacks,
 
 ### 6.2 SLO Definitions
 
-Define SLOs for every service per `operational-standards.md`. Store in `docs/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
+Define SLOs for every service per `operational-standards.md`. Store in `docs/guides/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
 
 ### 6.3 Feature Flags
 

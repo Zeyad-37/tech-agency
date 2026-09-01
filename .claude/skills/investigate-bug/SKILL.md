@@ -190,7 +190,7 @@ Every investigation produces at least these board tasks in `board-context.md`:
 
 1. **The fix itself** — assigned to the appropriate engineer (from git blame or domain ownership)
 2. **Tests to add** — assigned to the fixing engineer or @Apex
-3. **Any prevention actions** from the post-mortem (if produced) — with owners, priorities, and due dates per the feedback loop closure policy in `docs/incident-response.md`
+3. **Any prevention actions** from the post-mortem (if produced) — with owners, priorities, and due dates per the feedback loop closure policy in `docs/guides/incident-response.md`
 
 If the root cause is **spec ambiguity**:
 - Add a task for @Diana or @Morgan to clarify the spec

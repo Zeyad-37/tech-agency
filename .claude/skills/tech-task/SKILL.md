@@ -17,9 +17,9 @@ Ask the user (if not already clear):
 - **Which codebase areas?** (to identify the right agent(s))
 
 Check existing context:
-- `docs/tech-debt/backlog.md` — is this already tracked as tech debt?
+- `docs/guides/tech-debt/backlog.md` — is this already tracked as tech debt?
 - Recent ADRs — does an existing decision constrain this work?
-- `docs/ci-enforcement-policy.md` — relevant for CI/CD tasks
+- `docs/guides/ci-enforcement-policy.md` — relevant for CI/CD tasks
 
 ## Step 2: Create a Branch
 
@@ -177,7 +177,7 @@ All tech task artifacts go to `docs/artifacts/tech-task/{task-name}/`:
 
 - Every handoff doc needs @Zeyad approval before the next step
 - Tag tasks as "Tech Task" on the board so sprint reports can distinguish feature work from infrastructure work
-- If the task resolves tech debt, also update `docs/tech-debt/resolved.md` with the resolution
+- If the task resolves tech debt, also update `docs/guides/tech-debt/resolved.md` with the resolution
 - Engineers should check existing docs and ADRs before starting (per agent-preamble.md)
 - Use `/update-board` at every lifecycle transition (→ In Progress, → Blocked, → Review, → Done) to commit the board change on the branch so it merges with the code
 - Use `/create-pr` after moving to Review to create a standardized pull request with the task ID in the title and participating agents in the body

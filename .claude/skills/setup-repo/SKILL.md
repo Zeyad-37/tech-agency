@@ -337,12 +337,12 @@ done
 ### 6f. Reference Docs (if missing)
 
 ```bash
-mkdir -p docs docs/references
+mkdir -p docs/guides/references
 
 for doc in setup-guide migration-guide ci-enforcement-policy incident-response; do
-    if [ ! -f "docs/${doc}.md" ]; then
-        cp {project-template}/docs/${doc}.md docs/
-        echo "Copied: docs/${doc}.md"
+    if [ ! -f "docs/guides/${doc}.md" ]; then
+        cp {project-template}/docs/guides/${doc}.md docs/guides/
+        echo "Copied: docs/guides/${doc}.md"
     fi
 done
 
@@ -351,9 +351,9 @@ done
 # Android gets compose-testing-reference.md, compose-observability-reference.md
 # iOS gets swiftui-testing-reference.md, swiftui-observability-reference.md
 for ref in {selected-references}; do
-    if [ ! -f "docs/references/${ref}" ]; then
-        cp {project-template}/docs/references/${ref} docs/references/
-        echo "Copied: docs/references/${ref}"
+    if [ ! -f "docs/guides/references/${ref}" ]; then
+        cp {project-template}/docs/guides/references/${ref} docs/guides/references/
+        echo "Copied: docs/guides/references/${ref}"
     fi
 done
 ```
@@ -796,8 +796,8 @@ TODOs (manual — fill in your tooling):
 - [ ] Add secrets to GitHub repo settings (API keys, deploy tokens, etc.)
 - [ ] Configure deployment targets in release.yml (staging, canary, production)
 - [ ] Configure notification channels in verify-main.yml (Slack, email, etc.)
-- [ ] Update performance budgets in docs/performance-budgets.md
-- [ ] Define SLOs per service in docs/slo/
+- [ ] Update performance budgets in docs/guides/performance-budgets.md
+- [ ] Define SLOs per service in docs/guides/slo/
 - [ ] Run /new-product to kick off the product planning chain
 ```
 
@@ -818,12 +818,12 @@ Still needs attention:
 - [ ] Customize CLAUDE.md for your project specifics
 - [ ] Fill in TODO placeholders in any new workflow files
 - [ ] Review git hook settings — adjust lint commands for your tooling
-- [ ] See docs/migration-guide.md for the full incremental adoption path
+- [ ] See docs/guides/migration-guide.md for the full incremental adoption path
 
 Recommended next steps:
 1. Run /daily-sync to initialize the board status
 2. Start using commit format: [STORY-ID] @Agent: description
-3. Follow docs/migration-guide.md phases for gradual adoption
+3. Follow docs/guides/migration-guide.md phases for gradual adoption
 ```
 
 ## Customization Notes
