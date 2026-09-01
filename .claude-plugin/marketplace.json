@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "tech-agency",
-  "description": "Multi-agent software development framework — 19 specialized agents, 24+ skills, and coding standards for Android, iOS, KMP, Web, and backend development.",
+  "description": "Multi-agent software development framework — 19 specialized agents, 48 skills, and 18 rule files covering Android, iOS, KMP, Web, and backend development, plus a companion marketing agency.",
   "owner": {
     "name": "Zeyad Gasser",
     "email": "zeyad.gasser@welltech.com"
@@ -9,17 +9,46 @@
   "plugins": [
     {
       "name": "tech-agency",
-      "description": "19 specialized agents (Atlas, Kai, Swift, Nova, Link, Forge, Pyra, Flux, Shield, Sage, Morgan, Diana, Pixel, Apex, Sentinel, Scroll, Echo, Neuron, Pipeline) with skills for feature development, PR creation, code review, health checks, releases, and more.",
+      "description": "19 specialized agents (Atlas, Kai, Swift, Nova, Link, Forge, Pyra, Flux, Shield, Sage, Morgan, Diana, Pixel, Apex, Sentinel, Scroll, Echo, Neuron, Pipeline) and 48 skills — 34 first-party workflow skills for feature development, PR creation, code review, health checks and releases, plus 14 vendored Apache-2.0 agent skills from Google (android-*) and JetBrains (kotlin-*) that install alongside them. Ships 18 rule files: 10 shared rules copied into your repo by /setup-repo, and 8 coding standards read on demand from the plugin.",
       "category": "development",
       "source": "./.claude",
-      "homepage": "https://github.com/Zeyad-37/tech-agency"
+      "homepage": "https://github.com/Zeyad-37/tech-agency",
+      "author": {
+        "name": "Zeyad Gasser",
+        "email": "zeyad.gasser@welltech.com"
+      },
+      "keywords": [
+        "multi-agent",
+        "development-team",
+        "kmp",
+        "kotlin-multiplatform",
+        "android",
+        "ios",
+        "fullstack",
+        "kanban",
+        "devops",
+        "code-review"
+      ]
     },
     {
       "name": "marketing-agency",
       "description": "Proactive, self-improving marketing system that complements tech-agency. Runs funnel audits, proposes experiments, hands engineering work to tech-agency, turns releases into launch content, and teaches the marketing craft as it works (mentor mode).",
       "category": "marketing",
       "source": "./marketing-agency",
-      "homepage": "https://github.com/Zeyad-37/tech-agency"
+      "homepage": "https://github.com/Zeyad-37/tech-agency",
+      "author": {
+        "name": "Zeyad Gasser",
+        "email": "zeyad.gasser@welltech.com"
+      },
+      "keywords": [
+        "marketing",
+        "growth",
+        "funnel",
+        "experiments",
+        "launch",
+        "aso",
+        "seo"
+      ]
     }
   ]
 }

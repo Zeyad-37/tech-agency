@@ -1,0 +1,375 @@
+name: Validate
+
+# Structural validation for this plugin repo.
+#
+# The product here is manifests and markdown, so the failure modes are manifest
+# drift and dangling `@`-references — both of which are invisible to a human
+# reviewer and fatal to an installed user. This workflow is the gate that catches
+# them before `release-on-main.yml` publishes a release.
+#
+# Checks, in order:
+#   a. Every */.claude-plugin/*.json parses as JSON.
+#   b. Every marketplace plugins[].source resolves to a directory holding a
+#      plugin.json whose name matches the marketplace entry.
+#   c. VERSION and .claude/.claude-plugin/plugin.json agree, and both are semver.
+#   d. Every SKILL.md has frontmatter with a non-empty name + description, name
+#      matches its directory, and no two skills share a name.
+#   e. Every agent .md has frontmatter with a non-empty name + description, and
+#      name matches the filename stem.
+#   f. Every `@path.md` reference under .claude/ and docs/ resolves to a real file
+#      (${CLAUDE_PLUGIN_ROOT}/... forms resolve against .claude/...).
+#   g. Advertised agent/skill/rule counts in README.md and the manifests match
+#      what the repo actually contains.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Write frontmatter helpers
+        run: |
+          cat > "$RUNNER_TEMP/fm.sh" <<'HELPERS'
+          # fm_value <file> <key>
+          # Prints the value of a top-level YAML frontmatter key. Handles plain
+          # scalars, quoted scalars, and folded/literal block scalars (">", "|",
+          # ">-", "|-") — the vendored JetBrains skills use the folded form.
+          fm_value() {
+            awk -v key="$2" -v sq="'" '
+              NR == 1 { if ($0 != "---") { exit } ; next }
+              $0 == "---" { exit }
+              {
+                if (collecting) {
+                  if ($0 ~ /^[ \t]+[^ \t]/) { line = $0; sub(/^[ \t]+/, "", line); val = (val == "" ? line : val " " line); next }
+                  collecting = 0
+                }
+                if (index($0, key ":") == 1) {
+                  val = substr($0, length(key) + 2)
+                  sub(/^[ \t]+/, "", val); sub(/[ \t]+$/, "", val)
+                  if (val == ">" || val == "|" || val == ">-" || val == "|-" || val == ">+" || val == "|+") { val = ""; collecting = 1 }
+                }
+              }
+              END {
+                sub(/^[ \t]+/, "", val); sub(/[ \t]+$/, "", val)
+                first = substr(val, 1, 1); last = substr(val, length(val), 1)
+                if (length(val) > 1 && first == last && (first == "\"" || first == sq)) { val = substr(val, 2, length(val) - 2) }
+                print val
+              }
+            ' "$1"
+          }
+
+          # has_frontmatter <file>
+          has_frontmatter() { [ "$(head -n 1 "$1")" = "---" ]; }
+          HELPERS
+          echo "Helpers written to $RUNNER_TEMP/fm.sh"
+
+      - name: (a) Plugin manifests are valid JSON
+        run: |
+          set -uo pipefail
+          fail=0
+          found=0
+          while IFS= read -r f; do
+            found=$((found + 1))
+            if jq empty "$f" >/dev/null 2>&1; then
+              echo "  ok    $f"
+            else
+              echo "::error file=$f::$f is not valid JSON"
+              # `|| true`: this pipeline is expected to fail; without it, `-e`
+              # would abort the step with jq's exit code before the remaining
+              # manifests are checked.
+              jq empty "$f" 2>&1 | sed 's/^/          /' || true
+              fail=1
+            fi
+          done < <(find . -path ./.git -prune -o -path '*/.claude-plugin/*.json' -print | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No */.claude-plugin/*.json manifests found — the repo layout changed unexpectedly"
+            exit 1
+          fi
+          echo "Checked $found manifest(s)."
+          exit "$fail"
+
+      - name: (b) Marketplace sources resolve to matching plugin manifests
+        run: |
+          set -uo pipefail
+          MP=".claude-plugin/marketplace.json"
+          fail=0
+          if [ ! -f "$MP" ]; then
+            echo "::error::Marketplace manifest not found at $MP"
+            exit 1
+          fi
+          # `// []` keeps a missing/null .plugins from producing "null" and
+          # blowing up the integer comparison below.
+          n_plugins="$(jq -r '(.plugins // []) | length' "$MP")"
+          if [ "$n_plugins" -eq 0 ]; then
+            echo "::error file=$MP::marketplace.json declares no plugins"
+            exit 1
+          fi
+          while IFS="$(printf '\t')" read -r name src; do
+            if [ -z "$name" ] || [ -z "$src" ]; then
+              echo "::error file=$MP::A plugins[] entry is missing 'name' or 'source'"
+              fail=1; continue
+            fi
+            dir="${src#./}"
+            if [ ! -d "$dir" ]; then
+              echo "::error file=$MP::plugin '$name' declares source '$src' but directory '$dir' does not exist"
+              fail=1; continue
+            fi
+            manifest="$dir/.claude-plugin/plugin.json"
+            if [ ! -f "$manifest" ]; then
+              echo "::error file=$MP::plugin '$name' source '$src' has no plugin manifest at '$manifest' — installing it would yield an empty plugin"
+              fail=1; continue
+            fi
+            declared="$(jq -r '.name // ""' "$manifest")"
+            if [ "$declared" != "$name" ]; then
+              echo "::error file=$manifest::name mismatch: the marketplace entry is named '$name' but $manifest declares '$declared'"
+              fail=1; continue
+            fi
+            echo "  ok    $name -> $dir ($manifest)"
+          done < <(jq -r '.plugins[] | [(.name // ""), (.source // "")] | @tsv' "$MP")
+          exit "$fail"
+
+      - name: (c) VERSION matches the plugin manifest and both are semver
+        run: |
+          set -uo pipefail
+          MANIFEST=".claude/.claude-plugin/plugin.json"
+          SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
+          fail=0
+          if [ ! -f VERSION ]; then
+            echo "::error::VERSION file not found at repo root"
+            exit 1
+          fi
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::Plugin manifest not found at $MANIFEST"
+            exit 1
+          fi
+          V="$(tr -d ' \t\r\n' < VERSION)"
+          # `|| true` so a malformed manifest (already reported by check (a))
+          # yields an empty value and a clear semver error here, rather than
+          # aborting the step on jq's exit code.
+          M="$(jq -r '.version // ""' "$MANIFEST" 2>/dev/null || true)"
+          if ! echo "$V" | grep -qE "$SEMVER"; then
+            echo "::error file=VERSION::VERSION is not a valid semver (got '$V')"
+            fail=1
+          fi
+          if ! echo "$M" | grep -qE "$SEMVER"; then
+            echo "::error file=$MANIFEST::version is not a valid semver (got '$M')"
+            fail=1
+          fi
+          if [ "$V" != "$M" ]; then
+            echo "::error file=$MANIFEST::Version drift: VERSION='$V' but $MANIFEST version='$M'. The git tag comes from VERSION; the version 'claude plugin update' sees comes from the manifest (the marketplace entry is source-only). Set both to the same value."
+            fail=1
+          fi
+          if [ "$fail" -eq 0 ]; then
+            echo "  ok    VERSION == $MANIFEST version == $V"
+          fi
+          exit "$fail"
+
+      - name: (d) Skill frontmatter is well-formed and names are unique
+        run: |
+          set -uo pipefail
+          . "$RUNNER_TEMP/fm.sh"
+          fail=0
+          count=0
+          names_file="$RUNNER_TEMP/skill-names.txt"
+          : > "$names_file"
+          for dir in .claude/skills/*/ marketing-agency/skills/*/; do
+            [ -d "$dir" ] || continue
+            dir="${dir%/}"
+            base="$(basename "$dir")"
+            file="$dir/SKILL.md"
+            count=$((count + 1))
+            if [ ! -f "$file" ]; then
+              echo "::error::Skill directory '$dir' has no SKILL.md"
+              fail=1; continue
+            fi
+            if ! has_frontmatter "$file"; then
+              echo "::error file=$file::$file does not start with a '---' YAML frontmatter block"
+              fail=1; continue
+            fi
+            name="$(fm_value "$file" name)"
+            desc="$(fm_value "$file" description)"
+            if [ -z "$name" ]; then
+              echo "::error file=$file::frontmatter 'name' is missing or empty"
+              fail=1
+            fi
+            if [ -z "$desc" ]; then
+              echo "::error file=$file::frontmatter 'description' is missing or empty — Claude Code uses it to decide when to invoke the skill"
+              fail=1
+            fi
+            if [ -n "$name" ] && [ "$name" != "$base" ]; then
+              echo "::error file=$file::frontmatter name '$name' does not match its directory name '$base'"
+              fail=1
+            fi
+            # An `if` rather than `[ ... ] && ...`: under `-e` the short-circuit
+            # form would abort the step on the first skill with an empty name.
+            if [ -n "$name" ]; then
+              printf '%s\t%s\n' "$name" "$file" >> "$names_file"
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No skill directories found — the repo layout changed unexpectedly"
+            exit 1
+          fi
+          while IFS= read -r dup; do
+            [ -n "$dup" ] || continue
+            echo "::error::Duplicate skill name '$dup' — declared by: $(awk -F'\t' -v n="$dup" '$1 == n { printf "%s ", $2 }' "$names_file")"
+            fail=1
+          done < <(cut -f1 "$names_file" | sort | uniq -d)
+          echo "Checked $count skill(s)."
+          exit "$fail"
+
+      - name: (e) Agent frontmatter is well-formed
+        run: |
+          set -uo pipefail
+          . "$RUNNER_TEMP/fm.sh"
+          fail=0
+          count=0
+          for file in .claude/agents/*.md; do
+            [ -f "$file" ] || continue
+            count=$((count + 1))
+            stem="$(basename "$file" .md)"
+            if ! has_frontmatter "$file"; then
+              echo "::error file=$file::$file does not start with a '---' YAML frontmatter block"
+              fail=1; continue
+            fi
+            name="$(fm_value "$file" name)"
+            desc="$(fm_value "$file" description)"
+            if [ -z "$name" ]; then
+              echo "::error file=$file::frontmatter 'name' is missing or empty"
+              fail=1
+            fi
+            if [ -z "$desc" ]; then
+              echo "::error file=$file::frontmatter 'description' is missing or empty — Claude Code uses it to route work to the agent"
+              fail=1
+            fi
+            if [ -n "$name" ] && [ "$name" != "$stem" ]; then
+              echo "::error file=$file::frontmatter name '$name' does not match the filename stem '$stem'"
+              fail=1
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No agent files found under .claude/agents/ — the repo layout changed unexpectedly"
+            exit 1
+          fi
+          echo "Checked $count agent(s)."
+          exit "$fail"
+
+      - name: (f) All @-references resolve to real files
+        run: |
+          set -uo pipefail
+          # Every `@some/path.md` written in a rule, skill, agent, or doc is a real
+          # file reference that Claude Code will try to load. A dangling one fails
+          # silently at runtime, which is exactly how ~30 stale flat-layout rule
+          # paths survived unnoticed. `${CLAUDE_PLUGIN_ROOT}/rules/...` is the
+          # on-demand form for plugin-resident rules and resolves to `.claude/rules/...`.
+          # References containing a `{placeholder}` are documentation templates,
+          # not real paths, and are skipped.
+          broken=0
+          checked=0
+          while IFS= read -r hit; do
+            [ -n "$hit" ] || continue
+            src="${hit%%:*}"
+            ref="${hit##*:}"
+            case "$ref" in
+              '${CLAUDE_PLUGIN_ROOT}/'*) path=".claude/${ref#\$\{CLAUDE_PLUGIN_ROOT\}/}" ;;
+              @*)                        path="${ref#@}" ;;
+              *)                         continue ;;
+            esac
+            case "$path" in *'{'*|*'}'*) continue ;; esac
+            checked=$((checked + 1))
+            if [ ! -f "$path" ]; then
+              echo "::error file=$src::Broken reference: '$ref' does not resolve to an existing file (looked for '$path')"
+              broken=$((broken + 1))
+            fi
+          done < <(grep -rnoE '(@|\$\{CLAUDE_PLUGIN_ROOT\}/)[A-Za-z0-9._${}/-]*\.md' .claude docs || true)
+          echo "Checked $checked reference(s); $broken broken."
+          [ "$broken" -eq 0 ]
+
+      - name: (g) Advertised counts match reality
+        run: |
+          set -uo pipefail
+          # Enforced vocabulary — a number immediately followed by one of these
+          # phrases must equal the corresponding real count:
+          #
+          #   N [specialized] [AI] agents          -> agent files
+          #   N agent definition file(s)           -> agent files
+          #   N [workflow] skill(s)                -> skill directories
+          #   N first-party ...                    -> first-party skills
+          #   N vendored ...                       -> vendored skills
+          #   N rule(s) [file(s)]                  -> rule files
+          #   N shared rule(s)                     -> rule files under rules/shared/
+          #   N [language] coding standard(s)      -> *-coding-standards.md files
+          #
+          # Any other phrasing is not enforced. Numbers preceded by a digit, '.',
+          # ',' or '-' are ignored so version strings like "Apache-2.0 agent
+          # skills" are not misread as counts.
+          AGENTS=$(find .claude/agents -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
+          SKILLS=$(find .claude/skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+          VENDORED=$(find .claude/skills -mindepth 1 -maxdepth 1 -type d \( -name 'android-*' -o -name 'kotlin-*' \) | wc -l | tr -d ' ')
+          FIRST_PARTY=$((SKILLS - VENDORED))
+          RULES=$(find .claude/rules -name '*.md' | wc -l | tr -d ' ')
+          SHARED_RULES=$(find .claude/rules/shared -name '*.md' | wc -l | tr -d ' ')
+          CODING_STANDARDS=$(find .claude/rules -name '*-coding-standards.md' | wc -l | tr -d ' ')
+
+          {
+            echo "### Repo inventory (actual)"
+            echo ""
+            echo "| Thing | Count |"
+            echo "|---|---|"
+            echo "| Agents (\`.claude/agents/*.md\`) | $AGENTS |"
+            echo "| Skills (\`.claude/skills/*/\`) | $SKILLS |"
+            echo "| — first-party | $FIRST_PARTY |"
+            echo "| — vendored (android-*, kotlin-*) | $VENDORED |"
+            echo "| Rules (\`.claude/rules/**/*.md\`) | $RULES |"
+            echo "| — shared | $SHARED_RULES |"
+            echo "| — coding standards | $CODING_STANDARDS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Actual: agents=$AGENTS skills=$SKILLS (first-party=$FIRST_PARTY, vendored=$VENDORED) rules=$RULES (shared=$SHARED_RULES, coding-standards=$CODING_STANDARDS)"
+
+          DRIFT=0
+          FILES="README.md .claude/.claude-plugin/plugin.json .claude-plugin/marketplace.json"
+
+          scan() {
+            label="$1"; noun="$2"; expected="$3"
+            for f in $FILES; do
+              [ -f "$f" ] || continue
+              while IFS= read -r raw; do
+                [ -n "$raw" ] || continue
+                phrase="${raw#"${raw%%[0-9]*}"}"   # drop the leading boundary character
+                num="${phrase%%[^0-9]*}"
+                if [ "$num" != "$expected" ]; then
+                  echo "::error file=$f::Count drift in $f: \"$phrase\" advertises $num $label, but the repo actually has $expected. Update the text, or the check's vocabulary if the phrasing changed."
+                  DRIFT=$((DRIFT + 1))
+                fi
+              done < <(grep -oiE "(^|[^0-9.,-])[0-9]+\+?[[:space:]]+$noun" "$f" || true)
+            done
+          }
+
+          scan "agents"                 "(specialized[[:space:]]+)?(AI[[:space:]]+)?agents?"  "$AGENTS"
+          scan "agents"                 "agent[[:space:]]+definition[[:space:]]+files?"       "$AGENTS"
+          scan "skills"                 "(workflow[[:space:]]+)?skills?"                      "$SKILLS"
+          scan "first-party skills"     "first-party"                                         "$FIRST_PARTY"
+          scan "vendored skills"        "vendored"                                            "$VENDORED"
+          scan "rule files"             "rules?([[:space:]]+files?)?"                         "$RULES"
+          scan "shared rule files"      "shared[[:space:]]+rules?"                            "$SHARED_RULES"
+          scan "coding-standards files" "(language[[:space:]]+)?coding[[:space:]]+standards?" "$CODING_STANDARDS"
+
+          if [ "$DRIFT" -ne 0 ]; then
+            echo "::error::$DRIFT advertised count(s) disagree with the repo. See the errors above and the inventory table in the job summary."
+            exit 1
+          fi
+          echo "All advertised counts match."

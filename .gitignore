@@ -8,3 +8,10 @@
 # ../{repo}-worktrees/ per worktree-first.md, not here.
 .claude/worktrees/
 .claude/.last-memory-audit
+
+# Per-machine Claude Code settings. Holds locally granted tool permissions
+# (e.g. `Bash(git push *)`, `gh api *`) and absolute home-directory paths, so
+# it is machine-specific and must never be committed. `.claude/settings.json`
+# — the shared, checked-in configuration — is deliberately NOT ignored.
+.claude/settings.local.json
+**/.claude/settings.local.json
