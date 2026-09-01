@@ -16,7 +16,7 @@
 
 | Task ID | Agent | Description | Started | Cycle Day |
 |---------|-------|-------------|---------|-----------|
-| — | — | — | — | — |
+| T-016 | @Claude | Epic: file organization — rules mirror, board split, doc taxonomy, single version source (integration branch `epic/T-016-file-organization`) | 2026-09-01 | 1 |
 
 ## Review
 
@@ -24,6 +24,7 @@
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
+| T-016.1 | @Claude | Rules mirror: generated `.claude/rules/` + `rules-local/`, `mirror.sh`, pre-push drift gate | @Zeyad | 2026-09-01 |
 
 ## Blocked
 
