@@ -1,84 +1,141 @@
 ---
 name: capture-screenshots
-description: "Capture before/after screenshots for UI changes using Paparazzi (Android), swift-snapshot-testing (iOS), and Playwright (Web). Produces a visual comparison table for PR review. Use when the user says 'capture screenshots', 'visual diff', 'before after screenshots', 'screenshot comparison', or when a PR has UI changes that need visual evidence."
+description: "Capture before/after screenshots for UI changes using Paparazzi (Android), swift-snapshot-testing (iOS), and Playwright (Web). Produces a visual comparison table for PR review. Accepts --base <branch> to diff against a non-default base (epic integration branches). Invoked automatically and non-skippably by /create-pr on every UI PR; also usable directly when the user says 'capture screenshots', 'visual diff', 'before after screenshots', or 'screenshot comparison'."
 ---
 
 # Capture Screenshots — Automated Visual Evidence for UI Changes
 
-This skill generates before/after screenshots to visually demonstrate UI changes. It detects which platforms are affected, runs the appropriate screenshot tooling on both the base branch and the feature branch, and produces a markdown comparison table that can be included in the PR.
+This skill generates before/after screenshots to visually demonstrate UI changes. It detects which platforms are affected, runs the appropriate screenshot tooling against both the base branch and the feature branch, and produces a markdown comparison table for the PR.
 
 ## When to Use
 
-- Before running `/create-pr` when the branch contains UI changes
-- When `/create-pr` detects UI changes and prompts for visual evidence
+- **Automatically, from `/create-pr` Step 3b** — this is the primary caller, and the invocation is not optional (see "Called by `/create-pr`" below)
 - When a reviewer requests visual proof of a UI change
 - Manually, when the user says "capture screenshots" or "visual diff"
 
-## Step 1: Detect Affected Platforms
-
-Analyze the changed files to determine which platforms have UI changes:
+## Step 0: Parse Arguments and Resolve the Base
 
 ```bash
-# Get all changed files on this branch vs main
-CHANGED_FILES=$(git diff --name-only main..HEAD)
+BASE_FLAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)
+      # Check $# BEFORE `shift 2`: on a bare trailing `--base`, `shift 2` fails
+      # and shifts nothing, so an unguarded loop spins forever.
+      [ $# -ge 2 ] && [ -n "$2" ] || { echo "❌ --base requires a branch name."; exit 1; }
+      BASE_FLAG="$2"; shift 2 ;;
+    --base=*)
+      BASE_FLAG="${1#--base=}"
+      [ -n "$BASE_FLAG" ] || { echo "❌ --base= requires a branch name."; exit 1; }
+      shift ;;
+    *)        shift ;;
+  esac
+done
 
-# Detect platforms
-HAS_ANDROID=$(echo "$CHANGED_FILES" | grep -E '\.(kt)$' | grep -iE '(Screen|Content|Component|View|Composable|Preview|Theme|Color|Type|Spacing|designsystem)' | head -1)
-HAS_IOS=$(echo "$CHANGED_FILES" | grep -E '\.(swift)$' | grep -iE '(Screen|View|Component|Preview|Theme|Color|Typography|Spacing|DesignSystem)' | head -1)
-HAS_WEB=$(echo "$CHANGED_FILES" | grep -E '\.(tsx|jsx)$' | grep -iE '(page|component|screen|layout|ui/)' | head -1)
+if [ -n "$BASE_FLAG" ]; then
+  BASE="$BASE_FLAG"
+else
+  BASE=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
+  [ -n "$BASE" ] || BASE=main
+fi
+
+git fetch origin "$BASE"
+echo "Capture base: origin/$BASE"
+```
+
+**Never hardcode `main`.** `/create-pr` always passes `--base "$BASE"`; a branch cut from an epic integration branch would otherwise be diffed against the wrong tree and produce a "before" state that never existed. Every diff and every capture below runs against `origin/$BASE`, never a local `main` ref — under the worktree-first rule the default branch is checked out in the main repo and cannot be checked out again here anyway.
+
+## Step 1: Detect Affected Platforms
+
+Use the **canonical UI-change detection** defined in `/create-pr` Pre-flight 0b — the single source of truth for "is this a UI change" across the ship path. It is restated here only because this skill can be invoked standalone; if the two ever diverge, `/create-pr`'s copy is authoritative and this one is the bug.
+
+```bash
+UI_EXT_RE='\.(kt|kts|swift|tsx|jsx|vue|css|scss)$'
+UI_NAME_RE='([Ss]creen|[Cc]ontent|Composable|Preview|Theme|Typography|Spacing|Colors?\.|[Dd]esign[Ss]ystem|View\.(swift|kt)|/[Uu][Ii]/|/[Cc]omponents?/|/[Vv]iews?/|/[Ss]tyles?/|\.(css|scss)$|page\.(tsx|jsx)|layout\.(tsx|jsx))'
+UI_EXCLUDE_RE='(ViewModel|Contract|InputHandler|Repository|UseCase|Mapper|Dto|Api|Service)\.(kt|kts|swift|ts|tsx)$'
+
+CHANGED_FILES=$(git diff --name-only "origin/$BASE"..HEAD \
+  | grep -E "$UI_EXT_RE" | grep -E "$UI_NAME_RE" | grep -vE "$UI_EXCLUDE_RE")
+
+# Split the canonical set by platform — no second detection pass, just a partition.
+HAS_ANDROID=$(echo "$CHANGED_FILES" | grep -E '\.(kt|kts)$' | head -1)
+HAS_IOS=$(echo "$CHANGED_FILES"     | grep -E '\.swift$'    | head -1)
+HAS_WEB=$(echo "$CHANGED_FILES"     | grep -E '\.(tsx|jsx|vue|css|scss)$' | head -1)
 ```
 
 Report which platforms were detected:
 
 ```
-Platforms with UI changes detected:
+Platforms with UI changes detected (base: origin/{BASE}):
   - Android (Compose): YES/NO
   - iOS (SwiftUI): YES/NO
   - Web (React): YES/NO
 ```
 
-If no UI changes are detected, inform the user and exit:
+**If `CHANGED_FILES` is empty**, exit with the distinguishable outcome token `SCREENSHOTS_NO_UI_DETECTED` so the caller can branch on it rather than guessing from an empty table:
 
 ```
-No UI-related file changes detected on this branch. Visual evidence is not required for this PR.
-If you believe UI changes are present but were not detected, you can provide screenshots manually.
+SCREENSHOTS_NO_UI_DETECTED
+
+No UI-related file changes detected vs origin/{BASE}. Visual evidence is not required.
+If UI changes are present but were not detected, provide screenshots manually.
 ```
+
+`/create-pr` treats this token as a **detection disagreement** and falls back to a review-blocking manual-evidence note — it does not silently open a UI PR with no visual evidence. See `/create-pr` Step 3b's outcome table.
+
+## Outcome Tokens (the contract with `/create-pr`)
+
+This skill's last line is always exactly one of these tokens. `/create-pr` Step 3b branches on it:
+
+| Token | Meaning |
+|---|---|
+| `SCREENSHOTS_CAPTURED` | At least one before/after pair was produced; the comparison table follows. |
+| `SCREENSHOTS_TOOLING_MISSING` | UI changes exist but the required tooling is not configured for an affected platform. Falls through to Step 4's manual request. |
+| `SCREENSHOTS_NO_UI_DETECTED` | No UI changes found (see above). |
+
+Emit the token even on partial success: if Android captured and iOS lacked tooling, emit `SCREENSHOTS_TOOLING_MISSING` and name the platform — a partially-empty table must never read as a clean pass.
 
 ## Step 2: Capture Screenshots — Per Platform
 
-For each detected platform, capture screenshots on the **base branch** (before) and the **feature branch** (after).
+For each detected platform, capture screenshots against the **base branch** (before) and the **feature branch** (after).
 
-### General Flow (All Platforms)
+### General Flow (All Platforms) — a detached worktree, never a stash
 
-```
-1. Record the current branch name
-2. Stash any uncommitted changes
-3. Checkout the base branch (main)
-4. Run screenshot capture for the base state → save to .screenshots/before/
-5. Checkout back to the feature branch
-6. Pop stashed changes (if any)
-7. Run screenshot capture for the feature state → save to .screenshots/after/
-8. Generate diff comparison
-```
+The "before" state is captured from a **throwaway detached worktree checked out at `origin/$BASE`**. The current worktree is never mutated: no stash, no checkout, no branch switch.
+
+> **Why not stash + checkout?** Two reasons, both of which have bitten this skill:
+>
+> 1. **`git stash pop` on a clean tree pops someone else's stash.** `git stash --include-untracked` creates *no* entry when the tree is clean, so an unguarded `git stash pop` afterwards pops whatever was already on the stack — and the stash stack is **shared across every worktree and concurrent session**, which is exactly the configuration worktree-first encourages. Since `/create-pr` invokes this skill automatically and non-skippably on every UI PR, that failure mode is on the default path of every UI change.
+> 2. **`git checkout $BASE` cannot work under worktree-first.** The default branch is checked out in the main repo, so git refuses to check it out again in a worktree. The capture would abort before taking a single screenshot.
+>
+> A detached worktree has neither problem: it needs no clean tree, touches no stash, and `--detach` means no branch is claimed, so it coexists with the main checkout.
 
 ```bash
 FEATURE_BRANCH=$(git branch --show-current)
 mkdir -p .screenshots/before .screenshots/after
 
-# Stash uncommitted changes if any
-git stash --include-untracked 2>/dev/null
+# Create a throwaway worktree pinned to the base commit. --detach claims no
+# branch, so this works even though origin/$BASE is checked out elsewhere.
+BEFORE_WT="$(mktemp -d "${TMPDIR:-/tmp}/screenshots-before-XXXXXX")"
+rm -rf "$BEFORE_WT"                      # mktemp -d created it; worktree add needs it absent
+git worktree add --detach "$BEFORE_WT" "origin/$BASE"
 
-# Capture "before" on base branch
-git checkout main
-# ... run platform-specific capture (see below) ...
+# Always clean up the throwaway worktree, even if a capture step fails.
+cleanup_before_wt() {
+  git worktree remove --force "$BEFORE_WT" || git worktree prune
+}
+trap cleanup_before_wt EXIT
 
-# Return to feature branch
-git checkout "$FEATURE_BRANCH"
-git stash pop 2>/dev/null
-
-# Capture "after" on feature branch
-# ... run platform-specific capture (see below) ...
+# 1. Capture "before" by running the platform tooling INSIDE $BEFORE_WT,
+#    writing into this worktree's .screenshots/before/.
+# 2. Capture "after" by running the same tooling in the current worktree,
+#    writing into .screenshots/after/.
+# Neither step switches branches or touches the stash.
 ```
+
+Verification of this flow (run against a scratch repo with a dirty tree): the before-worktree resolves to the base content, the current worktree keeps the feature content, untracked files survive untouched, `git branch --show-current` is unchanged, and `git worktree remove --force` leaves the worktree list back at one entry.
+
+**Error handling:** every command below runs **without `2>/dev/null`**. A silenced failure here is worse than a loud one — it produces an empty `.screenshots/` directory, which renders as a Visual Changes table with no rows, which still satisfies `/code-review`'s "does a Visual Changes section exist" check. A capture that fails must say so and must drive the `SCREENSHOTS_TOOLING_MISSING` outcome.
 
 ---
 
@@ -101,27 +158,62 @@ If Paparazzi is not configured, fall back to manual screenshots (see Step 4).
 **Capture commands:**
 
 ```bash
-# Record golden images (captures screenshots of all Paparazzi tests)
-# Run only for the affected module(s) to save time
-AFFECTED_MODULES=$(echo "$CHANGED_FILES" | grep '\.kt$' | sed 's|/src/.*||' | sort -u)
+# Record golden images (captures screenshots of all Paparazzi tests).
+# Run only for the affected module(s) to save time.
+AFFECTED_MODULES=$(echo "$CHANGED_FILES" | grep -E '\.kts?$' | sed 's|/src/.*||' | sort -u)
 
+CAPTURE_FAILED=0
+
+# Gradle TASK PATHS are colon-separated, not slash-separated: a module directory
+# `features/notes/ui` is the task path `:features:notes:ui`. Passing the raw
+# directory produces `features/notes/ui:recordPaparazziDebug`, which Gradle
+# rejects as an unknown project — the same conversion /create-pr Step 4b does.
+gradle_path() { printf ':%s' "$(echo "$1" | tr '/' ':')"; }
+
+# --- Before: run inside the detached base worktree ---
 for module in $AFFECTED_MODULES; do
-  # Before (on main)
-  ./gradlew "${module}:recordPaparazziDebug" 2>&1
-  cp -r "${module}/src/test/snapshots" ".screenshots/before/${module##*/}/" 2>/dev/null
+  GP="$(gradle_path "$module")"
+  echo "→ before: ${GP}:recordPaparazziDebug"
+  if (cd "$BEFORE_WT" && ./gradlew "${GP}:recordPaparazziDebug"); then
+    SRC="$BEFORE_WT/${module}/src/test/snapshots"
+    if [ -d "$SRC" ]; then
+      mkdir -p ".screenshots/before/${module##*/}"
+      cp -R "$SRC/." ".screenshots/before/${module##*/}/"
+    else
+      echo "⚠️  No snapshots produced for ${module} on the base — treating as a new screen."
+    fi
+  else
+    echo "❌ Paparazzi record failed for ${module} on origin/${BASE}."
+    CAPTURE_FAILED=1
+  fi
 done
 
-# After switching back to feature branch:
+# --- After: run in the current worktree (the feature branch) ---
 for module in $AFFECTED_MODULES; do
-  ./gradlew "${module}:recordPaparazziDebug" 2>&1
-  cp -r "${module}/src/test/snapshots" ".screenshots/after/${module##*/}/" 2>/dev/null
+  GP="$(gradle_path "$module")"
+  echo "→ after: ${GP}:recordPaparazziDebug"
+  if ./gradlew "${GP}:recordPaparazziDebug"; then
+    SRC="${module}/src/test/snapshots"
+    if [ -d "$SRC" ]; then
+      mkdir -p ".screenshots/after/${module##*/}"
+      cp -R "$SRC/." ".screenshots/after/${module##*/}/"
+    else
+      echo "❌ Paparazzi reported success but produced no snapshots for ${module}."
+      CAPTURE_FAILED=1
+    fi
+  else
+    echo "❌ Paparazzi record failed for ${module} on ${FEATURE_BRANCH}."
+    CAPTURE_FAILED=1
+  fi
 done
 ```
 
-**If specific screens are known**, run only the relevant Paparazzi test classes:
+If `CAPTURE_FAILED` is 1, Android contributes `MANUAL NEEDED` to the Step 5 report and the run's outcome token becomes `SCREENSHOTS_TOOLING_MISSING`. Never swallow the Gradle exit code and never report captured screenshots that don't exist on disk.
+
+**If specific screens are known**, run only the relevant Paparazzi test classes (same colon-path rule):
 
 ```bash
-./gradlew "${module}:testDebugUnitTest" --tests "*${ScreenName}ScreenshotTest" 2>&1
+./gradlew "$(gradle_path "$module"):testDebugUnitTest" --tests "*${ScreenName}ScreenshotTest"
 ```
 
 ---
@@ -145,37 +237,42 @@ If not configured, fall back to manual screenshots (see Step 4).
 **Capture commands:**
 
 ```bash
-# Record snapshots by running snapshot tests with record mode
-# Before (on main):
-cd iosApp
-xcodebuild test \
-  -scheme "AppTests" \
-  -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
-  -only-testing:"AppTests/SnapshotTests" \
-  2>&1 | xcpretty
-cp -r "Tests/__Snapshots__" "../.screenshots/before/ios/" 2>/dev/null
-cd ..
+REPO_ROOT="$(pwd)"
 
-# After (on feature branch):
-cd iosApp
-# Set RECORD_MODE environment variable to regenerate snapshots
-SNAPSHOT_TESTING_RECORD=1 xcodebuild test \
-  -scheme "AppTests" \
-  -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
-  -only-testing:"AppTests/SnapshotTests" \
-  2>&1 | xcpretty
-cp -r "Tests/__Snapshots__" "../.screenshots/after/ios/" 2>/dev/null
-cd ..
+run_ios_snapshots() {   # $1 = worktree root to run in, $2 = destination dir
+  local root="$1" dest="$2"
+  ( set -o pipefail
+    cd "$root/iosApp" && SNAPSHOT_TESTING_RECORD=1 xcodebuild test \
+      -scheme "AppTests" \
+      -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
+      -only-testing:"AppTests/SnapshotTests" 2>&1 | xcpretty )
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "❌ xcodebuild snapshot run failed in ${root} (exit ${rc})."
+    return 1
+  fi
+  if [ ! -d "$root/iosApp/Tests/__Snapshots__" ]; then
+    echo "❌ xcodebuild succeeded but produced no __Snapshots__ in ${root}."
+    return 1
+  fi
+  mkdir -p "$dest"
+  cp -R "$root/iosApp/Tests/__Snapshots__/." "$dest/"
+}
+
+# Before — the detached base worktree. After — the current worktree.
+run_ios_snapshots "$BEFORE_WT"   "$REPO_ROOT/.screenshots/before/ios" || CAPTURE_FAILED=1
+run_ios_snapshots "$REPO_ROOT"   "$REPO_ROOT/.screenshots/after/ios"  || CAPTURE_FAILED=1
 ```
 
-**Alternative — if using SwiftUI Previews with a snapshot helper:**
+`set -o pipefail` is required: without it the pipe into `xcpretty` masks `xcodebuild`'s exit code and a failed build reports success. Note the "before" run happens in a worktree that has never been built — expect a cold build, and do not interpret its duration as a hang.
+
+**Alternative — if using SwiftUI Previews with a dedicated snapshot target**, substitute the scheme and keep the same structure (pipefail, exit-code check, existence check):
 
 ```bash
-# Some projects have a dedicated snapshot target
-xcodebuild test \
-  -scheme "SnapshotTests" \
-  -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
-  2>&1 | xcpretty
+( set -o pipefail
+  cd "$root/iosApp" && xcodebuild test \
+    -scheme "SnapshotTests" \
+    -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" 2>&1 | xcpretty )
 ```
 
 ---
@@ -198,55 +295,115 @@ If not configured, fall back to manual screenshots (see Step 4).
 
 **Capture commands:**
 
+> **The `&` trap this section used to contain.** `npm run build --silent || npm run dev &` does **not** mean "build, else start the dev server in the background". `&` terminates the entire AND-OR list, so the whole `build || dev` list is backgrounded and `$!` is its PID, not the server's. Combined with a fixed `sleep 5` and `2>/dev/null` on every `playwright screenshot`, the result was: nothing ever served port 3000, every screenshot failed silently, and Step 5 still reported success. The two branches are now separate statements, the server readiness is **polled** rather than slept at, and no failure is silenced.
+
 ```bash
+PORT="${PORT:-3000}"
+
+# Poll until the server actually answers, instead of guessing with `sleep 5`.
+wait_for_port() {
+  local port="$1" timeout="${2:-90}" deadline
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if curl -sSf -o /dev/null "http://localhost:${port}/"; then return 0; fi
+    if command -v nc >/dev/null && nc -z 127.0.0.1 "$port"; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+# Start a server for a given worktree root. Sets the global $DEV_PID on success.
+#
+# It must NOT return the PID on stdout. `DEV_PID=$(start_server …)` would
+# deadlock: the backgrounded server inherits the command-substitution pipe and
+# keeps it open, so the substitution never sees EOF and blocks until the server
+# exits — which is never. (It would also splice all of npm's stdout into
+# $DEV_PID.) Hence: a global, and every diagnostic on stderr.
+DEV_PID=""
+start_server() {   # $1 = worktree root; sets $DEV_PID, returns 0 on success
+  local root="$1"
+  DEV_PID=""
+  ( cd "$root" && npm ci ) >&2 || { echo "❌ npm ci failed in $root" >&2; return 1; }
+  # Prefer a production build + start; fall back to the dev server.
+  # NOTE: these are separate statements precisely so `&` backgrounds only the
+  # server, never the whole conditional.
+  if ( cd "$root" && npm run build ) >&2; then
+    ( cd "$root" && npm run start -- --port "$PORT" ) >&2 &
+  else
+    echo "⚠️  build failed — falling back to the dev server." >&2
+    ( cd "$root" && npm run dev -- --port "$PORT" ) >&2 &
+  fi
+  DEV_PID=$!
+  if ! wait_for_port "$PORT" 90; then
+    echo "❌ No server answered on port $PORT within 90s (root=$root)." >&2
+    kill "$DEV_PID" 2>/dev/null
+    DEV_PID=""
+    return 1
+  fi
+  return 0
+}
+
 # Determine affected pages/routes from changed files
-AFFECTED_PAGES=$(echo "$CHANGED_FILES" | grep -E '\.(tsx|jsx)$' | grep -E 'app/.*page\.' | sed 's|src/app||;s|/page\.tsx$||;s|/page\.jsx$||' | sort -u)
+AFFECTED_PAGES=$(echo "$CHANGED_FILES" | grep -E '\.(tsx|jsx)$' | grep -E 'app/.*page\.' \
+  | sed 's|src/app||;s|/page\.tsx$||;s|/page\.jsx$||' | sort -u)
 
-# Before (on main):
-npm ci --silent
-npm run build --silent 2>/dev/null || npm run dev &
-DEV_PID=$!
-sleep 5  # wait for server
+shoot() {   # $1 = phase (before|after)
+  local phase="$1" route safe
+  mkdir -p ".screenshots/${phase}/web"
+  for route in $AFFECTED_PAGES; do
+    safe=$(echo "$route" | tr '/' '_' | sed 's/^_//')
+    [ -n "$safe" ] || safe="index"
+    npx playwright screenshot "http://localhost:${PORT}${route}" \
+      ".screenshots/${phase}/web/${safe}.png" \
+      || { echo "❌ screenshot failed: ${phase} ${route}"; CAPTURE_FAILED=1; }
+    npx playwright screenshot --color-scheme=dark "http://localhost:${PORT}${route}" \
+      ".screenshots/${phase}/web/${safe}-dark.png" \
+      || { echo "❌ screenshot failed: ${phase} ${route} (dark)"; CAPTURE_FAILED=1; }
+    npx playwright screenshot --viewport-size="375,812" "http://localhost:${PORT}${route}" \
+      ".screenshots/${phase}/web/${safe}-mobile.png" \
+      || { echo "❌ screenshot failed: ${phase} ${route} (mobile)"; CAPTURE_FAILED=1; }
+  done
+}
 
-for page_route in $AFFECTED_PAGES; do
-  SAFE_NAME=$(echo "$page_route" | tr '/' '_' | sed 's/^_//')
-  npx playwright screenshot "http://localhost:3000${page_route}" ".screenshots/before/web/${SAFE_NAME}.png" 2>/dev/null
-  # Dark mode
-  npx playwright screenshot --color-scheme=dark "http://localhost:3000${page_route}" ".screenshots/before/web/${SAFE_NAME}-dark.png" 2>/dev/null
-  # Mobile viewport
-  npx playwright screenshot --viewport-size="375,812" "http://localhost:3000${page_route}" ".screenshots/before/web/${SAFE_NAME}-mobile.png" 2>/dev/null
-done
+# --- Before: serve the detached base worktree ---
+# Call it as a plain command (never `$( )`) so the backgrounded server does not
+# hold a command-substitution pipe open; $DEV_PID is set by the function.
+if start_server "$BEFORE_WT"; then
+  shoot before
+  kill "$DEV_PID"; wait "$DEV_PID" 2>/dev/null
+else
+  CAPTURE_FAILED=1
+fi
 
-kill $DEV_PID 2>/dev/null
-
-# After (on feature branch) — repeat the same process
-npm ci --silent
-npm run build --silent 2>/dev/null || npm run dev &
-DEV_PID=$!
-sleep 5
-
-for page_route in $AFFECTED_PAGES; do
-  SAFE_NAME=$(echo "$page_route" | tr '/' '_' | sed 's/^_//')
-  npx playwright screenshot "http://localhost:3000${page_route}" ".screenshots/after/web/${SAFE_NAME}.png" 2>/dev/null
-  npx playwright screenshot --color-scheme=dark "http://localhost:3000${page_route}" ".screenshots/after/web/${SAFE_NAME}-dark.png" 2>/dev/null
-  npx playwright screenshot --viewport-size="375,812" "http://localhost:3000${page_route}" ".screenshots/after/web/${SAFE_NAME}-mobile.png" 2>/dev/null
-done
-
-kill $DEV_PID 2>/dev/null
+# --- After: serve the current worktree ---
+if start_server "$REPO_ROOT"; then
+  shoot after
+  kill "$DEV_PID"; wait "$DEV_PID" 2>/dev/null
+else
+  CAPTURE_FAILED=1
+fi
 ```
+
+Both servers bind the same port, so they must not overlap — the "before" server is killed and reaped (`wait`) before the "after" server starts. If the project's dev server ignores `--port`, set `PORT` and let the framework's own env var pick it up instead.
 
 **For component-level screenshots** (if Storybook is available):
 
 ```bash
-# Check for Storybook
 if grep -q "storybook" package.json; then
-  npx storybook build --quiet -o .storybook-static
+  npx storybook build --quiet -o .storybook-static \
+    || { echo "❌ storybook build failed"; CAPTURE_FAILED=1; }
   npx http-server .storybook-static -p 6006 &
   STORYBOOK_PID=$!
-  sleep 5
-  # Screenshot specific stories
-  npx playwright screenshot "http://localhost:6006/iframe.html?id=${component-story-id}" ".screenshots/after/web/${component}.png"
-  kill $STORYBOOK_PID 2>/dev/null
+  if wait_for_port 6006 60; then
+    npx playwright screenshot \
+      "http://localhost:6006/iframe.html?id=${component_story_id}" \
+      ".screenshots/after/web/${component}.png" \
+      || { echo "❌ storybook screenshot failed"; CAPTURE_FAILED=1; }
+  else
+    echo "❌ Storybook static server never answered on 6006."
+    CAPTURE_FAILED=1
+  fi
+  kill "$STORYBOOK_PID"; wait "$STORYBOOK_PID" 2>/dev/null
 fi
 ```
 
@@ -323,40 +480,54 @@ Alternatively, you can paste screenshots directly into the GitHub PR description
 
 ## Step 5: Report Results
 
-After capturing (or failing to capture) screenshots for all platforms:
+After capturing (or failing to capture) screenshots for all platforms, count what is **actually on disk** — never report a number derived from what was attempted:
+
+```bash
+count_shots() { find ".screenshots/$1" -type f -name '*.png' 2>/dev/null | wc -l | tr -d ' '; }
+echo "before: $(count_shots before)  after: $(count_shots after)"
+```
 
 ```
-Visual evidence captured:
+Visual evidence (base: origin/{BASE}):
 
   Android (Paparazzi): {N} screenshots captured / MANUAL NEEDED / NOT APPLICABLE
   iOS (swift-snapshot-testing): {N} screenshots captured / MANUAL NEEDED / NOT APPLICABLE
   Web (Playwright): {N} screenshots captured / MANUAL NEEDED / NOT APPLICABLE
 
 Screenshots saved to .screenshots/before/ and .screenshots/after/
-
-Next steps:
-  - Review the screenshots to confirm the changes look correct
-  - Run `/create-pr` to include the visual evidence in the PR
 ```
+
+Then emit exactly one outcome token as the final line:
+
+- **`SCREENSHOTS_CAPTURED`** — `CAPTURE_FAILED` is 0 **and** at least one file exists under `.screenshots/after/`.
+- **`SCREENSHOTS_TOOLING_MISSING`** — `CAPTURE_FAILED` is 1, or a detected platform had no tooling configured, or `.screenshots/after/` is empty despite UI changes. Name the platform and the reason.
+- **`SCREENSHOTS_NO_UI_DETECTED`** — Step 1 found nothing (already emitted there).
+
+A zero-file capture must never emit `SCREENSHOTS_CAPTURED`. That is precisely the failure the empty-table bug produced.
 
 ## Integration with Other Skills
 
-### Called by `/create-pr`
+### Called by `/create-pr` (automatic and non-skippable)
 
-When `/create-pr` detects UI changes (Step 1 detection logic), it should prompt:
+`/create-pr` Step 3b invokes this skill **automatically** whenever its canonical UI detection (Pre-flight 0b) finds UI changes, passing `--base "$BASE"`. This skill does **not** prompt the user, does not ask whether to run, and offers no opt-out — `/create-pr` is authoritative and its Step 3b states: *"Do NOT prompt the user to opt out and do NOT proceed without visual evidence."*
 
-```
-UI changes detected. Run `/capture-screenshots` to generate visual evidence?
-```
+The contract is:
 
-If the user confirms, run this skill before building the PR body. The Visual Changes section from Step 3 is then included in the PR body.
+1. `/create-pr` detects UI changes and calls `/capture-screenshots --base "$BASE"`.
+2. This skill captures what it can and returns a comparison table plus exactly one outcome token.
+3. `/create-pr` branches on the token (see its Step 3b outcome table): embed the table, or emit the review-blocking manual-evidence note.
+
+An earlier version of this section described a `UI changes detected. Run /capture-screenshots?` prompt. That was wrong and contradicted `/create-pr` — there is no such prompt. When invoked directly by a user, this skill still runs unconditionally; the only "should I run this" decision belongs to whoever typed the command.
 
 ### Checked by `/code-review`
 
 During code review, `/code-review` checks:
-1. Does the PR have UI changes? (same detection logic as Step 1)
+1. Does the PR have UI changes? (using `/create-pr` Pre-flight 0b's canonical detection — the same regex, not a restatement)
 2. If yes, is there a "Visual Changes" section in the PR body?
-3. If missing, flag it as a required change
+3. Does that section contain actual image references, not an empty table or a manual-evidence warning?
+4. If missing or empty, flag it as a required change
+
+Point 3 matters: an empty Visual Changes table satisfies a "section exists" check while carrying no evidence at all. `/code-review` must assert on rows, not on the heading.
 
 ## Cleanup
 
@@ -454,12 +625,16 @@ final class NotesListSnapshotTests: XCTestCase {
 
 ### Playwright (Web)
 
+Install:
+
 ```bash
-# Install
 npm install -D @playwright/test
 npx playwright install chromium
+```
 
-# playwright.config.ts — add a screenshot project
+Then add a screenshot project to `playwright.config.ts`:
+
+```typescript
 export default defineConfig({
   projects: [
     {
