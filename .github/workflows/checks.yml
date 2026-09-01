@@ -1,0 +1,42 @@
+name: Checks
+
+# Guards the things that were hand-maintained and drifted:
+#   - VERSION vs the plugin manifest and README
+#   - agent/skill/rule counts in the README vs what is on disk
+#   - docs/artifacts/ folders vs the closed type list in handoff-protocol.md
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VERSION matches every manifest
+        run: ./scripts/sync-version.sh --check
+
+      - name: README inventory matches the directory
+        run: ./scripts/generate-inventory.sh --check
+
+      - name: docs/artifacts folders are declared
+        run: ./scripts/check-doc-types.sh
+
+      - name: Shell scripts parse
+        run: |
+          fail=0
+          for f in scripts/*.sh hooks/pre-commit hooks/pre-push hooks/commit-msg \
+                   .claude/skills/sync-rule/mirror.sh; do
+            [ -f "$f" ] || continue
+            if bash -n "$f"; then
+              echo "  ok    $f"
+            else
+              echo "  FAIL  $f"; fail=1
+            fi
+          done
+          exit $fail

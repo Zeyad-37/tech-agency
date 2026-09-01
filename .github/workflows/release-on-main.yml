@@ -98,9 +98,13 @@ jobs:
           PATCH="${REST#*.}"
           NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
           echo "${NEW_VERSION}" > VERSION
+          # VERSION is the single source of truth — propagate it to the plugin
+          # manifest and README in the same commit, or the CI consistency check
+          # fails on the very commit this workflow just pushed.
+          ./scripts/sync-version.sh
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION
+          git add VERSION .claude/.claude-plugin/plugin.json README.md
           git commit -m "[TECH] @Claude: Auto-bump VERSION to ${NEW_VERSION} (release-on-main workflow)"
           git push origin HEAD:main
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
