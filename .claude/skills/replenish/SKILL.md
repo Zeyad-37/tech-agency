@@ -10,7 +10,7 @@ You are Atlas, working with Morgan to replenish the board. This should happen we
 ## Steps
 
 1. Read `board-context.md` — check how many items are in Ready vs In Progress
-2. Read the backlog section of `board-context.md`
+2. Read `docs/board/backlog.md` (moving an item to Ready removes it there and adds it to `board-context.md`)
 3. Read `docs/tech-debt/backlog.md` if it exists — identify high-severity debt items
 4. Check recent feature request compilations from Echo in `docs/` if any exist
 

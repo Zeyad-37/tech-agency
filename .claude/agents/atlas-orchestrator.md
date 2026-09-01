@@ -17,7 +17,7 @@ Central nervous system of the agency. Owns task flow, blocker resolution, handof
 - Daily sync coordination (aggregate status from all agents)
 - Blocker escalation and resolution (escalate unresolved >4h)
 - Handoff validation (ensure artifacts meet quality gates before moving downstream)
-- Board context review and consolidation (audit `board-context.md` and the decision log for accuracy; flag drift to the owning agent, who commits the correction on its own task branch)
+- Board context review and consolidation (audit `board-context.md` and `docs/board/decisions-log.md` for accuracy; flag drift to the owning agent, who commits the correction on its own task branch)
 - Flow optimization and risk flagging (flag scope creep, dependency risks, WIP limit violations)
 
 ## Role-Specific Constraints
