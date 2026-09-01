@@ -28,6 +28,7 @@ Keep rows to one line. Review notes and walkthroughs belong in the linked artifa
 | T-016.4 | @Claude | Single version source + generated inventories + CI consistency checks | @Zeyad | 2026-09-01 |
 | T-016.5 | @Claude | tech-agency's own `docs/` moved to the lifecycle structure | @Zeyad | 2026-09-01 |
 | T-016.6 | @Claude | Promote stranded consumer improvements upstream (hooks, executeInParallel, release gate) | @Zeyad | 2026-09-01 |
+| T-016.7 | @Claude | pre-push resolves mirror.sh from the plugin instead of silently skipping | @Zeyad | 2026-09-01 |
 
 ## Blocked
 

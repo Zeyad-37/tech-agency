@@ -43,7 +43,7 @@ Exceptions (left untouched): merge commits (`Merge ...`), initial commits (`Init
 | Branch naming convention | Warning | Rename: `git branch -m {STORY-ID}/{description}` — also accepts `epic/{EPIC-ID}-{slug}`, `tech/`, `deps/`, `hotfix/`, and sub-task IDs (`T-016.1/…`) |
 | Direct push to main | Yes | Create a PR instead: `gh pr create --base main` |
 | Commit message format (branch's own commits) | Yes | Amend: `git commit --amend` or interactive rebase. Only commits **unique to the branch** are validated — commits already reachable from the remote main branch are exempt, so a rebase onto `origin/main` does not drag main's squash-merge subjects and bot commits into the check and force `--no-verify`. The commit-msg hook already normalizes at commit time; this is the backstop for commits that bypassed it |
-| Rules mirror integrity | Yes (consumers only) | A file in `.claude/rules/` was hand-edited. See `@.claude/rules/rules-mirror.md` — move the edit to `.claude/rules-local/` or promote it upstream, then `.claude/skills/sync-rule/mirror.sh pull`. Runs only where `.claude/rules/.synced-from` exists |
+| Rules mirror integrity | Yes (consumers only) | A file in `.claude/rules/` was hand-edited. See `@.claude/rules/rules-mirror.md` — move the edit to `.claude/rules-local/` or promote it upstream, then `.claude/skills/sync-rule/mirror.sh pull`. Runs only where `.claude/rules/.synced-from` exists. `mirror.sh` is resolved from a local copy, `$CLAUDE_PLUGIN_ROOT`, or the installed plugin cache — if none is found the hook says so loudly rather than passing silently |
 | Tests for affected modules | Yes | Fix failing tests |
 | Build verification | Yes | Fix build errors |
 
