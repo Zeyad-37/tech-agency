@@ -147,19 +147,36 @@ For significant upgrades (Kotlin version, framework major bump), write an ADR pe
 2. Switch to alternative library — [trade-offs]
 ```
 
-Save to `docs/{feature-or-infra}/adr-XXX-upgrade-{package}.md`. Get @Zeyad approval before proceeding.
+Save to `docs/adr/{Task-Id}-ADR-Upgrade {Package} to {Version}.md` per `@.claude/rules/shared/handoff-protocol.md`. Get @Zeyad approval before proceeding.
 
 ## Step 4: Execute the Upgrade
 
-### 4a. Create a Branch
+### 4a. Create a Worktree
 
-Always branch from the latest `origin/main`, never from the currently checked-out branch:
+All Claude Code work happens in a git worktree — never `git checkout -b` in the main checkout, which is an orchestration root shared with any parallel session (`@.claude/rules/shared/worktree-first.md`). Resolve the base per `worktree-first.md` § Base Branch Resolution; for a dependency upgrade it is normally `origin/main`.
 
 ```bash
-git fetch origin main
-git checkout -b deps/{package}-{version} origin/main
-# Or for batched minor updates:
-git checkout -b deps/monthly-update-{date} origin/main
+MAIN_REPO="$(git rev-parse --show-toplevel)"
+
+BASE="main"
+BRANCH="deps/{package}-{version}"            # or deps/monthly-update-{date} for a batched minor sweep
+WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+
+git -C "$MAIN_REPO" fetch origin "$BASE"
+git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+cd "$WORKTREE_DIR"
+
+# Verify BEFORE any write. If either check fails, STOP and report.
+pwd                          # must equal $WORKTREE_DIR
+git branch --show-current    # must equal $BRANCH
+```
+
+Every build, test run, and cross-platform verification below happens inside `$WORKTREE_DIR` — which matters more here than elsewhere, since a dependency upgrade rewrites lockfiles and build caches that the main checkout must not inherit mid-evaluation.
+
+For Gradle/Android projects, copy the gitignored host config into the worktree so the first build resolves the SDK:
+
+```bash
+[ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 ```
 
 ### 4b. Apply the Upgrade

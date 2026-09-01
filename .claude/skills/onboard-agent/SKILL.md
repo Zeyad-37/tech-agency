@@ -21,18 +21,13 @@ If the feature name maps to a directory in `docs/`, use that. Otherwise, ask the
 
 Read all available documentation for the feature:
 
-```bash
-# Check if feature docs exist
-ls docs/{feature-name}/ 2>/dev/null || echo "No feature directory found"
+Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`, as `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Find every document for this feature in one pass, then read each hit:
 
-# Read all docs
-cat docs/{feature-name}/prd.md 2>/dev/null || echo "No PRD"
-cat docs/{feature-name}/brd.md 2>/dev/null || echo "No BRD"
-ls docs/{feature-name}/adr-*.md 2>/dev/null
-cat docs/{feature-name}/rfc.md 2>/dev/null || echo "No RFC"
-ls docs/{feature-name}/design-*.md 2>/dev/null
-ls docs/{feature-name}/incident-*.md 2>/dev/null
-ls docs/{feature-name}/bug-*.md 2>/dev/null
+```bash
+grep -ril "{TASK-ID}\|{feature-name}" \
+  docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ \
+  docs/api-contract/ docs/incident-notes/ docs/post-mortem/ 2>/dev/null \
+  || echo "No documents found for this feature"
 ```
 
 Summarize each document found:
@@ -56,8 +51,8 @@ Summarize each document found:
 Read relevant ADRs and identify how this feature fits into the system:
 
 ```bash
-# Check for architecture-level docs
-cat docs/{feature-name}/adr-*.md 2>/dev/null
+# Architecture-level docs for this feature
+grep -ril "{TASK-ID}\|{feature-name}" docs/adr/ docs/rfc/ 2>/dev/null
 
 # Check which modules this feature touches
 grep -rl "{feature-name}" --include="*.kt" --include="*.swift" --include="*.ts" --include="*.tsx" --include="*.py" src/ | head -20
@@ -114,9 +109,7 @@ Produce:
 
 ## Step 5: Check Board State
 
-```bash
-cat board-context.md
-```
+Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2) — check `board_backend` in `.claude/settings.json` (absent → `markdown`), then run `board.search("{feature-name}")`, falling back to `board.read_all()` if the backend has no search.
 
 Find all tasks related to this feature:
 
@@ -230,14 +223,14 @@ Compile everything into a single briefing document:
 - [Decisions that might seem wrong but are intentional (with ADR refs)]
 ```
 
-Save the briefing to `docs/{feature-name}/onboarding-{agent}-{date}.md`.
+Save the briefing to `docs/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md` (create the folder if it does not exist), following the by-type convention in `@.claude/rules/shared/handoff-protocol.md`.
 
 ## Step 9: Announce
 
 Notify @Atlas that the agent has been onboarded:
 
 ```markdown
-@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/{feature-name}/onboarding-{agent}-{date}.md. Ready to begin work.
+@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md. Ready to begin work.
 ```
 
 If the agent should immediately pick up a task, suggest running `/pick-up-task` or `/kick-off` next.

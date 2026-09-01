@@ -12,7 +12,7 @@ Goal: catch stale, duplicate, or wrong memories before they propagate as false f
 Memories live outside the project, in user-personal storage:
 
 ```
-$HOME/.claude-personal/projects/<encoded-project-path>/memory/
+$HOME/.claude/projects/<encoded-project-path>/memory/
 ```
 
 Where `<encoded-project-path>` is the project's absolute path with `/` and `.` replaced by `-`. Example: `/Users/alice/projects/foo` → `-Users-alice-projects-foo`.
@@ -24,10 +24,19 @@ The `MEMORY.md` index in that directory lists all active memory files.
 1. **Locate the memory store for this project:**
    ```bash
    ENCODED=$(pwd | sed 's|[./]|-|g')
-   MEM_DIR="$HOME/.claude-personal/projects/${ENCODED}/memory"
+   MEM_DIR="${CLAUDE_MEMORY_DIR:-$HOME/.claude/projects/${ENCODED}/memory}"
+   if [ ! -d "$MEM_DIR" ]; then
+       echo "No memory store at $MEM_DIR — nothing to audit."
+       echo "If your memory lives elsewhere, set CLAUDE_MEMORY_DIR and re-run."
+       exit 0
+   fi
    ls "$MEM_DIR"
    cat "$MEM_DIR/MEMORY.md"
    ```
+
+   `$HOME/.claude/projects/…` is the default store. `CLAUDE_MEMORY_DIR` overrides it for anyone
+   whose memory lives on a non-default path — do not hardcode a personal directory here, it will
+   resolve for nobody else.
 
 2. **Read each memory file referenced in MEMORY.md.** For each one, evaluate:
 

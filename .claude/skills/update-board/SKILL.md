@@ -31,10 +31,10 @@ Determine from the user's request or the current context:
 - **Target column**: Where should the task move to?
 - **Agent**: Who is performing the update?
 - **Metadata** (varies by transition):
-  - **→ In Progress**: Add agent name to "Assigned To", add current date to "Started"
-  - **→ Blocked**: Add blocker reason
-  - **→ Review**: Add PR link if available
-  - **→ Done**: Add completion date, link to output artifact
+  - **→ In Progress**: agent name in "Agent", today's date in "Started", `1` in "Cycle Day"
+  - **→ Blocked**: blocker reason in "Blocker", who/what unblocks it in "Waiting On", today's date in "Blocked Since"
+  - **→ Review**: reviewer in "Reviewer", today's date in "Waiting Since"; PR link via `board.add_comment()`
+  - **→ Done**: output artifact (PR number) in "Output", today's date in "Completed"
 
 If the user doesn't specify the task ID, infer it from:
 1. The current branch name (e.g., `US-042/login-screen` → `US-042`)
@@ -43,18 +43,36 @@ If the user doesn't specify the task ID, infer it from:
 
 ## Step 2: Update the Board
 
-Use the board adapter operations (see `@.claude/rules/board-adapter.md`):
+Use the board adapter operations (see `@.claude/rules/shared/board-adapter.md`). Read `board_backend` from `.claude/settings.json` first (absent → `markdown`).
+
+**Every column has its own schema.** A transition is not a row move — it is a delete from one table and an insert into another, with different columns. On the `markdown` backend, write exactly these headers:
+
+| Column | Schema |
+|---|---|
+| Backlog | `\| Task ID \| Priority \| Description \| Requested By \|` |
+| Ready | `\| Task ID \| Priority \| Description \| Assigned To \|` |
+| In Progress | `\| Task ID \| Agent \| Description \| Started \| Cycle Day \|` |
+| Review | `\| Task ID \| Agent \| Description \| Reviewer \| Waiting Since \|` |
+| Blocked | `\| Task ID \| Agent \| Blocker \| Waiting On \| Blocked Since \|` |
+| Done (recent) | `\| Task ID \| Agent \| Description \| Output \| Completed \|` |
+| Decisions Log | `\| Date \| Decision \| Decided By \| ADR Ref \|` |
+
+Appending a row shaped for the wrong column silently misaligns the table: a Ready-shaped row appended to In Progress puts the priority where the agent name belongs, and every consumer that filters In Progress by agent then reads the wrong field.
+
+When a column is left with no rows, keep the placeholder row `| — | — | — | — |` (matching the column's arity) so the table stays valid markdown.
 
 ### Ready → In Progress
 ```
 board.move_task(task_id, "Ready", "In Progress")
 board.assign_task(task_id, "@AgentName")
-board.update_task(task_id, { started: "YYYY-MM-DD" })
+board.update_task(task_id, { started: "YYYY-MM-DD", cycle_day: 1 })
 ```
+`Priority` does not carry over — it exists in Backlog and Ready only. `Cycle Day` starts at 1 and is what `/daily-sync` and `/sprint-report` read for the >5-day stale-task alert.
 
 ### In Progress → Blocked
 ```
 board.add_blocker(task_id, "Reason for blocker")
+board.update_task(task_id, { waiting_on: "@Agent or external dependency", blocked_since: "YYYY-MM-DD" })
 ```
 Also notify @Atlas:
 ```
@@ -69,6 +87,7 @@ board.remove_blocker(task_id)
 ### In Progress → Review
 ```
 board.move_task(task_id, "In Progress", "Review")
+board.update_task(task_id, { reviewer: "@Reviewer", waiting_since: "YYYY-MM-DD" })
 board.add_comment(task_id, "PR: #{pr_number} — ready for review")
 ```
 
@@ -77,7 +96,7 @@ board.add_comment(task_id, "PR: #{pr_number} — ready for review")
 Only at the merge gate — checks green and merge approved, immediately before `gh pr merge`:
 ```
 board.move_task(task_id, "Review", "Done")
-board.update_task(task_id, { completed: "YYYY-MM-DD", artifact: "PR #{pr_number}" })
+board.update_task(task_id, { output: "PR #{pr_number}", completed: "YYYY-MM-DD" })
 ```
 Push right after committing (see Step 3), then let the pushed commit's required checks go green before merging — the board commit is a new head and re-triggers CI.
 
