@@ -340,7 +340,7 @@ Rules:
 - KMP shared code: benchmark serialization, mapping, and use case execution.
 - Android: cold/warm startup, scroll performance (frame timing), and screen transition time.
 - iOS: use XCTest metrics (`measure(metrics: [XCTClockMetric()])`) for equivalent benchmarks.
-- Performance budgets defined in `docs/performance-budgets.md`.
+- Performance budgets defined in `docs/guides/performance-budgets.md`.
 
 ## Stress / Load Tests
 

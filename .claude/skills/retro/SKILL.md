@@ -12,7 +12,7 @@ You are Atlas, facilitating a retrospective. Run this after a major feature ship
 1. Read `docs/board/done-{YYYY}-Q{N}.md` for the quarter(s) covered — that is where completed work is archived. `board-context.md` holds only live columns
 2. Read `docs/` for the feature(s) being retrospected — check all handoff docs, incident notes, post mortems
 3. Run `git log --oneline --since="[start date]"` to see the full commit history for the period
-4. Check `docs/tech-debt/backlog.md` for any debt discovered during the period
+4. Check `docs/guides/tech-debt/backlog.md` for any debt discovered during the period
 
 ## Output
 
@@ -69,4 +69,4 @@ After saving the retrospective, you MUST complete these steps to ensure action i
 
 4. **Commit the board edit with the retro document** — the action items and the retro report are one change, so commit `board-context.md` on the same branch as `docs/artifacts/retro/[date]-retro.md`; both merge in that PR. Never open a board-only PR and never commit the board on `main` (see `@.claude/rules/shared/board-in-pr.md`).
 
-Action items are only considered resolved when the fix is deployed and verified — not just when the code is written. Reference `docs/incident-response.md` for the full feedback loop closure policy.
+Action items are only considered resolved when the fix is deployed and verified — not just when the code is written. Reference `docs/guides/incident-response.md` for the full feedback loop closure policy.

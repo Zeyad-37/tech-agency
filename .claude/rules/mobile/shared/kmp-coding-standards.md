@@ -557,7 +557,7 @@ interface Track {
 
 ## Observability
 
-> **Full reference with code examples:** See `@docs/references/kmp-observability-reference.md`
+> **Full reference with code examples:** See `@docs/guides/references/kmp-observability-reference.md`
 
 All observability in KMP uses expect/actual pattern to remain tool-agnostic. Platform actuals delegate to whatever vendor SDK the project has chosen.
 
@@ -574,7 +574,7 @@ All observability in KMP uses expect/actual pattern to remain tool-agnostic. Pla
 
 ## Testing
 
-> **Full reference with code examples:** See `@docs/references/kmp-testing-reference.md`
+> **Full reference with code examples:** See `@docs/guides/references/kmp-testing-reference.md`
 
 ### Test Types
 
@@ -815,4 +815,4 @@ The AGP 9 / KMP upgrade skill is the canonical reference for the Kotlin-version-
 
 For Compose Multiplatform or shared-code work that needs a running Android target, use the `android` CLI via Bash (`android emulator start`, `android run --apks=…`, `android docs search "<keywords>"` for up-to-date Android API guidance, `android layout`/`android screen capture` for inspection). If `command -v android` is empty the toolchain isn't installed — flag it as a blocker (install steps in `/setup-repo`). Android-platform UI tasks (theming, edge-to-edge, navigation, profiling) are owned by Kai and mapped to `android-*` skills in `compose-coding-standards.md`.
 
-Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

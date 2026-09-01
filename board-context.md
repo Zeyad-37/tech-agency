@@ -26,6 +26,7 @@ Keep rows to one line. Review notes and walkthroughs belong in the linked artifa
 | T-016.2 | @Claude | Board split: live columns in `board-context.md`, history in `docs/board/` | @Zeyad | 2026-09-01 |
 | T-016.3 | @Claude | One doc taxonomy: `docs/artifacts/{type}/`, closed type list, `by-type`/feature folders removed | @Zeyad | 2026-09-01 |
 | T-016.4 | @Claude | Single version source + generated inventories + CI consistency checks | @Zeyad | 2026-09-01 |
+| T-016.5 | @Claude | tech-agency's own `docs/` moved to the lifecycle structure | @Zeyad | 2026-09-01 |
 
 ## Blocked
 
