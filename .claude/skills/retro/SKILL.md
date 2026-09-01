@@ -9,8 +9,8 @@ You are Atlas, facilitating a retrospective. Run this after a major feature ship
 
 ## Steps
 
-1. Read `board-context.md` — review the Done column for recently completed work
-2. Read `docs/` for the feature(s) being retrospected — check all handoff docs, incident notes, post mortems
+1. Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2): check `board_backend` in `.claude/settings.json` (absent → `markdown`), then run `board.read_column("Done")` for recently completed work. Its schema is `| Task ID | Agent | Description | Output | Completed |`
+2. Read the handoff docs for the feature(s) being retrospected — `docs/prd/`, `docs/brd/`, `docs/adr/`, `docs/rfc/`, `docs/incident-notes/`, `docs/post-mortem/`
 3. Run `git log --oneline --since="[start date]"` to see the full commit history for the period
 4. Check `docs/tech-debt/backlog.md` for any debt discovered during the period
 
@@ -57,15 +57,14 @@ Save the retrospective to `docs/retros/[date]-retro.md`.
 
 After saving the retrospective, you MUST complete these steps to ensure action items are tracked to completion:
 
-1. **Add action items to `board-context.md` backlog** — each action item must include:
-   - Assigned owner (`@AgentName`)
+1. **Add action items to the Backlog** via `board.create_task()`. The Backlog schema is `| Task ID | Priority | Description | Requested By |`, so each action item carries:
    - Priority (P0–P3)
-   - Due date (P0: 48 hours, P1: 1 week, P2: 2 weeks, P3: next sprint)
-   - Source reference: `[Retro: docs/retros/[date]-retro.md]`
+   - Description: the action text, suffixed with the source reference `[Retro: docs/retros/[date]-retro.md]` and the due date per SLA (P0: 48 hours, P1: 1 week, P2: 2 weeks, P3: next sprint)
+   - Requested By: the assigned owner (`@AgentName`), or @Atlas for triage if the item lacks a clear owner
 
-2. **Verify completeness** — every row in the "Action Items" table must have a corresponding entry in `board-context.md`. If an action item lacks a clear owner, assign it to @Atlas for triage.
+2. **Verify completeness** — every row in the "Action Items" table must have a corresponding task in `board.read_column("Backlog")`.
 
-3. **Cross-reference previous retros** — read `docs/retros/` for the last 2 retros. Check if any previous action items are still open in `board-context.md`. If so, flag them in the current retro under a "Carry-Over Items" section and escalate overdue items to @Atlas.
+3. **Cross-reference previous retros** — read `docs/retros/` for the last 2 retros. Check whether any previous action items are still open (`board.search("Retro:")`). If so, flag them in the current retro under a "Carry-Over Items" section and escalate overdue items to @Atlas.
 
 4. **Commit the board edit with the retro document** — the action items and the retro report are one change, so commit `board-context.md` on the same branch as `docs/retros/[date]-retro.md`; both merge in that PR. Never open a board-only PR and never commit the board on `main` (see `@.claude/rules/shared/board-in-pr.md`).
 

@@ -9,10 +9,14 @@ You are Atlas, working with Morgan to replenish the board. This should happen we
 
 ## Steps
 
-1. Read `board-context.md` — check how many items are in Ready vs In Progress
-2. Read the backlog section of `board-context.md`
+Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2) — check `board_backend` in `.claude/settings.json` first (absent → `markdown`).
+
+1. `board.read_column("Ready")` and `board.read_column("In Progress")` — how full is Ready relative to current load?
+2. `board.read_column("Backlog")` — the candidate pool
 3. Read `docs/tech-debt/backlog.md` if it exists — identify high-severity debt items
 4. Check recent feature request compilations from Echo in `docs/` if any exist
+
+Move selected items with `board.move_task(id, "Backlog", "Ready")`. The two columns differ only in the last field — Backlog is `| Task ID | Priority | Description | Requested By |`, Ready is `| Task ID | Priority | Description | Assigned To |` — so write the assignee, not the requester, into the Ready row.
 
 ## Prioritization
 
@@ -54,7 +58,7 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 
 **Always save the report** to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/retros/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
 
-Then update `board-context.md` to move the selected items to Ready.
+Then run the `board.move_task()` calls to land the selected items in Ready.
 
 ## Committing
 
