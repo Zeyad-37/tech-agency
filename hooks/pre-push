@@ -129,9 +129,30 @@ fi
 # otherwise never be noticed, so it blocks the push. Skipped in tech-agency
 # itself, which owns the rules and has no manifest.
 # ---------------------------------------------------------------------------
-if [ -f ".claude/rules/.synced-from" ] && [ -x ".claude/skills/sync-rule/mirror.sh" ]; then
+if [ -f ".claude/rules/.synced-from" ]; then
+    # mirror.sh ships inside the plugin, so a consumer normally has no local
+    # copy. Resolve it the same way mirror.sh resolves its own source, or the
+    # check silently never runs — which is the failure mode this epic exists
+    # to remove.
+    MIRROR_SH=""
+    for c in ".claude/skills/sync-rule/mirror.sh" \
+             "${CLAUDE_PLUGIN_ROOT:-}/skills/sync-rule/mirror.sh"; do
+        [ -n "$c" ] && [ -f "$c" ] && MIRROR_SH="$c" && break
+    done
+    if [ -z "$MIRROR_SH" ]; then
+        MIRROR_SH=$(find "$HOME/.claude/plugins/cache" -maxdepth 6 \
+                      -path '*/tech-agency/*/skills/sync-rule/mirror.sh' 2>/dev/null \
+                    | sort -V | tail -1)
+    fi
+
     echo -n "  Checking rules mirror... "
-    if MIRROR_OUT=$(.claude/skills/sync-rule/mirror.sh check 2>&1); then
+    if [ -z "$MIRROR_SH" ]; then
+        # A manifest exists but the checker cannot be found. Say so loudly:
+        # a mirror nobody verifies is exactly how the drift started.
+        echo -e "${YELLOW}SKIPPED${NC}"
+        echo -e "  ${YELLOW}.claude/rules/.synced-from exists but mirror.sh was not found.${NC}"
+        echo -e "  ${YELLOW}Install the plugin, or set CLAUDE_PLUGIN_ROOT. The mirror is UNVERIFIED.${NC}"
+    elif MIRROR_OUT=$(bash "$MIRROR_SH" check 2>&1); then
         echo -e "${GREEN}OK${NC}"
     else
         echo -e "${RED}DRIFT${NC}"
