@@ -1,6 +1,12 @@
 # Compose/Android Testing Reference
 
-This is the detailed testing reference with code examples for Jetpack Compose/Android. See `.claude/rules/compose-coding-standards.md` for the summary rules.
+This is the detailed testing reference with code examples for Jetpack Compose/Android. See `.claude/rules/mobile/android/compose-coding-standards.md` for the summary rules.
+
+> **Which JUnit — check this before copying any block below.** The standards' "Which JUnit" table is the authority; this is the short version. **JUnit 5 covers plain JVM unit tests only**: ViewModels, InputHandlers, mappers, and MockWebServer API tests.
+>
+> **Paparazzi, Macrobenchmark, the Compose test rule, Robolectric, Espresso, and Hilt instrumented tests are JUnit 4** and cannot be otherwise: each ships a JUnit 4 `TestRule` or `Runner`, and JUnit 5 (Jupiter) has no `Rule` concept — it ignores `@get:Rule` silently. A Jupiter `@Test` on a class with `@get:Rule val paparazzi = Paparazzi(...)` compiles, runs, and fails at `paparazzi.snapshot { }` with an uninitialized rule.
+>
+> In these files import `@Test` from `org.junit` (not `org.junit.jupiter.api`) and use `@Before`/`@After`. Keep `junit-vintage-engine` on the test runtime classpath so both engines run in one Gradle task. Each code block below is labelled with the engine it needs.
 
 ## Unit Tests — JUnit 5 + Mockito + Turbine
 
@@ -29,17 +35,23 @@ class NotesListViewModelTest {
         // Given
         val notes = listOf(Note(id = "1", title = "Test", content = "Body", createdAt = testDateTime))
         whenever(getNotesUseCase.invoke()).thenReturn(Result.success(notes))
-
-        // When
         viewModel = NotesListViewModel(getNotesUseCase, deleteNoteUseCase, analyticsService)
-        viewModel.state.test {
-            // Then
-            val initial = awaitItem()
-            assertTrue(initial.isLoading)
 
+        viewModel.state.test {
+            // The constructor only publishes the initial state. Nothing else
+            // is emitted until an Input is processed — a second awaitItem()
+            // with no process() call just sits there until Turbine times out.
+            assertEquals(NotesListState.Loading, awaitItem())
+
+            // When
+            viewModel.process(NotesListInput.LoadNotes)
+
+            // Then
             val loaded = awaitItem()
-            assertFalse(loaded.isLoading)
+            assertIs<NotesListState.Loaded>(loaded)
             assertEquals(1, loaded.notes.size)
+
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -47,17 +59,29 @@ class NotesListViewModelTest {
     fun `when load notes fails then state has error`() = runTest {
         // Given
         whenever(getNotesUseCase.invoke()).thenReturn(Result.failure(AppError.NetworkUnavailable))
-
-        // When
         viewModel = NotesListViewModel(getNotesUseCase, deleteNoteUseCase, analyticsService)
+
         viewModel.state.test {
-            awaitItem() // loading
+            assertEquals(NotesListState.Loading, awaitItem())
+
+            // When
+            viewModel.process(NotesListInput.LoadNotes)
+
+            // Then
             val errorState = awaitItem()
-            assertNotNull(errorState.error)
+            assertIs<NotesListState.Error>(errorState)
+            assertEquals(AppError.NetworkUnavailable, errorState.error)
+
+            cancelAndIgnoreRemainingEvents()
         }
     }
 }
 ```
+
+Two rules these tests demonstrate, both of which cause hangs rather than failures when broken:
+
+- **Every `awaitItem()` past the first needs something that causes an emission.** Constructing the ViewModel publishes `initialState` and nothing more. If the test does not call `process(...)`, the next `awaitItem()` waits out Turbine's timeout and reports a timeout, not the assertion you meant to make.
+- **Close every `test { }` block** with `cancelAndIgnoreRemainingEvents()` (or `awaitComplete()` / `expectNoEvents()` where those fit). A `StateFlow` never completes, so an unclosed block fails with "unconsumed events found" once anything emits again — commonly the analytics side-effect.
 
 ## InputHandler Tests — JUnit 5 + Mockito + Turbine
 
@@ -82,7 +106,7 @@ class LoadNotesInputHandlerTest {
         whenever(getNotesUseCase.invoke()).thenReturn(Result.success(notes))
 
         // When & Then
-        handler.handle(NotesListInput.LoadNotes, NotesListState()).test {
+        handler.handle(NotesListInput.LoadNotes, NotesListState.Loading).test {
             assertIs<NotesListResult.Loading>(awaitItem())
             val loaded = awaitItem() as NotesListResult.NotesLoaded
             assertEquals(1, loaded.notes.size)
@@ -131,7 +155,10 @@ class NotesApiTest {
 
         val request = mockWebServer.takeRequest()
         assertEquals("GET", request.method)
-        assertTrue(request.path!!.contains("api/v1/notes"))
+        // `path` is nullable — unwrap with assertNotNull rather than `!!`,
+        // which the pre-commit hook rejects even in test sources.
+        val path = assertNotNull(request.path)
+        assertTrue(path.contains("api/v1/notes"))
     }
 
     @Test
@@ -147,7 +174,12 @@ class NotesApiTest {
 
 ## Compose UI Tests
 
+**JUnit 4** — `createComposeRule()` returns a JUnit 4 `TestRule`.
+
 ```kotlin
+import org.junit.Rule
+import org.junit.Test
+
 class NotesListScreenTest {
 
     @get:Rule
@@ -158,14 +190,9 @@ class NotesListScreenTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(
-                        notes = listOf(Note.preview()),
-                        isLoading = false,
-                    ),
-                    onLoadNotes = {},
-                    onDeleteNote = {},
-                    onRetry = {},
-                    onNoteClick = {},
+                    state = NotesListState.Loaded(notes = listOf(Note.preview())),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
@@ -178,11 +205,9 @@ class NotesListScreenTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(isLoading = true),
-                    onLoadNotes = {},
-                    onDeleteNote = {},
-                    onRetry = {},
-                    onNoteClick = {},
+                    state = NotesListState.Loading,
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
@@ -195,14 +220,9 @@ class NotesListScreenTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(
-                        isLoading = false,
-                        error = AppError.NetworkUnavailable,
-                    ),
-                    onLoadNotes = {},
-                    onDeleteNote = {},
-                    onRetry = {},
-                    onNoteClick = {},
+                    state = NotesListState.Error(AppError.NetworkUnavailable),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
@@ -216,7 +236,12 @@ class NotesListScreenTest {
 
 Screenshot tests catch unintended UI changes by comparing rendered output against golden reference images. Paparazzi runs on the JVM — no emulator required.
 
+**JUnit 4** — Paparazzi is a JUnit 4 `TestRule`. A Jupiter `@Test` here fails at `snapshot { }`, not at compile time.
+
 ```kotlin
+import org.junit.Rule
+import org.junit.Test
+
 class NoteCardSnapshotTest {
 
     @get:Rule
@@ -259,16 +284,17 @@ class NoteCardSnapshotTest {
     @Test
     fun notesListContent_allFourStates() {
         listOf(
-            "loading" to NotesListState(isLoading = true),
-            "error" to NotesListState(isLoading = false, error = AppError.NetworkUnavailable),
-            "empty" to NotesListState(isLoading = false, notes = emptyList()),
-            "success" to NotesListState(isLoading = false, notes = listOf(Note.preview())),
+            "loading" to NotesListState.Loading,
+            "error" to NotesListState.Error(AppError.NetworkUnavailable),
+            "empty" to NotesListState.Empty,
+            "success" to NotesListState.Loaded(notes = listOf(Note.preview())),
         ).forEach { (name, state) ->
             paparazzi.snapshot(name = "notesList_$name") {
                 AppTheme {
                     NotesListContent(
                         state = state,
-                        onLoadNotes = {}, onDeleteNote = {}, onRetry = {}, onNoteClick = {},
+                        snackbarHostState = remember { SnackbarHostState() },
+                        process = {},
                     )
                 }
             }
@@ -407,7 +433,12 @@ class SecurityTest {
 
 ## Accessibility Tests
 
+**JUnit 4** — Compose test rule.
+
 ```kotlin
+import org.junit.Rule
+import org.junit.Test
+
 class NotesListAccessibilityTest {
 
     @get:Rule
@@ -443,8 +474,9 @@ class NotesListAccessibilityTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(isLoading = false, error = AppError.NetworkUnavailable),
-                    onLoadNotes = {}, onDeleteNote = {}, onRetry = {}, onNoteClick = {},
+                    state = NotesListState.Error(AppError.NetworkUnavailable),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
