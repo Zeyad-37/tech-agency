@@ -93,7 +93,7 @@ Update `board-context.md`:
 
 Follow the agent preamble's context-loading discipline:
 
-1. **Read feature docs**: If this task belongs to a feature, read everything in `docs/{feature-name}/`:
+1. **Read feature docs**: If this task belongs to a feature, read everything in `docs/artifacts/` (grep by Task ID):
    - PRD (product requirements)
    - BRD (business requirements, user stories, acceptance criteria)
    - ADR (architecture decisions — follow them, don't contradict)

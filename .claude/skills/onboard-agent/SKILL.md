@@ -23,16 +23,16 @@ Read all available documentation for the feature:
 
 ```bash
 # Check if feature docs exist
-ls docs/{feature-name}/ 2>/dev/null || echo "No feature directory found"
+grep -rl "{Task-Id}" docs/artifacts/ 2>/dev/null || echo "No artifacts found for this task"
 
 # Read all docs
-cat docs/{feature-name}/prd.md 2>/dev/null || echo "No PRD"
-cat docs/{feature-name}/brd.md 2>/dev/null || echo "No BRD"
-ls docs/{feature-name}/adr-*.md 2>/dev/null
-cat docs/{feature-name}/rfc.md 2>/dev/null || echo "No RFC"
-ls docs/{feature-name}/design-*.md 2>/dev/null
-ls docs/{feature-name}/incident-*.md 2>/dev/null
-ls docs/{feature-name}/bug-*.md 2>/dev/null
+cat docs/artifacts/prd/{Task-Id}-PRD-{Title}.md 2>/dev/null || echo "No PRD"
+cat docs/artifacts/brd/{Task-Id}-BRD-{Title}.md 2>/dev/null || echo "No BRD"
+ls docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
+cat docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md 2>/dev/null || echo "No RFC"
+ls docs/artifacts/design-spec/{Task-Id}-*.md 2>/dev/null
+ls docs/artifacts/incident-notes/{Task-Id}-*.md 2>/dev/null
+ls docs/artifacts/incident-notes/{Task-Id}-*.md 2>/dev/null
 ```
 
 Summarize each document found:
@@ -57,7 +57,7 @@ Read relevant ADRs and identify how this feature fits into the system:
 
 ```bash
 # Check for architecture-level docs
-cat docs/{feature-name}/adr-*.md 2>/dev/null
+cat docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
 
 # Check which modules this feature touches
 grep -rl "{feature-name}" --include="*.kt" --include="*.swift" --include="*.ts" --include="*.tsx" --include="*.py" src/ | head -20
@@ -230,14 +230,14 @@ Compile everything into a single briefing document:
 - [Decisions that might seem wrong but are intentional (with ADR refs)]
 ```
 
-Save the briefing to `docs/{feature-name}/onboarding-{agent}-{date}.md`.
+Save the briefing to `docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}.md`.
 
 ## Step 9: Announce
 
 Notify @Atlas that the agent has been onboarded:
 
 ```markdown
-@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/{feature-name}/onboarding-{agent}-{date}.md. Ready to begin work.
+@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}.md. Ready to begin work.
 ```
 
 If the agent should immediately pick up a task, suggest running `/pick-up-task` or `/kick-off` next.

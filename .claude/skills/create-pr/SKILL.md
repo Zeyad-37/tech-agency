@@ -110,7 +110,7 @@ Collect the following from the current branch and task context:
 - **Primary author**: The agent who did the majority of the work (from commit history: `git log --format='%s' "origin/$BASE"..HEAD`)
 - **Participating agents**: All agents who contributed commits on this branch (extract unique `@AgentName` from commit messages)
 - **Task description**: From the board or the branch name's description slug
-- **Related docs**: Check `docs/{feature-name}/` for PRD, BRD, ADR, RFC references
+- **Related docs**: Check `docs/artifacts/` (grep by Task ID) for PRD, BRD, ADR, RFC references
 
 ```bash
 # Gather context
@@ -173,7 +173,7 @@ Use this template exactly:
 
 ## Related Docs
 
-- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/{feature-name}/prd.md`}
+- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/artifacts/prd/{Task-Id}-PRD-{Title}.md`}
 - {Or "N/A — no related feature docs" for tech tasks}
 
 ## Visual Changes
@@ -380,7 +380,7 @@ gh pr create \
 
 ## Related Docs
 
-- `docs/{feature-name}/{doc}.md`
+- `docs/artifacts/{doc-type}/{Task-Id}-*.md`
 
 ## Visual Changes
 

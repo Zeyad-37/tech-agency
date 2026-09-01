@@ -24,6 +24,7 @@
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
+| T-016.3 | @Claude | One doc taxonomy: `docs/artifacts/{type}/`, closed type list, `by-type`/feature folders removed | @Zeyad | 2026-09-01 |
 
 ## Blocked
 

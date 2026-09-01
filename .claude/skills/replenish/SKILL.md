@@ -52,7 +52,7 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 
 ## Saving the Report
 
-**Always save the report** to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/retros/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
+**Always save the report** to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/artifacts/retro/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
 
 Then update `board-context.md` to move the selected items to Ready.
 
@@ -61,7 +61,7 @@ Then update `board-context.md` to move the selected items to Ready.
 The board edit and the replenishment report are one change. Commit them together on the same branch, and both merge in that one PR (see `@.claude/rules/shared/board-in-pr.md`):
 
 ```bash
-git add docs/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
 git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
 ```
 

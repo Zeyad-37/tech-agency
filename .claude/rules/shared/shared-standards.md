@@ -104,7 +104,7 @@ Standard success response envelope:
 ## RFC Requirement
 
 - When assigned an epic or a large user story (spanning multiple tasks or touching multiple modules), the implementing agent must write an RFC before writing any code
-- Save the RFC to `docs/rfc/{Task-Id}-RFC-Title.md` (e.g., `docs/rfc/US-042-RFC-Shared Auth Module.md`)
+- Save the RFC to `docs/artifacts/rfc/{Task-Id}-RFC-Title.md` (e.g., `docs/artifacts/rfc/US-042-RFC-Shared Auth Module.md`)
 - The RFC must include: **Goal** (what we're building and why), **Background** (relevant context), **Proposed Plan** (step-by-step implementation approach with affected modules/files), **Alternatives Considered** (at least 2, with trade-offs for each), **Open Questions** (unresolved decisions that need input), and **Estimated Scope** (rough size in story points or days)
 - The RFC must be approved by @Zeyad before implementation begins
 
@@ -116,7 +116,7 @@ Standard success response envelope:
 
 ## Context Continuity
 
-- Before starting any task, search for existing docs across the relevant type folders (`docs/prd/`, `docs/brd/`, `docs/adr/`, `docs/rfc/`, etc.) using the Task ID or feature name to locate all related documents
+- Before starting any task, search for existing docs across the relevant type folders (`docs/artifacts/prd/`, `docs/artifacts/brd/`, `docs/artifacts/adr/`, `docs/artifacts/rfc/`, etc.) using the Task ID or feature name to locate all related documents
 - Check `board-context.md` for current board state, WIP items, and blockers
 - If prior ADRs, BRDs, or RFCs exist for the feature, follow their decisions — do not contradict them without raising an explicit change request to @Sage and getting approval from @Zeyad
 - When resuming work from a previous session, re-read the relevant handoff docs and your last status update to @Atlas
@@ -180,7 +180,7 @@ Quick rules:
 - If a deployed change causes issues (crash spike, error rate increase, broken functionality), the first action is to revert the culprit commit: `git revert <hash>` — fix forward only after the revert is deployed
 - If an agent's implementation fails tests or review and cannot be fixed promptly, revert to the last known-good state on the branch and reassign via @Atlas
 - Every deployment request to @Sentinel must include a rollback plan with the specific commit hash to revert to
-- After any rollback, the responsible agent must write a brief incident note in `docs/incident-notes/{Task-Id}-Incident Notes-Title.md`
+- After any rollback, the responsible agent must write a brief incident note in `docs/artifacts/incident-notes/{Task-Id}-Incident Notes-Title.md`
 
 ## Board Context Maintenance
 
@@ -206,7 +206,7 @@ Quick rules:
 - @Sentinel monitors error rates and crash-free rate during canary. Auto-rollback if error rate increases >1% or crash-free rate drops below 99.5%
 - After successful production deployment, @Sentinel tags the release in git: `git tag vX.Y.Z`
 - @Morgan publishes release notes. @Scroll updates documentation. @Echo prepares support for new features
-- Save the release record to `docs/release-record/{Task-Id}-Release Record-vX.Y.Z.md` with: version, date, included stories, release notes, deployment timeline, and any issues encountered
+- Save the release record to `docs/artifacts/release-record/{Task-Id}-Release Record-vX.Y.Z.md` with: version, date, included stories, release notes, deployment timeline, and any issues encountered
 
 ## Hotfix Process
 
@@ -223,7 +223,7 @@ Quick rules:
   7. @Sentinel deploys directly to production (skip canary if P0 and user impact is active)
   8. After deployment, merge the hotfix branch into both the release branch and `main` to prevent regression
 - Bump the patch version: `vX.Y.Z` → `vX.Y.(Z+1)`
-- The fixing engineer writes a post mortem to `docs/post-mortem/{Task-Id}-Post Mortem-Title.md` within 24 hours
+- The fixing engineer writes a post mortem to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-Title.md` within 24 hours
 - @Atlas schedules a brief retro on the hotfix to capture prevention actions
 
 ## Kanban Protocol

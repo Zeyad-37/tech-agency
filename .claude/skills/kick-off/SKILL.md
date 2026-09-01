@@ -83,12 +83,12 @@ Produce:
 Moved [n] items to Ready. Tech debt: [n] items ([%] of total).
 ```
 
-Save this quick-replenish report to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent), then update `board-context.md` to move selected items to Ready.
+Save this quick-replenish report to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent), then update `board-context.md` to move selected items to Ready.
 
 The report is the carrier for the board edit — same rule as `/replenish` (see `@.claude/rules/shared/board-in-pr.md`). Commit both together on one branch:
 
 ```bash
-git add docs/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
 git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
 ```
 
@@ -130,7 +130,7 @@ Before pulling:
 ### 4d. Pull and Context Load
 
 1. Move the task to "In Progress" in `board-context.md` with your name and today's date
-2. Read feature docs: PRD, BRD, ADR, RFC, design specs in `docs/{feature-name}/`
+2. Read feature docs: PRD, BRD, ADR, RFC, design specs in `docs/artifacts/` (grep by Task ID)
 3. Load relevant coding standards for your platform
 4. Check recent git activity: `git log --oneline --since="3 days ago" -- {affected-dirs}`
 5. Check for parallel work on the same code area
