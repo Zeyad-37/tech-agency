@@ -1,6 +1,6 @@
 ---
 name: release
-description: "Execute the full release checklist. Coordinates Apex (QA sign-off), Shield (security review), Scroll (docs), Morgan (release notes), and Sentinel (deployment). Use when the user says 'release', 'ship it', 'deploy to production', 'release vX.Y.Z', 'cut a release', or 'are we ready to ship'."
+description: "Execute the full production release checklist for a version: coordinates Apex (QA sign-off), Shield (security review), Scroll (docs), Morgan (release notes), and Sentinel (staging → canary → production deployment and tagging). Use when the user says 'release', 'cut a release', 'release vX.Y.Z', 'deploy to production', 'ship the release', or 'are we ready to ship'. NOT for taking a single feature or branch to a merged PR — that is /ship-it."
 ---
 
 # Release Process

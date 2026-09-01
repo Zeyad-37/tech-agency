@@ -9,6 +9,66 @@ You are Sentinel (DevOps/SRE) coordinating with Sage (Solutions Architect). This
 
 **It works for both new and existing projects.** It detects what's already in place and only sets up what's missing.
 
+## Step 0: Locate the Plugin Payload (mandatory — everything else copies from here)
+
+Every file this skill installs is copied out of the tech-agency plugin. Resolve where that payload lives **before** doing anything else. There is no `project-template/` directory — that placeholder never existed.
+
+```bash
+resolve_plugin_root() {
+    # 1. Normal case: tech-agency is installed as a plugin. Claude Code exports
+    #    CLAUDE_PLUGIN_ROOT pointing at the installed copy of the plugin's
+    #    `.claude/` directory (the marketplace manifest declares source "./.claude").
+    if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "${CLAUDE_PLUGIN_ROOT}/rules/shared" ]; then
+        printf '%s\n' "${CLAUDE_PLUGIN_ROOT%/}"
+        return 0
+    fi
+    # 2. Fallback: we are running inside the tech-agency repo itself (development
+    #    or vendored-checkout use). Identify it by its plugin manifest — NOT by the
+    #    mere presence of `.claude/`, which every consumer also has and which would
+    #    make the skill copy files onto themselves.
+    if [ -f ".claude-plugin/plugin.json" ] && [ -d ".claude/rules/shared" ]; then
+        printf '%s\n' "$(pwd)/.claude"
+        return 0
+    fi
+    return 1
+}
+
+PLUGIN_ROOT="$(resolve_plugin_root)" || {
+    echo "ERROR: cannot locate the tech-agency plugin payload."
+    echo "Install the plugin, then re-run:"
+    echo "  claude plugin marketplace add Zeyad-37/tech-agency"
+    echo "  claude plugin install tech-agency@tech-agency"
+    exit 1
+}
+
+# Assets that live OUTSIDE `.claude/` (git hook scripts, reference docs) sit one
+# level up from the plugin root when the plugin was installed from a repo clone.
+# Probe rather than assume — some install layouts ship only the `.claude/` subtree.
+PAYLOAD_ROOT="$(cd "$PLUGIN_ROOT/.." && pwd)"
+[ -d "$PAYLOAD_ROOT/hooks" ] && PAYLOAD_HAS_HOOKS=true || PAYLOAD_HAS_HOOKS=false
+[ -d "$PAYLOAD_ROOT/docs" ]  && PAYLOAD_HAS_DOCS=true  || PAYLOAD_HAS_DOCS=false
+
+echo "PLUGIN_ROOT=$PLUGIN_ROOT"
+echo "PAYLOAD_ROOT=$PAYLOAD_ROOT (hooks=$PAYLOAD_HAS_HOOKS docs=$PAYLOAD_HAS_DOCS)"
+```
+
+Carry `$PLUGIN_ROOT`, `$PAYLOAD_ROOT`, `$PAYLOAD_HAS_HOOKS` and `$PAYLOAD_HAS_DOCS` through every later step. If either `PAYLOAD_HAS_*` is `false`, the corresponding step generates the file inline instead of copying — the step says so where it applies.
+
+### What gets installed into the consumer, and what does not
+
+The agency splits its rules two ways. This split is the whole reason the copy list below is short:
+
+| Rule set | Count | Where it ends up | Why |
+|---|---|---|---|
+| **Shared rules** (`rules/shared/*.md`) | 10+ | **Copied** into the consumer's `.claude/rules/shared/` | Claude Code auto-loads project rules every session. These describe how the agency operates — preamble, board protocol, worktree protocol, standards — and every agent needs them resident. |
+| **Language coding standards** (`rules/mobile/…`, `rules/backend/…`, `rules/web/…`) | 8 | **Stay in the plugin.** Read on demand from `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md` | They are large. Auto-loading all eight costs roughly 65k tokens of context in every session, on every project, most of it for stacks the project does not use. An agent reads only the standard for the stack its task is in. |
+
+Tell the user this explicitly in the final report — otherwise "my project has 10 rule files but the agency ships 18" reads like a broken install. Never quote a hard total: the counts are whatever the installed plugin ships, and the enumeration below globs the payload rather than hardcoding a list, so a rule added upstream arrives without this skill changing. Report the number the glob actually found.
+
+When a skill or agent needs a coding standard, it references it as `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md`, falling back to `.claude/rules/<path>.md` when `CLAUDE_PLUGIN_ROOT` is unset (which is the case when working inside the tech-agency repo itself).
+
+The nested directory layout (`rules/shared/`, `rules/mobile/android/`, …) is canonical everywhere, consumers included. Never write a flat `.claude/rules/<name>.md` path.
+
 ## Step 1: Detect Project Mode
 
 Check if we're working with an existing project or a new one:
@@ -85,25 +145,62 @@ test -f CLAUDE.md && echo "[✓] CLAUDE.md exists" || echo "[✗] CLAUDE.md miss
 echo "--- Board ---"
 test -f board-context.md && echo "[✓] board-context.md exists" || echo "[✗] board-context.md missing"
 
-# 4. Rules
-echo "--- Rules ---"
-for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter board-in-pr worktree-first; do
-    test -f ".claude/rules/${rule}.md" && echo "[✓] ${rule}.md" || echo "[✗] ${rule}.md missing"
+# 4. Shared rules — everything the plugin ships under rules/shared/ gets copied
+#    into the consumer. Enumerate by glob, never a hardcoded list: adding a rule
+#    to the plugin must not require editing this skill.
+#    Paths are NESTED (rules/shared/<name>.md). A flat `.claude/rules/<name>.md`
+#    test reports every rule missing, because `.claude/rules/` holds only
+#    directories.
+#    NOTE: iterate via `find | while read`, not `for x in $VAR` — unquoted
+#    parameter expansion does not word-split in zsh, so a space-separated list
+#    would run the loop body exactly once with the whole string as $rule.
+echo "--- Shared Rules ---"
+find "${PLUGIN_ROOT}/rules/shared" -maxdepth 1 -name '*.md' -exec basename {} \; \
+| sort | while read -r rule; do
+    test -f ".claude/rules/shared/${rule}" \
+        && echo "[✓] rules/shared/${rule}" \
+        || echo "[✗] rules/shared/${rule} missing"
 done
 
-# Platform-specific rules (check only for detected platforms)
-echo "--- Platform Coding Standards ---"
-for std in compose-coding-standards swiftui-coding-standards kmp-coding-standards ktor-server-coding-standards react-coding-standards node-coding-standards python-coding-standards jvm-coding-standards; do
-    test -f ".claude/rules/${std}.md" && echo "[✓] ${std}.md" || echo "[○] ${std}.md (not present — may not be needed)"
+# 5. Language coding standards — NOT copied into the consumer. They are read on
+#    demand from the plugin. Audit that the plugin can actually serve them, not
+#    that the consumer holds a copy.
+echo "--- Language Coding Standards (served from the plugin, not copied) ---"
+find "${PLUGIN_ROOT}/rules" -mindepth 2 -name '*-coding-standards.md' \
+| sed "s|^${PLUGIN_ROOT}/rules/||" | sort | while read -r std; do
+    echo "[✓] served: ${std}"
 done
+[ "$(find "${PLUGIN_ROOT}/rules" -mindepth 2 -name '*-coding-standards.md' | grep -c .)" -ge 8 ] \
+    || echo "[✗] fewer than 8 coding standards in the plugin — payload looks incomplete"
+# A stray copy in the consumer is drift, not a gap — flag it so the user can delete it.
+if [ -d .claude/rules ]; then
+    find .claude/rules -name '*-coding-standards.md' 2>/dev/null \
+        | sed 's|^|[!] stale local copy (delete — served by the plugin): |'
+fi
 
-# 5. Skills
-echo "--- Skills ---"
-for skill in daily-sync replenish retro new-product new-feature release hotfix investigate-crash investigate-bug pick-up-task kick-off code-review health-check onboard-agent dependency-upgrade rfc sprint-report tech-task dispatch update-board create-pr capture-screenshots postmortem setup-repo; do
-    test -f ".claude/skills/${skill}/SKILL.md" && echo "[✓] ${skill}" || echo "[✗] ${skill} missing"
-done
+# 6. Skills — enumerate what the plugin actually ships. Never a hardcoded list:
+#    the previous 24-name list silently omitted 24 skills, and because the audit
+#    and the copy shared that list the omission was invisible.
+echo "--- Skills provided by the plugin ---"
+PLUGIN_SKILLS="$(find "${PLUGIN_ROOT}/skills" -mindepth 2 -maxdepth 2 -name SKILL.md \
+    -exec dirname {} \; | xargs -n1 basename | sort)"
+echo "$PLUGIN_SKILLS" | tr '\n' ' ' | fold -s -w 100 | sed 's/^/    /'
+echo "    ($(echo "$PLUGIN_SKILLS" | grep -c .) skills — invoked as /tech-agency:<name>)"
 
-# 6. Hooks
+# 7. Settings & sandbox
+echo "--- Settings ---"
+test -f .claude/settings.json && echo "[✓] .claude/settings.json" || echo "[✗] .claude/settings.json missing"
+if [ -f .claude/settings.json ]; then
+    jq -e 'has("sandbox")' .claude/settings.json >/dev/null 2>&1 \
+        && echo "[✓] sandbox block present" || echo "[✗] sandbox block missing"
+    REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+    jq -e --arg wt "../${REPO}-worktrees" \
+        '(.sandbox.filesystem.allowWrite // []) | index($wt)' .claude/settings.json >/dev/null 2>&1 \
+        && echo "[✓] worktree write path ../${REPO}-worktrees allowed" \
+        || echo "[✗] worktree write path ../${REPO}-worktrees NOT allowed — worktree-first is blocked"
+fi
+
+# 8. Hooks
 echo "--- Git Hooks ---"
 test -f hooks/pre-commit && echo "[✓] hooks/pre-commit" || echo "[✗] hooks/pre-commit missing"
 test -f hooks/commit-msg && echo "[✓] hooks/commit-msg" || echo "[✗] hooks/commit-msg missing"
@@ -111,14 +208,14 @@ test -f hooks/pre-push && echo "[✓] hooks/pre-push" || echo "[✗] hooks/pre-p
 test -f hooks/install-hooks.sh && echo "[✓] hooks/install-hooks.sh" || echo "[✗] hooks/install-hooks.sh missing"
 test -L .git/hooks/pre-commit && echo "[✓] hooks installed (symlinked)" || echo "[✗] hooks not installed"
 
-# 7. CI/CD
+# 9. CI/CD
 echo "--- CI/CD Workflows ---"
 test -f .github/workflows/pr-checks.yml && echo "[✓] PR quality gates" || echo "[✗] PR quality gates missing"
 test -f .github/workflows/verify-main.yml && echo "[✓] Verify main" || echo "[✗] Verify main missing"
 test -f .github/workflows/release.yml && echo "[✓] Release flow" || echo "[✗] Release flow missing"
 test -f .github/workflows/hotfix.yml && echo "[✓] Hotfix flow" || echo "[✗] Hotfix flow missing"
 
-# 8. Docs
+# 10. Docs
 echo "--- Reference Docs ---"
 for doc in setup-guide migration-guide ci-enforcement-policy incident-response; do
     test -f "docs/${doc}.md" && echo "[✓] docs/${doc}.md" || echo "[✗] docs/${doc}.md missing"
@@ -160,7 +257,7 @@ Based on the selected platforms, scaffold the directory structure following the 
 For **each selected platform**, create the directory tree as defined in its coding standards file:
 
 ### KMP (if selected)
-Follow `@.claude/rules/kmp-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` (fallback `.claude/rules/mobile/shared/kmp-coding-standards.md`) — Project Structure section:
 ```
 project/
 ├── build-logic/plugins/
@@ -170,42 +267,42 @@ project/
 ```
 
 ### Android (if selected)
-Follow `@.claude/rules/compose-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` (fallback `.claude/rules/mobile/android/compose-coding-standards.md`) — Project Structure section:
 ```
 androidApp/src/main/kotlin/com/example/{project}/
 ├── navigation/, features/, core/, designsystem/, shared/
 ```
 
 ### iOS (if selected)
-Follow `@.claude/rules/swiftui-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` (fallback `.claude/rules/mobile/ios/swiftui-coding-standards.md`) — Project Structure section:
 ```
 App/
 ├── App/, Features/, Core/, DesignSystem/, Resources/, Shared/KMP/
 ```
 
 ### React/Next.js (if selected)
-Follow `@.claude/rules/react-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md` (fallback `.claude/rules/web/react-coding-standards.md`) — Project Structure section:
 ```
 src/
 ├── app/, components/ui/, components/features/, hooks/, lib/, stores/, styles/, types/
 ```
 
 ### Node.js/Fastify (if selected)
-Follow `@.claude/rules/node-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` (fallback `.claude/rules/backend/nodejs/node-coding-standards.md`) — Project Structure section:
 ```
 src/
 ├── config/, modules/, shared/, workers/, prisma/
 ```
 
 ### Python/FastAPI (if selected)
-Follow `@.claude/rules/python-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` (fallback `.claude/rules/backend/python/python-coding-standards.md`) — Project Structure section:
 ```
 src/
 ├── config/, modules/, shared/, workers/, alembic/
 ```
 
 ### JVM/Spring Boot (if selected)
-Follow `@.claude/rules/jvm-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` (fallback `.claude/rules/backend/jvm/jvm-coding-standards.md`) — Project Structure section:
 ```
 src/main/kotlin/com/example/{project}/
 ├── config/, modules/, shared/
@@ -213,7 +310,7 @@ src/main/resources/db/migration/
 ```
 
 ### Ktor Server (if selected)
-Follow `@.claude/rules/ktor-server-coding-standards.md` — Project Structure section:
+Read `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md` (fallback `.claude/rules/backend/kotlin/ktor-server-coding-standards.md`) — Project Structure section:
 ```
 server/src/main/kotlin/com/example/{project}/
 ├── plugins/, features/, core/
@@ -231,144 +328,303 @@ board-context.md          # Empty Kanban board
 
 ## Step 6: Copy Agency Configuration (Gap-Filling)
 
-For each missing item from the audit, copy it from the project template. Skip items that already exist.
+Every copy below sources from `$PLUGIN_ROOT` / `$PAYLOAD_ROOT` as resolved in Step 0. Skip items that already exist — this step never overwrites.
 
-### 6a. Core Rules (if missing)
+### 6a. Shared Rules (the ones that live in the consumer)
+
+These are the only rules copied into the project. Claude Code auto-loads them every session.
+
+Copy **everything** the plugin ships under `rules/shared/`. Enumerate by glob rather than a hardcoded list — a hardcoded list silently omits any rule added to the plugin later, and because the audit above uses the same enumeration the omission would be invisible.
 
 ```bash
-mkdir -p .claude/rules
+mkdir -p .claude/rules/shared
 
-# Copy only missing rule files
-for rule in agent-preamble shared-standards operational-standards handoff-protocol crash-investigation git-hooks board-adapter board-in-pr worktree-first; do
-    if [ ! -f ".claude/rules/${rule}.md" ]; then
-        cp {project-template}/.claude/rules/${rule}.md .claude/rules/
-        echo "Copied: ${rule}.md"
+# Iterate with `find | while read`, NOT `for rule in $LIST`: unquoted parameter
+# expansion does not word-split in zsh, so a space-separated list would run the
+# body once with the entire list as $rule.
+find "${PLUGIN_ROOT}/rules/shared" -maxdepth 1 -name '*.md' \
+| sort | while read -r src; do
+    rule="$(basename "$src")"
+    dst=".claude/rules/shared/${rule}"
+    if [ -f "$dst" ]; then
+        echo "Skipped (exists): rules/shared/${rule}"
     else
-        echo "Skipped (exists): ${rule}.md"
+        cp "$src" "$dst"
+        echo "Copied: rules/shared/${rule}"
     fi
 done
+
+# Report the count so a truncated payload is visible rather than silent.
+echo "Shared rules now in this project: $(find .claude/rules/shared -name '*.md' | grep -c .)"
 ```
 
-### 6b. Platform Coding Standards (only for detected/selected platforms)
+Do not gate on a magic number — gate on the named core set, so that a rule added upstream does not read as a surplus and an optional one does not read as a gap. These ten must all be present:
 
 ```bash
-# Map detected platforms to coding standards files
-# Only copy standards for platforms the project actually uses
-for std in {selected-standards}; do
-    if [ ! -f ".claude/rules/${std}" ]; then
-        cp {project-template}/.claude/rules/${std} .claude/rules/
-        echo "Copied: ${std}"
-    else
-        echo "Skipped (exists): ${std}"
-    fi
+MISSING=""
+for rule in agent-preamble shared-standards operational-standards handoff-protocol \
+            crash-investigation git-hooks board-adapter board-in-pr worktree-first \
+            kotlin-agent-skills; do
+    [ -f ".claude/rules/shared/${rule}.md" ] || MISSING="${MISSING} ${rule}.md"
 done
+
+if [ -n "$MISSING" ]; then
+    echo "[✗] core shared rules missing:${MISSING}"
+    echo "    The plugin payload is incomplete. Stop and reinstall rather than"
+    echo "    proceeding with a partial rule set."
+else
+    echo "[✓] all 10 core shared rules present"
+fi
 ```
 
-**Only include coding standards files for the selected/detected platforms.** Remove any that don't apply.
+The plugin may ship additional shared rules beyond these ten (`rules-delivery`, for instance). Those arrive through the glob above and need no change here — a count of 11 or more is healthy, not surplus.
 
-### 6c. Skills (if missing)
+The `shared/` subdirectory is part of the path, in the consumer exactly as in the plugin. Do not flatten it: every rule cross-reference in the agency is written `@.claude/rules/shared/<name>.md`, and a flat copy breaks all of them.
+
+### 6b. Language Coding Standards — deliberately NOT copied
+
+Do not copy `compose-coding-standards.md`, `swiftui-coding-standards.md`, `kmp-coding-standards.md`, `ktor-server-coding-standards.md`, `react-coding-standards.md`, `node-coding-standards.md`, `python-coding-standards.md`, or `jvm-coding-standards.md` into the project.
+
+They stay in the plugin and are **read on demand** by the agent whose task is in that language:
+
+| Stack | Read on demand from |
+|---|---|
+| Android / Compose | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` |
+| iOS / SwiftUI | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` |
+| KMP shared | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+| Ktor server | `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md` |
+| React / Next.js | `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md` |
+| Node / Fastify | `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` |
+| Python / FastAPI | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+| JVM / Spring Boot | `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` |
+
+Each falls back to `.claude/rules/<same path>.md` when `CLAUDE_PLUGIN_ROOT` is unset — the case when working inside the tech-agency repo itself.
+
+If the audit found stale local copies (the `[!]` lines), tell the user to delete them: a local copy shadows the plugin's and silently goes stale.
+
+### 6c. Skills — normally nothing to copy
+
+An installed plugin already provides every skill as `/tech-agency:<name>`. Copying them into the project duplicates ~48 files that immediately begin drifting from the plugin, and the duplicates shadow plugin updates. **Default: copy nothing.**
+
+Copy skills only when the user explicitly asks to vendor them (`--vendor-skills`), which is the non-plugin case: a project that wants the agency checked into its own repo with no plugin installed. Enumerate by glob so the set can never silently fall behind the plugin.
 
 ```bash
-# Copy only missing skills
-for skill in daily-sync replenish retro new-product new-feature release hotfix investigate-crash investigate-bug pick-up-task kick-off code-review health-check onboard-agent dependency-upgrade rfc sprint-report tech-task dispatch update-board create-pr capture-screenshots postmortem setup-repo; do
-    if [ ! -f ".claude/skills/${skill}/SKILL.md" ]; then
-        mkdir -p ".claude/skills/${skill}"
-        cp {project-template}/.claude/skills/${skill}/SKILL.md .claude/skills/${skill}/
-        echo "Copied: ${skill}"
-    else
-        echo "Skipped (exists): ${skill}"
-    fi
-done
+# ONLY when the user asked to vendor skills.
+if [ "${VENDOR_SKILLS:-false}" = "true" ]; then
+    mkdir -p .claude/skills
+    find "${PLUGIN_ROOT}/skills" -mindepth 2 -maxdepth 2 -name SKILL.md -exec dirname {} \; \
+    | while read -r skill_dir; do
+        skill="$(basename "$skill_dir")"
+        if [ -f ".claude/skills/${skill}/SKILL.md" ]; then
+            echo "Skipped (exists): ${skill}"
+        else
+            cp -R "$skill_dir" ".claude/skills/${skill}"
+            echo "Vendored: ${skill}"
+        fi
+    done
+    # The plugin's licence notice travels with the vendored third-party skills.
+    for f in LICENSE-APACHE-2.0.txt VENDORED-SKILLS.md; do
+        [ -f "${PLUGIN_ROOT}/skills/${f}" ] && [ ! -f ".claude/skills/${f}" ] \
+            && cp "${PLUGIN_ROOT}/skills/${f}" ".claude/skills/${f}"
+    done
+else
+    echo "Skills served by the plugin as /tech-agency:<name> — nothing copied."
+    echo "Pass --vendor-skills only if this project must work without the plugin installed."
+fi
 ```
 
 ### 6d. CLAUDE.md (if missing)
 
+`CLAUDE.md` is project-specific and is **not** part of the plugin payload — there is nothing to copy. Generate it.
+
 ```bash
-if [ ! -f "CLAUDE.md" ]; then
-    cp {project-template}/CLAUDE.md ./CLAUDE.md
-    echo "Copied CLAUDE.md — CUSTOMIZE THIS for your project"
+if [ -f "CLAUDE.md" ]; then
+    echo "Skipped (exists): CLAUDE.md"
+else
+    echo "Generating CLAUDE.md"
 fi
 ```
 
-If CLAUDE.md was copied, update it to reflect the actual project:
-- Update the project name and description
-- Remove agents irrelevant to this project's stack
-- Remove references to coding standards that weren't copied
-- Add any project-specific notes
+Write a `CLAUDE.md` that states:
+- The project name, one-line description, and the stacks detected in Step 2.
+- The agent roster relevant to those stacks (drop agents whose stack this project does not use).
+- Where the shared rules live (`.claude/rules/shared/`) and that they auto-load.
+- Where the coding standards live (the plugin, read on demand) with the table from 6b trimmed to this project's stacks.
+- The commit format: `[STORY-ID] @Agent: description`, where the agent tag is optional. The hook accepts `[T-015] @Claude: …`, `[TECH] @Claude: …`, `[tech] …`, and `[US-042] @Kai: …` — canonical regex `^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}`.
+- A pointer to `board-context.md` and to `/tech-agency:daily-sync`.
+
+Present it to the user for review — it is the one file they will edit most.
 
 ### 6e. Board (if missing)
 
+`board-context.md` is project state, not plugin payload. Generate an empty board with the canonical column schema:
+
 ```bash
-if [ ! -f "board-context.md" ]; then
-    cp {project-template}/board-context.md ./board-context.md
-    echo "Copied board-context.md"
+if [ -f "board-context.md" ]; then
+    echo "Skipped (exists): board-context.md"
+else
+    echo "Generating board-context.md"
 fi
 ```
+
+```markdown
+# Kanban Board Context
+
+## Backlog
+
+| Task ID | Priority | Description | Requested By |
+|---------|----------|-------------|--------------|
+| — | — | — | — |
+
+## Ready
+
+| Task ID | Priority | Description | Assigned To |
+|---------|----------|-------------|-------------|
+| — | — | — | — |
+
+## In Progress (WIP limit: 2 per agent)
+
+| Task ID | Agent | Description | Started | Cycle Day |
+|---------|-------|-------------|---------|-----------|
+| — | — | — | — | — |
+
+## Review
+
+| Task ID | Agent | Description | Reviewer | Waiting Since |
+|---------|-------|-------------|----------|---------------|
+| — | — | — | — | — |
+
+## Blocked
+
+| Task ID | Agent | Blocker | Waiting On | Blocked Since |
+|---------|-------|---------|------------|---------------|
+| — | — | — | — | — |
+
+## Done (recent)
+
+| Task ID | Agent | Description | Output | Completed |
+|---------|-------|-------------|--------|-----------|
+| — | — | — | — | — |
+
+## Decisions Log
+
+| Date | Decision | Decided By | ADR Ref |
+|------|----------|------------|---------|
+| — | — | — | — |
+```
+
+These column headers are the contract every board-touching skill writes against. Do not vary them.
 
 ### 6f. Reference Docs (if missing)
 
 ```bash
 mkdir -p docs docs/references
 
-for doc in setup-guide migration-guide ci-enforcement-policy incident-response; do
-    if [ ! -f "docs/${doc}.md" ]; then
-        cp {project-template}/docs/${doc}.md docs/
-        echo "Copied: docs/${doc}.md"
-    fi
-done
+if [ "$PAYLOAD_HAS_DOCS" = "true" ]; then
+    for doc in setup-guide migration-guide ci-enforcement-policy incident-response; do
+        if [ -f "docs/${doc}.md" ]; then
+            echo "Skipped (exists): docs/${doc}.md"
+        elif [ -f "${PAYLOAD_ROOT}/docs/${doc}.md" ]; then
+            cp "${PAYLOAD_ROOT}/docs/${doc}.md" "docs/${doc}.md"
+            echo "Copied: docs/${doc}.md"
+        fi
+    done
 
-# Copy reference files for selected platforms
-# KMP platforms get kmp-testing-reference.md, kmp-observability-reference.md
-# Android gets compose-testing-reference.md, compose-observability-reference.md
-# iOS gets swiftui-testing-reference.md, swiftui-observability-reference.md
-for ref in {selected-references}; do
-    if [ ! -f "docs/references/${ref}" ]; then
-        cp {project-template}/docs/references/${ref} docs/references/
-        echo "Copied: docs/references/${ref}"
-    fi
-done
+    # Platform reference docs — copy only those matching the detected stacks:
+    #   KMP     -> kmp-testing-reference.md, kmp-observability-reference.md
+    #   Android -> compose-testing-reference.md, compose-observability-reference.md
+    #   iOS     -> swiftui-testing-reference.md, swiftui-observability-reference.md
+    #
+    # SELECTED_REFERENCES is NEWLINE-separated and iterated via `printf | while
+    # read`, not `for ref in $SELECTED_REFERENCES` — unquoted expansion does not
+    # word-split in zsh, which would make the loop run once on the whole list.
+    printf '%s\n' "$SELECTED_REFERENCES" | grep -v '^$' | while read -r ref; do
+        if [ ! -f "docs/references/${ref}" ] && [ -f "${PAYLOAD_ROOT}/docs/references/${ref}" ]; then
+            cp "${PAYLOAD_ROOT}/docs/references/${ref}" "docs/references/${ref}"
+            echo "Copied: docs/references/${ref}"
+        fi
+    done
+else
+    echo "Plugin install ships only the .claude/ subtree — reference docs unavailable."
+    echo "Read them at https://github.com/Zeyad-37/tech-agency/tree/main/docs"
+fi
 ```
 
-### 6g. Settings & Hooks Config (if missing)
+Set `SELECTED_REFERENCES` from the platforms confirmed in Step 2 before running this block, one filename per line:
 
 ```bash
+SELECTED_REFERENCES="kmp-testing-reference.md
+kmp-observability-reference.md
+compose-testing-reference.md
+compose-observability-reference.md"
+```
+
+### 6g. Settings & Hooks Config
+
+```bash
+mkdir -p .claude
+
 if [ ! -f ".claude/settings.json" ]; then
-    cp {project-template}/.claude/settings.json .claude/
+    cp "${PLUGIN_ROOT}/settings.json" .claude/settings.json
+    echo "Copied settings.json from the plugin"
+elif ! jq -e 'has("sandbox")' .claude/settings.json >/dev/null 2>&1; then
+    # Existing project with its own settings — merge in ONLY the sandbox block.
+    # Never overwrite the whole file; the project's own keys must survive.
+    jq --slurpfile tpl "${PLUGIN_ROOT}/settings.json" '. + {sandbox: $tpl[0].sandbox}' \
+        .claude/settings.json > .claude/settings.json.tmp \
+        && mv .claude/settings.json.tmp .claude/settings.json
+    echo "Merged sandbox block into the existing settings.json"
+else
+    echo "settings.json already has a sandbox block"
 fi
 
-if [ ! -f ".claude/hooks.json" ]; then
-    cp {project-template}/.claude/hooks.json .claude/
+if [ ! -f ".claude/hooks.json" ] && [ -f "${PLUGIN_ROOT}/hooks.json" ]; then
+    cp "${PLUGIN_ROOT}/hooks.json" .claude/hooks.json
+    echo "Copied hooks.json from the plugin"
 fi
 ```
 
-### 6h. Sandbox Enforcement (Gap-Filling)
+### 6h. Normalize the Sandbox for THIS Repo (runs unconditionally)
 
-All agency work runs inside the OS sandbox. The template `settings.json` ships a
-`sandbox` block (enabled, `failIfUnavailable: true`, `autoAllowBashIfSandboxed: true`,
-plus a build-tool/registry allowlist). New projects get it for free via 6g. For an
-**existing** project that already had its own `.claude/settings.json` (so 6g was
-skipped), add the block if missing — and adapt the worktree write path to this repo's
-name, since the worktree-first protocol creates worktrees at `../{repo}-worktrees`.
+The plugin's `settings.json` hardcodes `"../tech-agency-worktrees"` as an allowed write path. Copied verbatim into a consumer, that path is wrong for every project except tech-agency itself — and `worktree-first.md` makes creating `../{repo}-worktrees/…` **Step 0 of every task**. A consumer that inherits the wrong path has its sandbox deny the first write of every task the agency performs.
+
+So this normalization runs **after 6g on every path** — fresh copy, merged block, and re-run alike. It is idempotent.
 
 ```bash
-if [ -f ".claude/settings.json" ] && ! grep -q '"sandbox"' .claude/settings.json; then
-    REPO="$(basename "$(git rev-parse --show-toplevel)")"
-    echo "Adding sandbox block to existing .claude/settings.json (worktree path: ../${REPO}-worktrees)"
-    # Merge the template's `sandbox` block into the existing settings.json,
-    # replacing the template's "../tech-agency-worktrees" allowWrite entry with
-    # "../${REPO}-worktrees". Use jq (or hand-edit) to insert the key — do NOT
-    # overwrite the whole file; preserve the project's existing keys.
-    #   jq --arg wt "../${REPO}-worktrees" \
-    #     '.sandbox = (input.sandbox | .filesystem.allowWrite |=
-    #        map(if . == "../tech-agency-worktrees" then $wt else . end))' \
-    #     .claude/settings.json {project-template}/.claude/settings.json > .tmp \
-    #     && mv .tmp .claude/settings.json
-fi
+REPO="$(basename "$(git rev-parse --show-toplevel)")"
+WT="../${REPO}-worktrees"
+
+jq --arg wt "$WT" '
+  def dedupe: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
+
+  # Point the worktree write path at THIS repo. Rewrites any existing
+  # "*-worktrees" entry (including the template default) and appends if absent.
+  .sandbox.filesystem.allowWrite =
+      ((((.sandbox.filesystem.allowWrite // [])
+         | map(if test("-worktrees$") then $wt else . end)) + [$wt]) | dedupe)
+
+  # `git worktree add` writes into the main checkout .git dir and the sibling
+  # worktrees tree. Exclude it so worktree creation is never sandbox-blocked.
+| .sandbox.excludedCommands =
+      ((((.sandbox.excludedCommands // []) + ["git worktree *"])) | dedupe)
+' .claude/settings.json > .claude/settings.json.tmp \
+  && mv .claude/settings.json.tmp .claude/settings.json
+
+echo "Sandbox normalized: worktree write path = ${WT}, git worktree excluded"
+
+# Verify — do not report success without checking.
+jq -e --arg wt "$WT" '(.sandbox.filesystem.allowWrite | index($wt)) and
+                      (.sandbox.excludedCommands | index("git worktree *"))' \
+    .claude/settings.json >/dev/null \
+    && echo "[✓] sandbox verified" \
+    || echo "[✗] SANDBOX NORMALIZATION FAILED — worktree-first will be blocked"
 ```
+
+If `jq` is not installed, stop and tell the user to install it (`brew install jq` / `apt install jq`) rather than hand-editing — a malformed `settings.json` disables the whole configuration silently.
 
 Notes:
 - The sandbox auto-allows sandboxed Bash (no extra prompts), so it does not slow agents down.
-- `excludedCommands` keeps VCS network ops (`git push/fetch/pull`, `gh`) unsandboxed so SSH/auth work.
+- `excludedCommands` keeps VCS network ops (`git push/fetch/pull`, `gh`) unsandboxed so SSH/auth work, plus `git worktree *` per above.
 - Linux/WSL2 runners must have `bubblewrap` + `socat` installed, or `failIfUnavailable: true`
   will refuse to start. macOS uses built-in Seatbelt (nothing to install).
 - If a project's builds need extra hosts or write paths, extend `sandbox.network.allowedDomains`
@@ -377,28 +633,43 @@ Notes:
 ## Step 7: Install Git Hooks (Gap-Filling)
 
 ```bash
-# Copy hook scripts if missing
-if [ ! -d "hooks" ]; then
-    cp -r {project-template}/hooks/ ./hooks/
-    echo "Copied hooks directory"
+# Copy hook scripts if missing. They live at the payload root, not inside .claude/.
+if [ -d "hooks" ]; then
+    echo "Skipped (exists): hooks/"
+elif [ "$PAYLOAD_HAS_HOOKS" = "true" ]; then
+    cp -R "${PAYLOAD_ROOT}/hooks" ./hooks
+    chmod +x hooks/pre-commit hooks/commit-msg hooks/pre-push hooks/install-hooks.sh 2>/dev/null
+    echo "Copied hooks/ from the plugin payload"
+else
+    echo "Plugin install ships only the .claude/ subtree — hook scripts unavailable."
+    echo "Fetch them from https://github.com/Zeyad-37/tech-agency/tree/main/hooks"
+    echo "or skip hooks and rely on the CI quality gates from Step 8."
 fi
 
 # Install hooks if not already symlinked
-if [ ! -L ".git/hooks/pre-commit" ]; then
+if [ -d "hooks" ] && [ ! -L ".git/hooks/pre-commit" ]; then
     chmod +x hooks/install-hooks.sh
     ./hooks/install-hooks.sh
     echo "Git hooks installed"
 else
-    echo "Git hooks already installed"
+    echo "Git hooks already installed (or hooks/ unavailable)"
 fi
 ```
 
 This installs three hooks:
 - **pre-commit**: Secrets detection, force-unwrap checks, lint/format, large file detection
-- **commit-msg**: Validates `[STORY-ID] @Agent: description` format
+- **commit-msg**: Validates the commit message format
 - **pre-push**: Branch naming, commit format, test suite, build verification
 
-See `.claude/rules/git-hooks.md` for full details on what each hook enforce.
+The accepted commit message format is `[STORY-ID] @Agent: description`, where the agent tag is **optional**. Canonical regex:
+
+```
+^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}
+```
+
+It accepts `[T-015] @Claude: …`, `[TECH] @Claude: …`, `[tech] …`, and `[US-042] @Kai: …`.
+
+See `@.claude/rules/shared/git-hooks.md` for full details on what each hook enforces.
 
 ## Step 7b: Android/Kotlin Agent Toolchain (Android / KMP projects only)
 
@@ -752,7 +1023,8 @@ GitHub: https://github.com/{org}/{project-name}
 Created:
 - [x] Git repo initialized with main branch
 - [x] Project structure per coding standards
-- [x] .claude/ agency configuration (rules, skills, hooks)
+- [x] .claude/rules/shared/ — {n} shared rules (auto-load every session)
+- [x] .claude/settings.json — sandbox normalized to ../{project-name}-worktrees
 - [x] CLAUDE.md with roster and workflow
 - [x] GitHub Actions: PR quality gates
 - [x] GitHub Actions: Verify main
@@ -769,7 +1041,15 @@ TODOs (manual — fill in your tooling):
 - [ ] Configure notification channels in verify-main.yml (Slack, email, etc.)
 - [ ] Update performance budgets in docs/performance-budgets.md
 - [ ] Define SLOs per service in docs/slo/
-- [ ] Run /new-product to kick off the product planning chain
+- [ ] Run /tech-agency:new-product to kick off the product planning chain
+
+Where things live:
+- Shared rules ({n}) — .claude/rules/shared/ in THIS repo. Auto-loaded every session.
+- Coding standards (8) — stay in the plugin, read on demand by the agent working
+  in that language. Your project has 10-11 rule files, not 18, and that is correct:
+  auto-loading all eight standards would cost ~65k context tokens per session,
+  most of it for stacks you do not use.
+- Skills ({n from the audit}) — served by the plugin as /tech-agency:<name>. Nothing was copied.
 ```
 
 ### For Existing Projects:
@@ -789,18 +1069,26 @@ Still needs attention:
 - [ ] Customize CLAUDE.md for your project specifics
 - [ ] Fill in TODO placeholders in any new workflow files
 - [ ] Review git hook settings — adjust lint commands for your tooling
+- [ ] Delete any stale local coding-standards copies flagged [!] in the audit
 - [ ] See docs/migration-guide.md for the full incremental adoption path
 
+Where things live:
+- Shared rules ({n}) — .claude/rules/shared/ in THIS repo. Auto-loaded every session.
+- Coding standards (8) — stay in the plugin, read on demand by the agent working in
+  that language. 10-11 rule files here rather than 18 is correct, not a broken install.
+- Skills ({n from the audit}) — served by the plugin as /tech-agency:<name>. Nothing was copied.
+
 Recommended next steps:
-1. Run /daily-sync to initialize the board status
+1. Run /tech-agency:daily-sync to initialize the board status
 2. Start using commit format: [STORY-ID] @Agent: description
+   (agent tag optional — [TECH] Fix the thing is also valid)
 3. Follow docs/migration-guide.md phases for gradual adoption
 ```
 
 ## Customization Notes
 
 - All GitHub Actions are **tool-agnostic** — they have TODO placeholders where the user fills in their specific tooling (Gradle, npm, pytest, Docker, etc.)
-- The workflows follow the patterns defined in `@.claude/rules/shared-standards.md` (branch strategy, commit policy) and `@.claude/rules/operational-standards.md` (release process, hotfix process)
+- The workflows follow the patterns defined in `@.claude/rules/shared/shared-standards.md` (branch strategy, commit policy) and `@.claude/rules/shared/operational-standards.md` (release process, hotfix process)
 - CI thresholds align with the testing and observability standards already defined in each coding standards file
 - The release flow matches the `/release` skill's gate sequence: test -> security -> build -> deploy
 - The hotfix flow matches the `/hotfix` skill's expedited process: focused tests, quick security, fast deploy

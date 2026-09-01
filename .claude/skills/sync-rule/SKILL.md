@@ -1,84 +1,127 @@
 ---
 name: sync-rule
-description: "Mirror edits in .claude/rules/ between this repo and the canonical tech-agency repo. Use after editing a rule file so the two repos don't drift. Triggers: 'sync rule', 'mirror rule', 'sync to tech-agency', 'sync from tech-agency', 'mirror to template', 'apply rule change to both repos'."
+description: "Mirror edits to the shared rules in .claude/rules/shared/ between a consumer project and the canonical tech-agency plugin. Use after editing a shared rule so the two don't drift. Triggers: 'sync rule', 'mirror rule', 'sync to tech-agency', 'sync from tech-agency', 'apply rule change to both repos'."
 ---
 
-# Sync Rule — Mirror Rule Edits Between Consumer and Tech-Agency
+# Sync Rule — Mirror Shared-Rule Edits Between Consumer and Tech-Agency
 
-The tech-agency repo is the canonical owner of all `.claude/rules/*.md` files. Consumer projects (e.g., Steady) copy these into their own `.claude/rules/` and may edit them in-place when something project-specific comes up. Without explicit syncing, the two diverge.
+Tech-agency is the canonical owner of the **shared rules** under `rules/shared/` (ten core rules, plus any the plugin has added since). `/setup-repo` copies them into a consumer's `.claude/rules/shared/`, where they auto-load every session and where a project may edit one in place when something project-specific comes up. Without explicit syncing, the two diverge.
 
-This skill detects which side of the mirror you're on, finds the corresponding file in the other repo, shows the diff, and applies the same change there — with a genericization step when going consumer → tech-agency so the canonical version stays clean.
+This skill finds the corresponding file on the other side, shows the diff, and applies the same change — with a genericization step when going consumer → tech-agency so the canonical version stays clean.
 
 ## When to Use
 
-- After editing any `.claude/rules/*.md` file in a consumer repo — sync to tech-agency.
-- After editing any `.claude/rules/*.md` file in tech-agency — propagate to consumers (run from inside the consumer).
-- Before committing in either repo, if you suspect drift.
+- After editing any `.claude/rules/shared/*.md` file in a consumer repo — sync it up to tech-agency.
+- After editing any `rules/shared/*.md` file in tech-agency — propagate it down (see "Reverse Direction" below).
+- Before committing on either side, if you suspect drift.
 
-## Path Mapping
+## Scope: shared rules only
 
-The path layouts differ — consumers are flat, tech-agency is grouped by domain:
-
-| Consumer (e.g. Steady) | Tech-agency |
+| Rule set | Synced? |
 |---|---|
-| `.claude/rules/<name>.md` | `.claude/rules/<domain>/<name>.md` |
+| The shared rules (`rules/shared/*.md`) | **Yes** — they exist on both sides |
+| The 8 language coding standards (`rules/mobile/…`, `rules/backend/…`, `rules/web/…`) | **No** — they exist only in the plugin and are read on demand from `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md`. There is no consumer copy to sync with |
 
-The domain is determined by file basename (e.g. `compose-coding-standards.md` lives under `mobile/android/`, `kmp-coding-standards.md` under `mobile/shared/`, `shared-standards.md` under `shared/`). The skill discovers the mapping dynamically via `find` — no hardcoded table.
+If a consumer holds a local copy of a coding standard, that is drift, not a mirror. Tell the user to delete it and read the plugin's copy instead — a stale local copy silently shadows the canonical one.
 
-## Step 1: Determine source, destination, and direction
+## Path Mapping — identity, not flattening
+
+The nested layout is canonical **everywhere**, consumers included:
+
+| Consumer | Tech-agency |
+|---|---|
+| `.claude/rules/shared/<name>.md` | `<plugin root>/rules/shared/<name>.md` |
+
+The path below `rules/` is byte-identical on both sides. Earlier versions of this skill documented a flat consumer layout (`.claude/rules/<name>.md`) as intentional; that dual layout is dead. Never write or expect a flat path — every rule cross-reference in the agency is `@.claude/rules/shared/<name>.md`, and a flat file satisfies none of them.
+
+## Step 1: Resolve both sides
+
+The consumer is the current working directory (or the path passed as an argument). The tech-agency side resolves from the installed plugin, an explicit override, or the repo itself — never from a hardcoded absolute path, which is valid on exactly one machine.
 
 ```bash
-SOURCE_REPO="$(pwd)"
+CONSUMER="${1:-$(pwd)}"          # optional first argument: the consumer repo path
+CONSUMER="$(cd "$CONSUMER" && pwd)"
 
-# Default tech-agency location — override if it lives elsewhere on this machine.
-TECH_AGENCY="${TECH_AGENCY_PATH:-/Users/freelance.zeyad.gasser/AndroidStudioProjects/tech-agency}"
+resolve_tech_agency() {
+    # 1. tech-agency installed as a plugin — CLAUDE_PLUGIN_ROOT is its `.claude/`.
+    if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "${CLAUDE_PLUGIN_ROOT}/rules/shared" ]; then
+        printf '%s\n' "${CLAUDE_PLUGIN_ROOT%/}"; return 0
+    fi
+    # 2. Explicit override: a local tech-agency checkout.
+    if [ -n "${TECH_AGENCY_PATH:-}" ] && [ -d "${TECH_AGENCY_PATH}/.claude/rules/shared" ]; then
+        printf '%s\n' "${TECH_AGENCY_PATH%/}/.claude"; return 0
+    fi
+    # 3. We are standing in the tech-agency repo itself.
+    if [ -f ".claude-plugin/plugin.json" ] && [ -d ".claude/rules/shared" ]; then
+        printf '%s\n' "$(pwd)/.claude"; return 0
+    fi
+    return 1
+}
 
-if [ ! -d "$TECH_AGENCY/.claude/rules" ]; then
-  echo "tech-agency not found at $TECH_AGENCY. Set TECH_AGENCY_PATH or update the skill."
-  exit 1
+TA_ROOT="$(resolve_tech_agency)" || {
+    echo "ERROR: cannot locate the tech-agency rules."
+    echo "Install the plugin, or point TECH_AGENCY_PATH at a local tech-agency checkout:"
+    echo "  TECH_AGENCY_PATH=~/code/tech-agency  # then re-run"
+    exit 1
+}
+
+if [ "$TA_ROOT" = "${CONSUMER}/.claude" ]; then
+    DIRECTION="none"
+    echo "The consumer and tech-agency resolve to the same directory — nothing to mirror."
+    echo "Pass the consumer repo path as an argument, or cd into it and re-invoke."
+    exit 1
 fi
-
-if [ "$SOURCE_REPO" = "$TECH_AGENCY" ]; then
-  DIRECTION="template-to-consumer"
-  echo "You are inside tech-agency. This skill works best invoked from the consumer repo."
-  echo "If you want to propagate from tech-agency, cd into the consumer and re-invoke."
-  exit 1
-else
-  DIRECTION="consumer-to-template"
-fi
+DIRECTION="consumer-to-template"
+echo "consumer=$CONSUMER"
+echo "tech-agency rules=$TA_ROOT/rules"
 ```
 
-## Step 2: Identify rule files that changed
+Note that when tech-agency is installed as a plugin, `$TA_ROOT` is the installed copy — edits there are overwritten on the next plugin update. For a change meant to become canonical, set `TECH_AGENCY_PATH` to a real tech-agency checkout so the edit can be committed and PR'd.
+
+## Step 2: Identify shared-rule files that changed
 
 ```bash
-# Files modified in working tree, staged, or in the last commit.
+cd "$CONSUMER"
+
 CHANGED_RULES=$( {
-  git diff --name-only -- '.claude/rules/**.md'
-  git diff --cached --name-only -- '.claude/rules/**.md'
-  git diff --name-only HEAD~1..HEAD -- '.claude/rules/**.md' 2>/dev/null
+  git diff --name-only -- '.claude/rules/shared/*.md'
+  git diff --cached --name-only -- '.claude/rules/shared/*.md'
+  git diff --name-only HEAD~1..HEAD -- '.claude/rules/shared/*.md' 2>/dev/null
 } | sort -u | grep -v '^$' )
+
+echo "$CHANGED_RULES"
 ```
 
 If the user passed specific files as arguments, use those instead.
 
-## Step 3: For each changed file, find its mirror in tech-agency
+## Step 3: For each changed file, locate its mirror
+
+The mapping is direct — same relative path under `rules/` — so no `find` search and no ambiguity.
 
 ```bash
-for f in $CHANGED_RULES; do
-  BASENAME=$(basename "$f")
-  MATCHES=$(find "$TECH_AGENCY/.claude/rules" -name "$BASENAME" -not -path '*/worktrees/*' 2>/dev/null)
-  COUNT=$(echo "$MATCHES" | grep -c '.')
+# Iterate with `printf | while read`, not `for f in $CHANGED_RULES` — unquoted
+# parameter expansion does not word-split in zsh, so the loop would run once
+# with every filename concatenated into $f.
+printf '%s\n' "$CHANGED_RULES" | grep -v '^$' | while read -r f; do
+  REL="${f#.claude/rules/}"                 # e.g. shared/board-in-pr.md
+  MIRROR="${TA_ROOT}/rules/${REL}"
 
-  case "$COUNT" in
-    0) echo "⚠️  $BASENAME: no mirror in tech-agency. Skip or place manually." ;;
-    1) echo "✅ $f ↔ ${MATCHES#$TECH_AGENCY/}" ;;
-    *) echo "⚠️  $BASENAME: multiple matches in tech-agency — pick one:"
-       echo "$MATCHES" | sed 's|^|    |' ;;
+  case "$REL" in
+    shared/*)
+      if [ -f "$MIRROR" ]; then
+        echo "[OK]   $f  ->  rules/${REL}"
+      else
+        echo "[NEW]  $f  ->  rules/${REL} (does not exist in tech-agency — new shared rule?)"
+      fi
+      ;;
+    *)
+      echo "[SKIP] $f — not a shared rule. Coding standards live only in the plugin and are not synced."
+      ;;
   esac
 done
 ```
 
-For ambiguous matches (count > 1), ask the user to choose before proceeding.
+A `[NEW]` result is worth pausing on: adding a twelfth shared rule changes what `/setup-repo` copies, so `/setup-repo`'s `SHARED_RULES` list must be updated in the same change. Say so rather than silently creating the file.
 
 ## Step 4: Genericize before mirroring (consumer → tech-agency only)
 
@@ -113,17 +156,20 @@ Never overwrite blindly when context doesn't match.
 ## Step 6: Report
 
 ```
-Synced 2 rule(s) from <consumer-repo> to tech-agency:
-  ✅ compose-coding-standards.md → mobile/android/compose-coding-standards.md
-  ✅ kmp-coding-standards.md → mobile/shared/kmp-coding-standards.md
+Synced 2 shared rule(s) from <consumer-repo> to tech-agency:
+  [OK] shared/board-in-pr.md      -> rules/shared/board-in-pr.md
+  [OK] shared/worktree-first.md   -> rules/shared/worktree-first.md
+
+Skipped (not synced — plugin-only, read on demand):
+  - mobile/android/compose-coding-standards.md
 
 Genericization applied to 1 file:
-  - mobile/android/compose-coding-standards.md: 3 identifiers replaced
-    (AgendaFormScreen → NotesListScreen, etc.)
+  - rules/shared/board-in-pr.md: 3 identifiers replaced
+    (AgendaFormScreen -> NotesListScreen, etc.)
 
 Next steps:
-  1. Review tech-agency diff: cd $TECH_AGENCY && git diff .claude/rules/
-  2. Commit + push in tech-agency when satisfied.
+  1. Review the tech-agency diff: cd <tech-agency checkout> && git diff .claude/rules/
+  2. Commit and PR in tech-agency when satisfied.
   3. The consumer repo's edit stays as-is — no changes there.
 ```
 
@@ -131,21 +177,23 @@ Next steps:
 
 When tech-agency is the source of a canonical update being propagated to a consumer:
 
-1. From inside tech-agency, identify the changed files (`git diff --name-only HEAD~1..HEAD -- '.claude/rules/'`).
-2. cd into the consumer repo.
-3. For each changed file, locate the flat-path destination (`.claude/rules/$(basename file).md`).
+1. From the tech-agency checkout, identify the changed files: `git diff --name-only HEAD~1..HEAD -- '.claude/rules/shared/'`.
+2. `cd` into the consumer repo.
+3. For each changed file, the destination is the **same relative path**: `.claude/rules/${REL}` where `REL` is everything after `rules/` (e.g. `shared/board-in-pr.md`). No flattening, no basename lookup.
 4. Apply the diff. **No genericization needed in this direction** — the tech-agency content is already generic.
 5. The consumer may want to add back project-specific subsections it had stripped before (e.g., its own "Pilot examples"). Surface this to the user, don't decide unilaterally.
+6. If the change added a new shared rule, also add it to `/setup-repo`'s `SHARED_RULES` list — otherwise the next project set up will not receive it.
 
 ## What NOT to Sync
 
-Some content legitimately belongs in only one repo:
+Some content legitimately belongs on only one side:
 
-- **Consumer-specific subsections** in coding standards (e.g., "Migration discipline" tied to a specific project's rollout) — keep in consumer only.
+- **The 8 language coding standards** — they live only in the plugin and are read on demand. A consumer copy is drift; delete it rather than syncing it.
+- **Consumer-specific subsections** in a shared rule (e.g., "Migration discipline" tied to one project's rollout) — keep in the consumer only.
 - **Tech-agency-only rules** about how the framework itself works (versioning, plugin manifest, marketplace) — never propagate to consumers.
-- **CLAUDE.md, board-context.md** — project-specific by definition, not under `.claude/rules/` anyway.
+- **CLAUDE.md, board-context.md** — project-specific by definition, and not under `.claude/rules/` anyway.
 
 ## Related Memories
 
-- Consumer-specific sync memory (e.g., `project_steady_rules_synced_from_tech_agency`) — documents the dual-repo convention and any known divergences.
+- Consumer-specific sync memory (e.g., `project_<consumer>_rules_synced_from_tech_agency`) — documents the dual-repo convention and any known divergences.
 - `feedback_promote_repeated_workflows_to_tech_agency` — the meta-rule that spawned this skill.

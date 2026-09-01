@@ -17,17 +17,32 @@ Gather from the user:
 
 If a Crashlytics crash spike is involved, check `.claude/crashlytics-context.md` for injected crash data.
 
-## Step 2: Create the Hotfix Branch
+## Step 2: Create the Hotfix Worktree
+
+Speed does not exempt a hotfix from the worktree rule: `git checkout -b` in the main checkout would move whoever else is working there onto the hotfix branch mid-incident. Create a worktree (`@.claude/rules/shared/worktree-first.md`).
+
+A hotfix is the one case where the base is a **release tag**, not a branch — cut from the tag, never from `origin/main`, so unreleased work on `main` cannot ride along into production.
 
 ```bash
-# Find the latest release tag
-git tag --sort=-v:refname | head -5
+MAIN_REPO="$(git rev-parse --show-toplevel)"
 
-# Create hotfix branch from the release tag
-git checkout -b hotfix/v[X.Y.Z+1]/[short-description] v[X.Y.Z]
+# Find the latest release tag
+git -C "$MAIN_REPO" fetch --tags origin
+git -C "$MAIN_REPO" tag --sort=-v:refname | head -5
+
+VERSION="v[X.Y.Z]"                                     # the tag currently in production
+BRANCH="hotfix/v[X.Y.Z+1]/[short-description]"         # e.g. hotfix/v1.2.1/fix-login-crash
+WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+
+git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "$VERSION"
+cd "$WORKTREE_DIR"
+
+# Verify BEFORE any write. If either check fails, STOP and report.
+pwd                          # must equal $WORKTREE_DIR
+git branch --show-current    # must equal $BRANCH
 ```
 
-The branch naming convention is `hotfix/{version}/{short-description}` — e.g., `hotfix/v1.2.1/fix-login-crash`.
+The branch naming convention is `hotfix/{version}/{short-description}`. The whole fix, its tests, and its board transitions happen inside `$WORKTREE_DIR`.
 
 ## Step 3: Assign the Fix
 
@@ -82,22 +97,28 @@ Tag: git tag v[X.Y.Z+1]
 
 ## Step 7: Merge Back
 
-```bash
-# Merge hotfix into main to prevent regression
-git checkout main
-git merge hotfix/v[X.Y.Z+1]/[short-description]
+The hotfix must land on `main` too, or the next release regresses it. Merge via PR — never `git checkout main && git merge` in the main checkout, which commits directly on `main` and bypasses the required checks.
 
-# Do NOT push yet — present the merge to @Zeyad for approval
-# When @Zeyad says "push", then:
-# git push origin main
+```bash
+# From the hotfix worktree, once the tag is cut and production is verified:
+cd "$WORKTREE_DIR"
+/create-pr --base main
 ```
 
-> **No Auto-Push:** Do not push to remote until @Zeyad explicitly approves. Present the merge result and wait for confirmation.
+Open the PR from the hotfix branch into `main`, title it `[HOT-NNN] Hotfix v[X.Y.Z+1]: [description]`, and note in the body that the fix is already live in production so reviewers understand this is a back-merge, not a pending change. If the project keeps a long-lived release branch, open the second PR into that branch as well.
+
+> **No Auto-Push:** Do not push to remote until @Zeyad explicitly approves. Present the PR plan and wait for confirmation.
 
 ## Step 8: Post-Mortem
 
 The fixing engineer must write a post mortem within 24 hours.
-Save to `docs/{feature-name}/incident-{date}.md`.
+
+Save it to `docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. Append a row to `docs/post-mortem/INDEX.md`:
+
+```
+| YYYY-MM-DD | {Incident Title} | {Severity} | [Post Mortem](./{filename}.md) |
+```
+
 Schedule a brief retro with the team to capture prevention actions.
 
-If this was a crash spike, follow the full crash investigation protocol in `.claude/rules/crash-investigation.md`.
+If this was a crash spike, follow the full crash investigation protocol in `@.claude/rules/shared/crash-investigation.md`. For a P0/P1, run `/postmortem` afterwards to deepen the analysis with the 5 Whys.

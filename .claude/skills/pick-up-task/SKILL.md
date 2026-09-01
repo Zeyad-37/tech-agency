@@ -1,6 +1,6 @@
 ---
 name: pick-up-task
-description: "Pick up the next available task from the Kanban board. Reads board-context.md, selects the highest-priority Ready task matching the agent's domain, moves it to In Progress, reads all relevant feature context, and begins work. Use when an agent says 'pick up task', 'what should I work on next', 'grab next task', 'start next item', 'pull from board', or 'what's ready for me'."
+description: "Pick up the next available task from the Kanban board. Reads the board through the board adapter, selects the highest-priority Ready task matching the agent's domain, creates a worktree, moves the task to In Progress, loads the feature docs and the coding standard for the task's stack, and begins work. Use when an agent says 'pick up task', 'what should I work on next', 'grab next task', 'start next item', 'pull from board', or 'what's ready for me'."
 ---
 
 # Pick Up Task from Board
@@ -9,11 +9,12 @@ This skill instructs an agent to pull the next available task from the Kanban bo
 
 ## Step 1: Check Current WIP
 
-Read `board-context.md` and check your current Work In Progress:
+Read the board **through the adapter**, never by reading `board-context.md` directly — `@.claude/rules/shared/board-adapter.md` rule 2 forbids raw file access so the same skill works on a Jira/Linear/Asana backend.
 
-```bash
-cat board-context.md
-```
+1. Read `board_backend` from `.claude/settings.json` (absent → `markdown`).
+2. Run `board.read_agent_wip("@{YourAgent}")` for your current In Progress items.
+
+On the `markdown` backend the adapter resolves this to parsing the `## In Progress` section of `board-context.md` and filtering by the `Agent` column; on an external backend it becomes a "list issues by assignee + status" MCP call. Either way, go through the operation — the skill must not know which.
 
 **WIP limit: 2 items per agent.** If you already have 2 items in "In Progress", you CANNOT pick up a new task. Instead:
 
@@ -24,7 +25,7 @@ cat board-context.md
 
 ## Step 2: Select the Next Task
 
-From the "Ready" column in `board-context.md`, select a task using this priority order:
+Run `board.read_column("Ready")` and select a task from the result using this priority order:
 
 1. **P0/P1 bugs or incidents** — always first, regardless of domain
 2. **Tasks explicitly assigned to you** — your name appears in the "Assigned To" field
@@ -69,48 +70,82 @@ Before pulling the task, verify it's ready for work:
 3. **Required artifacts exist** — check if the task references PRDs, BRDs, ADRs, design specs, or API contracts that you need. If missing, request them from the producing agent via @Atlas.
 
 If the task fails validation:
-- Add it to the "Blocked" section of `board-context.md` with the reason
+- Run `board.add_blocker(task_id, reason)` to move it to Blocked with the reason
 - Notify @Atlas
 - Return to Step 2 and pick the next task
 
 ## Step 4: Pull the Task
 
-Update `board-context.md`:
+Move the task from Ready to In Progress via `board.move_task(task_id, "Ready", "In Progress")` and `board.assign_task(task_id, "@{YourAgent}")` (see `@.claude/rules/shared/board-adapter.md`). On the default markdown backend this resolves to editing `board-context.md`; on a Jira/Linear backend it routes through MCP.
 
-1. Move the task from "Ready" to "In Progress"
-2. Add your agent name to the "Assigned To" field
-3. Add the current date to the "Started" field
+The two columns have **different** schemas — you are not moving a row, you are removing one and writing another. Match the target table's headers exactly, or the row misaligns and every later reader parses the wrong column:
 
 ```markdown
-## In Progress
+## Ready
 
-| Task ID | Description | Assigned To | Priority | Started |
-|---------|-------------|-------------|----------|---------|
-| T-XXX   | {task description} | @{YourAgent} | P{n} | YYYY-MM-DD |
+| Task ID | Priority | Description | Assigned To |
+|---------|----------|-------------|-------------|
 ```
+
+```markdown
+## In Progress (WIP limit: 2 per agent)
+
+| Task ID | Agent | Description | Started | Cycle Day |
+|---------|-------|-------------|---------|-----------|
+| T-XXX   | @{YourAgent} | {task description} | YYYY-MM-DD | 1 |
+```
+
+`Agent` is the second column in In Progress — that is the field the adapter's "filter In Progress by agent name" reads. `Cycle Day` starts at 1 on the day you pull and is what `/daily-sync` and `/sprint-report` use for the >5-day stale-task alert. `Priority` does not survive the move; it lives in Ready and Backlog only.
+
+This board edit is the **first commit** on your task branch (`@.claude/rules/shared/board-in-pr.md`) — run `/update-board {TASK-ID} → In Progress` inside the worktree from Step 7 rather than editing the file by hand.
 
 ## Step 5: Load Context
 
 Follow the agent preamble's context-loading discipline:
 
-1. **Read feature docs**: If this task belongs to a feature, read everything in `docs/{feature-name}/`:
+1. **Read feature docs**: Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`, as `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Search by task ID and feature name across the type folders:
+
+   ```bash
+   grep -ril "{TASK-ID}\|{feature-name}" \
+     docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ \
+     docs/api-contract/ docs/incident-notes/ docs/post-mortem/ 2>/dev/null
+   ```
+
+   Read every hit:
    - PRD (product requirements)
    - BRD (business requirements, user stories, acceptance criteria)
    - ADR (architecture decisions — follow them, don't contradict)
    - RFC (if an RFC exists, your implementation must align with it)
    - Design specs (from @Pixel)
-   - Previous incident notes
-   - Previous bug reports
+   - Previous incident notes and post-mortems
 
-2. **Read coding standards**: Load the relevant coding standards for your platform:
-   - Android: `@.claude/rules/compose-coding-standards.md`
-   - iOS: `@.claude/rules/swiftui-coding-standards.md`
-   - KMP: `@.claude/rules/kmp-coding-standards.md`
-   - Ktor: `@.claude/rules/ktor-server-coding-standards.md`
-   - React: `@.claude/rules/react-coding-standards.md`
-   - Node.js: `@.claude/rules/node-coding-standards.md`
-   - Python: `@.claude/rules/python-coding-standards.md`
-   - JVM/Spring: `@.claude/rules/jvm-coding-standards.md`
+2. **Read the coding standard for this task's stack — you MUST do this explicitly.**
+
+   The eight language coding standards are **not** auto-loaded. They live in the plugin and are read on demand, precisely so that eight standards for eight stacks don't sit in context on every task. Nothing loads one for you: if you skip this step you implement with no standard at all.
+
+   Use the `Read` tool on the row matching the task's stack (only that row — reading all eight defeats the point):
+
+   | Stack | Read |
+   |---|---|
+   | Android / Compose | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` |
+   | iOS / SwiftUI | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` |
+   | KMP shared | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+   | Ktor server | `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md` |
+   | React / Next.js | `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md` |
+   | Node / Fastify | `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` |
+   | Python / FastAPI | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+   | JVM / Spring Boot | `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` |
+
+   If `CLAUDE_PLUGIN_ROOT` is unset — which is the case when working inside the tech-agency repo itself — read the same path under `.claude/rules/` instead. Resolve it once:
+
+   ```bash
+   RULES_ROOT="${CLAUDE_PLUGIN_ROOT:-.claude}/rules"
+   ls "$RULES_ROOT/mobile" "$RULES_ROOT/backend" "$RULES_ROOT/web"
+   ```
+
+   Android and iOS tasks read **two** files: the platform standard above *and* `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md`, which is the architectural foundation both build on.
+
+   The shared rules (`.claude/rules/shared/*.md`) are already loaded automatically — do not re-read them.
 
 3. **Check recent activity**:
    ```bash
@@ -149,12 +184,29 @@ Present this plan to the user for confirmation before proceeding with implementa
 
 Once the user confirms the plan:
 
-1. Create a feature branch following the branch strategy. Always branch from the latest resolved base on the remote — `origin/main` by default, or the epic integration branch (`epic/{EPIC-ID}-{slug}`) when the task belongs to an epic (see `.claude/rules/shared/worktree-first.md` § Base Branch Resolution) — never from the currently checked-out branch:
+1. Create a **git worktree** for the task. All Claude Code work happens in a worktree — never `git checkout -b` in the main checkout, which is an orchestration root and shared with any parallel session (`@.claude/rules/shared/worktree-first.md`).
+
+   Resolve the base first, per `worktree-first.md` § Base Branch Resolution: explicit `--base` → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `origin/main`.
+
    ```bash
-   BASE="main"   # or the epic integration branch per the resolution order
-   git fetch origin "$BASE"
-   git checkout -b {story-id}/{short-description} "origin/$BASE"
+   MAIN_REPO="$(git rev-parse --show-toplevel)"
+
+   BASE="main"                                # or the epic integration branch per the resolution order
+   BRANCH="{story-id}/{short-description}"
+   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+
+   git -C "$MAIN_REPO" fetch origin "$BASE"
+   git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+   cd "$WORKTREE_DIR"
+
+   # Verify BEFORE any write. If either check fails, STOP and report.
+   pwd                          # must equal $WORKTREE_DIR
+   git branch --show-current    # must equal $BRANCH
    ```
+
+   Every later step in this task — the board edit from Step 4, the implementation, the tests, the commits — happens inside `$WORKTREE_DIR`. The PR merges back into `$BASE`.
+
+   If you were spawned into a worktree already (by `/dispatch` or `/dispatch-task`), skip creation: verify the existing worktree matches this task and continue.
 
 2. Implement the task following:
    - The relevant coding standards
@@ -183,8 +235,8 @@ When the task is done:
    ```
    /create-pr
    ```
-   The PR title will include the task ID (e.g., `[US-042] Add email validation`) and the body will list you as the primary author along with any participating agents. The PR will NOT be pushed until @Zeyad approves.
-4. Create a handoff using the appropriate template from `.claude/rules/handoff-protocol.md`
+   The PR title will include the task ID (e.g., `[US-042] Add email validation`) and the body will list you as the primary author along with any participating agents. Invoking `/create-pr` **is** the push authorization — it runs the pre-push verification gate, pushes the branch, and opens the PR. See `@.claude/rules/shared/shared-standards.md` § Push Policy.
+4. Create a handoff using the appropriate template from `@.claude/rules/shared/handoff-protocol.md`
 5. Tag the reviewer and @Atlas
 
 If the task is a code change that requires security review (auth, encryption, PII), also tag @Shield per the code review matrix in `shared-standards.md`.
