@@ -36,6 +36,16 @@ Multi-stage builds, non-root user, health check, graceful shutdown, env var conf
 **Node.js (Flux):**
 TypeScript strict mode, no `any`. Node.js 20+, ES modules. Fastify + Zod validation + Prisma ORM + BullMQ + Jest.
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| Node.js / TypeScript / Fastify | `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`: `.claude/rules/backend/nodejs/node-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. **TypeScript strict mode, no `any` types**
