@@ -133,7 +133,7 @@ Map the agency's column names to external tool statuses:
 | Blocked | Blocked (custom) | Blocked (label) | On Hold |
 | Done | Done | Done | Completed |
 
-The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/board-config.md`.
+The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/guides/board-config.md`.
 
 ## Agent Guidelines
 
@@ -153,9 +153,9 @@ The exact mapping depends on the project's board configuration. When setting up 
 
 To add support for a new board tool:
 
-1. Configure the MCP connection for the tool (see `docs/tool-integrations.md`)
+1. Configure the MCP connection for the tool (see `docs/guides/tool-integrations.md`)
 2. Add the tool name as a valid `board_backend` value
-3. Document the status mapping in `docs/board-config.md`
+3. Document the status mapping in `docs/guides/board-config.md`
 4. Test with `/daily-sync` to verify read operations work
 5. Test with `/pick-up-task` to verify write operations work
 6. No changes to any skill files are needed — the adapter handles translation

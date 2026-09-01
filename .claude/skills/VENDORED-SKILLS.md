@@ -76,7 +76,7 @@ The task→skill mappings that drive worker behaviour are in:
 - `.claude/rules/backend/kotlin/ktor-server-coding-standards.md` (Link)
 
 Agent-level pointers live in `.claude/agents/{kai,link,forge,sentinel}-*.md`.
-See also `docs/references/android-kotlin-skills-integration.md`.
+See also `docs/guides/references/android-kotlin-skills-integration.md`.
 
 ## Refresh / extend runbook
 
