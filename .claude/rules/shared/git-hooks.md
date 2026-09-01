@@ -34,9 +34,10 @@ Exceptions (not validated): merge commits (`Merge ...`), initial commits (`Initi
 
 | Check | Blocking? | How to Fix |
 |-------|-----------|------------|
-| Branch naming convention | Warning | Rename: `git branch -m {STORY-ID}/{description}` or `tech/{description}` or `deps/{package}` |
+| Branch naming convention | Warning | Rename: `git branch -m {STORY-ID}/{description}` — also accepts `epic/{EPIC-ID}-{slug}`, `tech/`, `deps/`, `hotfix/`, and sub-task IDs (`T-016.1/…`) |
 | Direct push to main | Yes | Create a PR instead: `gh pr create --base main` |
 | Commit message format (all commits) | Yes | Amend: `git commit --amend` or interactive rebase |
+| Rules mirror integrity | Yes (consumers only) | A file in `.claude/rules/` was hand-edited. See `@.claude/rules/rules-mirror.md` — move the edit to `.claude/rules-local/` or promote it upstream, then `.claude/skills/sync-rule/mirror.sh pull`. Runs only where `.claude/rules/.synced-from` exists |
 | Tests for affected modules | Yes | Fix failing tests |
 | Build verification | Yes | Fix build errors |
 
