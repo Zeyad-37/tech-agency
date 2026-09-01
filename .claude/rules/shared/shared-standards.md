@@ -203,6 +203,7 @@ Quick rules:
   4. @Scroll has updated user-facing documentation and changelog
   5. @Morgan has approved release notes
   6. @Zeyad has given final go/no-go
+  7. **The exact artifact being shipped is installed fresh and cold-launched (@Apex)** — not "the app was tested", but *this* binary, the file about to go to the store or registry, from a clean install with no existing app data, on every device class the release targets. A build from the same tag is not the same artifact, and a debug build is not the release build. This step exists because every other pre-submission check can pass against a different binary than the one that ships: the app is fine and the artifact is not. Where the platform offers a verification script for the packaged artifact, run it on that same file first.
 - Deployment order: staging → canary (5% traffic, 30 min soak) → production (gradual rollout)
 - @Sentinel monitors error rates and crash-free rate during canary. Auto-rollback if error rate increases >1% or crash-free rate drops below 99.5%
 - After successful production deployment, @Sentinel tags the release in git: `git tag vX.Y.Z`

@@ -227,7 +227,7 @@ Rules:
 - `clazz()` returns the `KClass` of the specific `Input` this handler processes.
 - `handle()` returns a `Flow<Result>` — emit `Result` objects that will be reduced into State or dispatched as Effects.
 - Use `makeCancellable(inputClass)` for long-running operations that the user might cancel.
-- Use `executeInParallel()` for results that should be processed concurrently.
+- Use `executeInParallel()` to **document** that a flow never completes (an always-on `observe*` pipeline). It is an intent marker only — see below.
 - InputHandlers receive use cases via constructor, not repositories directly.
 
 ### Cancellable and Parallel Flows
@@ -243,15 +243,20 @@ override fun handle(input: SearchInput, state: MyState): Flow<Result> = flow {
 // Cancel from UI
 viewModel.process(CancelInput(SearchInput::class))
 
-// Parallel execution — results processed concurrently
-override fun handle(input: LoadDashboard, state: DashState): Flow<Result> = flow {
-    emit(DashResult.Loading)
-    val stats = statsUseCase()
-    val notifications = notificationsUseCase()
-    emit(DashResult.StatsLoaded(stats))
-    emit(DashResult.NotificationsLoaded(notifications))
-}.executeInParallel()
+// Never-completing observation pipeline — the marker documents that intent
+override fun handle(input: LoadDashboard, state: DashState): Flow<Result> =
+    combine(observeStatsUseCase(), observeNotificationsUseCase()) { stats, notifications ->
+        DashResult.Loaded(stats, notifications)
+    }.executeInParallel()
 ```
+
+### `executeInParallel()` is an intent marker, not a concurrency mechanism
+
+It does **not** make anything run in parallel, and there is no "async lane" versus "sequential lane". It historically selected `flatMapMerge` over `flatMapConcat` inside `process()`, but that distinction was always inert: each `process()` call resolves exactly one `Result` flow and launches its own coroutine, so there were never "later results of the same input" for a non-completing flow to block. Applying the marker or omitting it produces identical runtime behaviour.
+
+**Cross-input concurrency comes from `process()` itself** — every call starts a new coroutine in `viewModelScope`, so two inputs dispatched back to back are already processed concurrently. Nothing needs to opt in.
+
+Keep applying the marker to never-completing observation pipelines: it tells the next reader that the flow is deliberately long-lived rather than leaked. Do not reach for it expecting a speedup.
 
 ## Use Cases
 
