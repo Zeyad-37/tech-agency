@@ -1,7 +1,7 @@
 {
   "name": "tech-agency",
   "description": "Multi-agent software development framework with 19 specialized agents and 24+ workflow skills covering the full product lifecycle, plus vendored Android & Kotlin agent skills (android-*, kotlin-*) wired into the mobile/backend agents.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": {
     "name": "Zeyad Gasser",
     "email": ""
