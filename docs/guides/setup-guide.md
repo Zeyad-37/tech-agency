@@ -98,7 +98,7 @@ cp -r project-template/.claude /path/to/your-project/
 ```
 
 ### 3. Configure MCP connections (if needed)
-Only 9 agents need external tools — see @docs/tool-integrations.md.
+Only 9 agents need external tools — see @docs/guides/tool-integrations.md.
 
 ## Using the Agency
 

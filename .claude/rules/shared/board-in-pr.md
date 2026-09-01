@@ -63,7 +63,7 @@ Because every transition merges with the change it describes, the archives on `m
 
 Live state is therefore **derived**, not read: open PRs and their branches are the source of truth for what is In Progress, in Review, or Blocked (`gh pr list`, `git branch -r`, and each branch's own `board-context.md`).
 
-Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked in `docs/tech-debt/backlog.md` and is out of scope for this rule.
+Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked in `docs/guides/tech-debt/backlog.md` and is out of scope for this rule.
 
 ## What This Rule Forbids
 

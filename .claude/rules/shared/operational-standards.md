@@ -48,7 +48,7 @@
 - KMP (@Link): benchmark shared module initialization and critical-path operations. Document results in the PR
 - Backend (@Flux, @Pyra, @Forge): load test endpoints affected by the change using k6. Block merge if P99 latency regresses >50ms under expected load
 - @Apex includes performance verification in the release sign-off checklist
-- Performance budgets are defined per project in `docs/performance-budgets.md` — @Sage sets initial values, @Zeyad approves changes
+- Performance budgets are defined per project in `docs/guides/performance-budgets.md` — @Sage sets initial values, @Zeyad approves changes
 
 ## Accessibility Testing Gate
 
@@ -67,10 +67,10 @@
 - All PII fields must be documented in the data dictionary (maintained by @Diana per feature in the BRD)
 - Data classification levels: **Public** (no restrictions), **Internal** (auth required), **Confidential** (encrypted at rest + in transit, access-logged), **Restricted** (all of Confidential + explicit consent, retention limits, deletion support)
 - Every Confidential/Restricted field must support: right-to-deletion (GDPR Art. 17), data export (GDPR Art. 20), and consent withdrawal
-- Data retention: define retention period per data type in `docs/data-retention-policy.md`. @Pipeline implements automated purge jobs. No indefinite retention without justification
+- Data retention: define retention period per data type in `docs/guides/data-retention-policy.md`. @Pipeline implements automated purge jobs. No indefinite retention without justification
 - Consent tracking: store consent grants with timestamp, scope, and version. Users must be able to view and revoke consent
 - @Shield audits data handling in security reviews. @Diana flags compliance requirements in BRDs. @Sage ensures architecture supports privacy requirements
-- Third-party data sharing: no PII sent to third-party services without @Shield review and @Zeyad approval. Document all third-party data flows in `docs/data-flow-map.md`
+- Third-party data sharing: no PII sent to third-party services without @Shield review and @Zeyad approval. Document all third-party data flows in `docs/guides/data-flow-map.md`
 
 ## Monitoring & Alerting Baselines
 
@@ -87,7 +87,7 @@
   - CPU/memory — alert at 80% sustained over 10 minutes
 - @Sentinel configures monitoring for all services. Alert routing: P0 → PagerDuty (immediate), P1 → Slack + PagerDuty (15 min), P2 → Slack (next business day)
 - Every new service deployment includes a monitoring verification step — @Sentinel confirms all dashboards and alerts are active before marking deployment complete
-- SLO definitions and alert configs stored in `docs/slo/{service-name}.md`
+- SLO definitions and alert configs stored in `docs/guides/slo/{service-name}.md`
 
 ## Incident Severity Definitions
 
@@ -101,12 +101,12 @@
 
 ## Technical Debt Tracking
 
-- When an agent discovers tech debt outside their current scope, file it to `docs/tech-debt/backlog.md` with: description, severity (high/medium/low), affected modules, estimated effort, and the discovering agent's name
+- When an agent discovers tech debt outside their current scope, file it to `docs/guides/tech-debt/backlog.md` with: description, severity (high/medium/low), affected modules, estimated effort, and the discovering agent's name
 - Tech debt categories: **Code quality** (duplication, poor naming, missing abstractions), **Testing gaps** (low coverage, missing edge cases), **Architecture** (tight coupling, scalability limits), **Dependencies** (outdated, vulnerable, unmaintained), **Documentation** (missing, stale)
 - @Atlas reviews the tech debt backlog weekly during replenishment and ensures 15-20% of WIP capacity goes to debt reduction
 - High-severity debt (security vulnerabilities, architectural blockers, reliability risks) is treated as P1 — pulled into the queue immediately
 - @Sage reviews architecture-level debt quarterly and proposes refactoring initiatives as RFCs
-- Completed debt items are moved to `docs/tech-debt/resolved.md` with the resolution date and approach taken
+- Completed debt items are moved to `docs/guides/tech-debt/resolved.md` with the resolution date and approach taken
 
 ## Security / Privacy Feature Classification
 
