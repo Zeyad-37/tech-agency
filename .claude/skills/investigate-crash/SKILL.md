@@ -91,7 +91,7 @@ After the post-mortem is written:
 
 Every "Prevention Action Points" row in the post-mortem MUST become a tracked task in `board-context.md`. For each action point:
 
-1. Add to `board-context.md` backlog with:
+1. Add to `docs/board/backlog.md` with:
    - **Owner**: The "Suggested Owner" from the post-mortem table (or @Atlas if unassigned)
    - **Priority**: Match the priority from the post-mortem (P0/P1/P2/P3)
    - **Due date**: P0 = 48 hours, P1 = 1 week, P2 = 2 weeks, P3 = next sprint
