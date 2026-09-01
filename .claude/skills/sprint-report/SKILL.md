@@ -19,7 +19,7 @@ Read these sources:
 
 1. **Board state** — Read board via board adapter (`read_all`). Count tasks per column.
 2. **Git log** — `git log --since="<start>" --until="<end>" --oneline --format="%h|%ai|%s"` to get all commits in the period.
-3. **Done column history** — Count tasks that moved to Done during the period. Extract story IDs from commit messages (`[STORY-ID]`).
+3. **Done history** — Read `docs/board/done-{YYYY}-Q{N}.md` for the quarter(s) the period spans and count tasks completed within it. Extract story IDs from commit messages (`[STORY-ID]`). A period crossing a quarter boundary reads both files.
 4. **Retro reports** — Check `docs/artifacts/retro/` for any retros run during the period.
 5. **Health reports** — Check `docs/artifacts/health-report/` for the most recent health check.
 6. **Post-mortems** — Check `docs/artifacts/post-mortem/INDEX.md` for any incidents during the period.

@@ -288,7 +288,7 @@ Every dependency upgrade must have a documented rollback:
 
 After merge:
 
-1. **Update board**: Mark the upgrade task as Done in `board-context.md`
+1. **Update board**: `board.move_task(task_id, "Review", "Done")` — archives the row to `docs/board/done-{YYYY}-Q{N}.md` and removes it from `board-context.md`
 2. **Monitor**: Watch error rates and crash-free rates for 24 hours post-deploy
 3. **Clean up**: If a major upgrade introduced deprecation warnings, create follow-up tasks for cleanup
 4. **Document**: For Kotlin version upgrades, update `docs/kotlin-upgrade-history.md` (create if missing) with the version, date, and any issues encountered

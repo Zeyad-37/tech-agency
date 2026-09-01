@@ -79,6 +79,8 @@ Only at the merge gate — checks green and merge approved, immediately before `
 board.move_task(task_id, "Review", "Done")
 board.update_task(task_id, { completed: "YYYY-MM-DD", artifact: "PR #{pr_number}" })
 ```
+On the markdown backend this touches **two** files: the row leaves `board-context.md` and is appended to `docs/board/done-{YYYY}-Q{N}.md` (created on the quarter's first completion). Stage both in the same commit — a Done row that lands without leaving the live board double-counts the task. See `@.claude/rules/shared/board-adapter.md`.
+
 Push right after committing (see Step 3), then let the pushed commit's required checks go green before merging — the board commit is a new head and re-triggers CI.
 
 **If that re-triggered run fails**, the Done commit is on the branch while the PR is still open — the exact state this design exists to prevent. Undo it:

@@ -55,9 +55,11 @@ Two branches editing `board-context.md` will conflict on the second merge. That 
 
 If the same task appears in different columns on the two sides, keep the entry that sits **further along the column sequence**: Backlog → Ready → In Progress → Review → Done. Blocked is outside that sequence and is never dropped by a resolution — if either side has the task Blocked, the resolved board keeps it Blocked until the blocker is cleared.
 
+The split introduced by `board-adapter.md` makes these conflicts rarer and easier. Completed work is appended to `docs/board/done-{YYYY}-Q{N}.md`, so two branches finishing tasks in the same quarter conflict on append-only lines rather than on a shared Done table — keep both rows. A `→ Done` transition touching both files still conflicts on `board-context.md` if the other side moved the same task; resolve with the sequence rule above, then check the quarter file has exactly one row for that task.
+
 ## What the Committed Board Records
 
-Because every transition merges with the change it describes, the board on `main` is an accurate record of **completed** work — the Done column, the decisions log, and the task inventory. It is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
+Because every transition merges with the change it describes, the archives on `main` are an accurate record of **completed** work — `docs/board/done-*.md`, the decisions log, and the task inventory. `board-context.md` is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
 
 Live state is therefore **derived**, not read: open PRs and their branches are the source of truth for what is In Progress, in Review, or Blocked (`gh pr list`, `git branch -r`, and each branch's own `board-context.md`).
 

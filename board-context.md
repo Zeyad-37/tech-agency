@@ -1,10 +1,8 @@
 # Kanban Board Context
 
-## Backlog
+Live columns only. Backlog, completed work, and the decisions log live in [`docs/board/`](docs/board/README.md) — see `@.claude/rules/shared/board-adapter.md`.
 
-| Task ID | Priority | Description | Requested By |
-|---------|----------|-------------|--------------|
-| — | — | — | — |
+Keep rows to one line. Review notes and walkthroughs belong in the linked artifact, not here.
 
 ## Ready
 
@@ -16,7 +14,7 @@
 
 | Task ID | Agent | Description | Started | Cycle Day |
 |---------|-------|-------------|---------|-----------|
-| — | — | — | — | — |
+| T-016 | @Claude | Epic: file organization — rules mirror, board split, doc taxonomy, single version source (integration branch `epic/T-016-file-organization`) | 2026-09-01 | 1 |
 
 ## Review
 
@@ -24,6 +22,8 @@
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
+| T-016.1 | @Claude | Rules mirror: generated `.claude/rules/` + `rules-local/`, `mirror.sh`, pre-push drift gate | @Zeyad | 2026-09-01 |
+| T-016.2 | @Claude | Board split: live columns in `board-context.md`, history in `docs/board/` | @Zeyad | 2026-09-01 |
 | T-016.3 | @Claude | One doc taxonomy: `docs/artifacts/{type}/`, closed type list, `by-type`/feature folders removed | @Zeyad | 2026-09-01 |
 
 ## Blocked
@@ -31,16 +31,3 @@
 | Task ID | Agent | Blocker | Waiting On | Blocked Since |
 |---------|-------|---------|------------|---------------|
 | — | — | — | — | — |
-
-## Done (recent)
-
-| Task ID | Agent | Description | Output | Completed |
-|---------|-------|-------------|--------|-----------|
-| T-015 | @Claude | Dynamic base-branch resolution for /dispatch, /dispatch-task, /create-pr (epic integration branches) + optional Copilot gate | PR #15 | 2026-08-26 |
-
-## Decisions Log
-
-| Date | Decision | Decided By | ADR Ref |
-|------|----------|------------|---------|
-| 2026-08-13 | Every board edit ships inside the PR carrying the change it describes — no board-only PRs, no board commits on `main`. `→ Done` is the final pre-merge commit on the PR branch. | @Zeyad | `.claude/rules/shared/board-in-pr.md` |
-| 2026-08-26 | Worktree base branches resolve dynamically: explicit `--base` → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `main`. Branch-off and PR-into are always the same branch. | @Zeyad | `.claude/rules/shared/worktree-first.md` § Base Branch Resolution |

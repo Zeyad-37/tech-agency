@@ -233,8 +233,10 @@ docs/
 │   └── release-record/  runbook/  tech-task/  retro/  replenishment/
 │                        #   sprint-report/  onboarding/
 ├── board/                # Board archives (see board-adapter.md)
-│   ├── README.md  backlog.md  decisions-log.md
-│   └── done-{YYYY}-Q{N}.md    # Created lazily on first completed task
+│   ├── README.md         # Index of quarter files
+│   ├── backlog.md
+│   ├── decisions-log.md
+│   └── done-{YYYY}-Q{N}.md   # Created lazily on first completed task
 ├── guides/               # Hand-maintained and long-lived: setup, references,
 │                         #   policies, and living registers (tech debt, SLOs,
 │                         #   performance budgets, data retention)
@@ -314,11 +316,22 @@ If CLAUDE.md was copied, update it to reflect the actual project:
 
 ### 6e. Board (if missing)
 
+The board is a live file plus three archives — see `@.claude/rules/shared/board-adapter.md`. `board-context.md` holds only the four live columns so that the file every agent reads at task start stays small.
+
 ```bash
 if [ ! -f "board-context.md" ]; then
     cp {project-template}/board-context.md ./board-context.md
     echo "Copied board-context.md"
 fi
+
+mkdir -p docs/board
+for f in backlog.md decisions-log.md README.md; do
+    if [ ! -f "docs/board/$f" ]; then
+        cp "{project-template}/docs/board/$f" "docs/board/$f"
+        echo "Copied docs/board/$f"
+    fi
+done
+# Quarter files (done-YYYY-QN.md) are created lazily by the first completed task.
 ```
 
 ### 6f. Reference Docs (if missing)
