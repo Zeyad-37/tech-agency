@@ -1,18 +1,44 @@
 name: Release on main
 
-# Creates a GitHub release for every push or PR-merge to `main`:
+# Creates a GitHub release for every push or PR-merge to `main`, keeping the
+# release tag and the *installed plugin version* in lockstep.
 #
-#   - If the current ./VERSION (semver-validated) has no release yet, a release
-#     is created for it directly, targeting the pushed commit.
-#   - If a release for the current VERSION already exists, the workflow bumps
-#     the patch segment of VERSION, commits and pushes the bump to `main` as
-#     github-actions[bot], and creates the release for the new version,
-#     targeting the bump commit.
+# Two files carry the version and they MUST agree:
+#
+#   - ./VERSION                            — drives the git tag (v{VERSION})
+#   - ./.claude/.claude-plugin/plugin.json — drives what `claude plugin update`
+#                                            sees, because the marketplace entry
+#                                            for tech-agency is `"source": "./.claude"`
+#                                            and carries no version of its own.
+#
+# Historically only VERSION was bumped, so installed users were pinned forever at
+# the manifest's stale version and `claude plugin update` reported "already up to
+# date". The parity gate below makes that class of drift a build failure, and the
+# bump step now writes both files.
+#
+# Flow:
+#   - Fail fast if VERSION and the plugin manifest disagree, or either is not semver.
+#   - If the current VERSION has no release yet, release it directly, targeting the
+#     pushed commit.
+#   - If a release for the current VERSION already exists, bump the patch segment of
+#     BOTH files, commit and push the bump to `main` as github-actions[bot], and
+#     create the release for the new version, targeting the bump commit.
 #   - Runs triggered by the bot's own bump push no-op (see the job-level `if`).
+#
+# Not in scope: marketing-agency/.claude-plugin/plugin.json. It is a separate plugin
+# with an independent version and lifecycle, and is deliberately never bumped here.
 #
 # This complements the client-side pre-commit hook (which bumps VERSION on
 # local commits to main but cannot fire on GitHub-side merges): whichever path
 # the commit arrives by, every merge to main produces exactly one release.
+#
+# COUPLING — hooks/pre-commit must bump BOTH files. Its auto-bump currently
+# writes ./VERSION only; a local commit on main therefore lands VERSION at N+1
+# with the plugin manifest still at N, and the parity gate below rejects that
+# push, blocking the release. Until hooks/pre-commit stages
+# .claude/.claude-plugin/plugin.json alongside VERSION, a local commit on main
+# must set both files by hand (the hook's "already staged" guard leaves a
+# manually staged VERSION untouched).
 #
 # Scope note: this auto-release applies to THIS meta/template repo only, where
 # "release" means snapshotting the agency configuration. It is intentionally
@@ -32,6 +58,9 @@ permissions:
 concurrency:
   group: release-on-main
   cancel-in-progress: false
+
+env:
+  PLUGIN_MANIFEST: .claude/.claude-plugin/plugin.json
 
 jobs:
   release:
@@ -60,6 +89,32 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify VERSION matches the plugin manifest
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # The tag comes from VERSION; what users actually install comes from the
+          # plugin manifest. If these two ever diverge, every release silently ships
+          # a version nobody receives. Fail the run instead.
+          if [ ! -f "$PLUGIN_MANIFEST" ]; then
+            echo "::error::Plugin manifest not found at ${PLUGIN_MANIFEST}"
+            exit 1
+          fi
+          if ! jq empty "$PLUGIN_MANIFEST" 2>/dev/null; then
+            echo "::error::${PLUGIN_MANIFEST} is not valid JSON"
+            exit 1
+          fi
+          MANIFEST_VERSION="$(jq -r '.version // ""' "$PLUGIN_MANIFEST")"
+          if ! echo "$MANIFEST_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::${PLUGIN_MANIFEST} does not contain a valid semver version (got: '${MANIFEST_VERSION}')"
+            exit 1
+          fi
+          if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+            echo "::error::Version drift: VERSION is '${VERSION}' but ${PLUGIN_MANIFEST} is '${MANIFEST_VERSION}'. These must match — the tag comes from VERSION, the installed plugin version comes from the manifest. Set both to the same value and push again."
+            exit 1
+          fi
+          echo "VERSION and ${PLUGIN_MANIFEST} agree: ${VERSION}"
 
       - name: Check whether a release exists for the current VERSION
         id: check
@@ -97,11 +152,26 @@ jobs:
           MINOR="${REST%%.*}"
           PATCH="${REST#*.}"
           NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          echo "${NEW_VERSION}" > VERSION
+
+          # Both files move together — see the parity gate above. The scratch file
+          # is written beside the manifest (not in $TMPDIR) so the rename is always
+          # same-filesystem and leaves nothing behind on failure.
+          printf '%s\n' "${NEW_VERSION}" > VERSION
+          jq --arg v "${NEW_VERSION}" '.version = $v' "$PLUGIN_MANIFEST" > "${PLUGIN_MANIFEST}.tmp"
+          mv "${PLUGIN_MANIFEST}.tmp" "$PLUGIN_MANIFEST"
+
+          # Re-assert parity after writing, so a jq/mv failure can never ship drift.
+          WROTE_VERSION="$(tr -d ' \t\r\n' < VERSION)"
+          WROTE_MANIFEST="$(jq -r '.version // ""' "$PLUGIN_MANIFEST")"
+          if [ "$WROTE_VERSION" != "${NEW_VERSION}" ] || [ "$WROTE_MANIFEST" != "${NEW_VERSION}" ]; then
+            echo "::error::Bump failed to write ${NEW_VERSION} to both files (VERSION='${WROTE_VERSION}', manifest='${WROTE_MANIFEST}')"
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "[TECH] @Claude: Auto-bump VERSION to ${NEW_VERSION} (release-on-main workflow)"
+          git add VERSION "$PLUGIN_MANIFEST"
+          git commit -m "[TECH] @Claude: Auto-bump version to ${NEW_VERSION} (release-on-main workflow)"
           git push origin HEAD:main
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
@@ -159,3 +229,20 @@ jobs:
             --generate-notes \
             --target "$TARGET"
           echo "Created release ${TAG} targeting ${TARGET}."
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          TARGET: ${{ steps.rel.outputs.target }}
+        run: |
+          {
+            echo "### Release on main"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Tag | \`${TAG:-n/a}\` |"
+            echo "| Target commit | \`${TARGET:-n/a}\` |"
+            echo "| VERSION | \`$(tr -d ' \t\r\n' < VERSION 2>/dev/null || echo 'n/a')\` |"
+            echo "| Plugin manifest version | \`$(jq -r '.version // "n/a"' "$PLUGIN_MANIFEST" 2>/dev/null || echo 'n/a')\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
