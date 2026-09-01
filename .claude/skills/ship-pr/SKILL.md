@@ -14,26 +14,60 @@ This skill takes a **ready branch** (code already implemented and committed, no 
 
 It is `/ship-it` minus the kickoff and implementation steps. Reach for `/ship-pr` when the work is already done on the branch and you just want it opened, reviewed, addressed, and (optionally) merged. If you still need to kick off and write the feature, use `/ship-it`. If a PR **already exists**, skip this and use `/review-and-address` directly.
 
-**`--auto-merge`:** pass it to `/ship-pr` and it is forwarded straight to `/review-and-address`, which merges the PR once all quality gates are green. Without the flag, the run stops at `/review-and-address`'s merge gate for a human decision.
+**`--auto-merge`:** pass it to `/ship-pr` and it is forwarded straight to `/review-and-address`, which merges the PR once all quality gates are green. Without the flag, the run stops at `/review-and-address`'s merge gate for a human decision. The flag is autonomy over the *gates*, not over the *trust boundary*: `/address-feedback` disables it automatically if the feedback set includes untrusted input (issue-level comments, non-write-access authors, or text flagged as a possible injection), and the run then takes the manual gate. Forwarding the flag is not a guarantee of an unattended merge.
 
-**Push authorization:** per `shared-standards.md`, never push without explicit user approval. `/ship-pr` collects that approval once, at the PR-open gate (Step 2), before invoking `/create-pr` (which auto-pushes).
+**`--base <branch>`:** forwarded to `/create-pr`, which resolves and validates it (Pre-flight 0). Pass it when the PR should target an epic integration branch rather than the repo default.
+
+**Push authorization:** per `@.claude/rules/shared/shared-standards.md`, **invoking `/create-pr` or `/ship-pr` IS the push authorization for that branch.** Outside those skills, never run a bare `git push`, and never push to `main`. `/ship-pr` collects the human checkpoint **once**, at the PR-open gate (Step 2); passing it authorizes the push, and `/create-pr` then runs on its default auto-push path without asking again.
 
 ## Step 1: Parse Arguments and Preflight
 
-Note whether the user passed **`--auto-merge`** — it is not consumed here, only carried through to `/review-and-address` in Step 3.
+Note whether the user passed **`--auto-merge`** — it is not consumed here, only carried through to `/review-and-address` in Step 3. Note any **`--base <branch>`** too: it is not resolved here (that is `/create-pr`'s Pre-flight 0), but it must be forwarded in Step 2 and it changes what "commits to ship" means in guard 2.
 
 Then confirm the branch is actually in the right shape for this skill:
 
 ```bash
+# Parse the flags this skill forwards. --auto-merge is carried to Step 3;
+# --base is carried to Step 2 and decides which range guard 2 counts.
+BASE_FLAG=""
+AUTO_MERGE="no"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)
+      # Check $# BEFORE `shift 2` — a bare trailing `--base` otherwise makes
+      # `shift 2` fail without shifting, and the loop never terminates.
+      [ $# -ge 2 ] && [ -n "$2" ] || { echo "❌ --base requires a branch name."; exit 1; }
+      BASE_FLAG="$2"; shift 2 ;;
+    --base=*)
+      BASE_FLAG="${1#--base=}"
+      [ -n "$BASE_FLAG" ] || { echo "❌ --base= requires a branch name."; exit 1; }
+      shift ;;
+    --auto-merge) AUTO_MERGE="yes"; shift ;;
+    *)            shift ;;
+  esac
+done
+
 BRANCH=$(git branch --show-current)
 DEFAULT=$(git remote show origin | sed -n 's/.*HEAD branch: //p')
+[ -n "$DEFAULT" ] || DEFAULT=main
 
-# Guard 1: not on the default branch.
-[ "$BRANCH" = "$DEFAULT" ] && { echo "On $DEFAULT — create a feature branch first."; exit 1; }
+# The branch this PR would target: an explicit --base wins, else the repo default.
+# /create-pr re-resolves this authoritatively (including the epic gate); here it
+# only decides which range guard 2 counts.
+TARGET="${BASE_FLAG:-$DEFAULT}"
+git fetch origin "$TARGET"
+
+# Guard 1: not on the target branch.
+[ "$BRANCH" = "$TARGET" ] && { echo "On $TARGET — create a feature branch first."; exit 1; }
 
 # Guard 2: there are commits to ship.
-AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
-[ "$AHEAD" -eq 0 ] && { echo "⚠️  No commits ahead of $DEFAULT — nothing to open a PR for."; exit 1; }
+# TWO dots. `rev-list A..B` counts commits reachable from B but not A — i.e.
+# exactly this branch's commits since the merge base, which is what we want.
+# THREE dots would be the *symmetric difference* and would add every commit the
+# base has moved by, reporting "7 commits to ship" for a 2-commit branch.
+# (The three-dot = merge-base shorthand holds for `git diff`, NOT for rev-walks.)
+AHEAD=$(git rev-list --count "origin/$TARGET..HEAD" 2>/dev/null || echo 0)
+[ "$AHEAD" -eq 0 ] && { echo "⚠️  No commits ahead of $TARGET — nothing to open a PR for."; exit 1; }
 
 # Guard 3: no PR exists yet for this branch.
 EXISTING=$(gh pr view "$BRANCH" --json number,url --jq '.number' 2>/dev/null)
@@ -46,20 +80,22 @@ EXISTING=$(gh pr view "$BRANCH" --json number,url --jq '.number' 2>/dev/null)
 Confirm in one line:
 
 ```
-Ship PR → branch {branch} ({AHEAD} commits)  |  Auto-merge: ON/OFF
+Ship PR → branch {branch} ({AHEAD} commits) → {TARGET}  |  Auto-merge: ON/OFF
 ```
 
 ## Step 2: Open the PR (`/create-pr`)
 
-**Push gate (human checkpoint):** per `shared-standards.md`, never push without explicit user approval. Present a one-line summary and wait for "push it" / "go ahead":
+**Push gate (the single human checkpoint):** present a one-line summary and wait for "push it" / "go ahead":
 
 ```
 Ready to open PR for {task-id} — {AHEAD} commits on {branch}. Push and open the PR? (y/n)
 ```
 
-On approval, invoke **`/create-pr`** (the default auto-push path — do **not** pass `--no-push`). That single call owns everything PR-open:
+This is the only approval collected on this route. Once given, invoking `/create-pr` **is** the push authorization — it does not re-prompt, and `/ship-pr` must not add a second gate before it.
 
-- resolves the PR base (its Pre-flight 0: `--base` flag → auto-detected epic integration branch → `main`) and rebases onto it if behind,
+On approval, invoke **`/create-pr`** on the default auto-push path — do **not** pass `--no-push`. (`--no-push` is a human-only escape hatch with no downstream consumer; taking it here would strand the run with a prepared-but-unpushed PR and nothing to complete it.) Forward `--base` if the user gave one. That single call owns everything PR-open:
+
+- parses its flags (Pre-flight −1) and resolves the PR base (Pre-flight 0: `--base` flag → auto-detected epic integration branch, **which stops and asks before being used** → repo default branch) and rebases onto it if behind,
 - captures before/after screenshots for any UI changes,
 - runs the pre-push verification gate (iOS compile / host tests / screenshot-test compile),
 - pushes the branch and runs `gh pr create` with the standard template,

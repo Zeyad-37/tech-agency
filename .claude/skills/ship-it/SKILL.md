@@ -18,7 +18,7 @@ The back half — open PR, review, address, merge — is entirely `/ship-pr`. So
 
 **`--auto-merge`:** pass it to `/ship-it` and it is forwarded straight to `/ship-pr` (and on to `/review-and-address`), which merges the PR once all quality gates are green. Without the flag, the run stops at the merge gate for a human decision.
 
-**Push authorization:** per `shared-standards.md`, never push without explicit user approval. The approval gate lives in `/ship-pr` (before `/create-pr` auto-pushes) — ship-it does not push anything itself.
+**Push authorization:** per `@.claude/rules/shared/shared-standards.md`, **invoking `/create-pr` or `/ship-pr` IS the push authorization for that branch.** Outside those skills, never run a bare `git push`, and never push to `main`. `/ship-it` itself pushes nothing: the single human checkpoint for going public lives in `/ship-pr` Step 2, which then invokes `/create-pr` on its default auto-push path. So there is exactly one gate on this route, and passing it authorizes the push — `/create-pr` does not ask again, and asking again would contradict it.
 
 ## Step 1: Determine Work Type
 
@@ -63,7 +63,7 @@ The branch now has the implemented work committed and the board updated, but no 
 
 Invoke **`/ship-pr`**, forwarding `--auto-merge` if the user passed it to `/ship-it`. `/ship-pr` owns the entire open → review → address → merge tail, and ship-it re-implements none of it:
 
-- collects the **push-approval gate** (per `shared-standards.md`, never push without explicit user approval),
+- collects the **single push-approval checkpoint** (Step 2), after which invoking `/create-pr` is itself the push authorization,
 - runs `/create-pr` (rebase, screenshots, verification gate, push, `gh pr create`, **Copilot request**, worktree sweep),
 - runs `/review-and-address` (`/code-review` → background Copilot wait → `/address-feedback`),
 - merges under `--auto-merge` once all gates are green, or stops at the merge gate otherwise.
