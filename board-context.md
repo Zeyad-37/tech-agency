@@ -16,19 +16,7 @@
 
 | Task ID | Agent | Description | Started | Cycle Day |
 |---------|-------|-------------|---------|-----------|
-| T-018 | @Claude | **Epic** — Plugin audit remediation (159 verified findings; 9 P0, 13 P1). Integration branch `epic/T-018-plugin-audit-remediation`, 7 story PRs. See `docs/rfc/T-018-RFC-Plugin Audit Remediation.md` | 2026-09-01 | 1 |
-
-### T-018 stories (merge into the integration branch, not `main`)
-
-| Task ID | Branch | Scope | Status |
-|---------|--------|-------|--------|
-| T-019 | `T-019/release-integrity` | Version single-source-of-truth, release CI bumps the governing manifest, new validation CI, root LICENSE, gitignore `settings.local.json` | In Progress |
-| T-020 | `T-020/hook-gates` | Secret scan reads staged content with correct patterns; force-unwrap gates use ERE; grep exit-code handling; widened `commit-msg` regex; `pre-push` reads stdin refspecs; worktree-aware installer; valid `hooks.json` schema | In Progress |
-| T-021 | `T-021/agent-definitions` | `Write, Edit` for the five authoring agents; delete non-canonical `agentModelRouting`; repair rule references; on-demand-standards instruction | In Progress |
-| T-022 | `T-022/standards-corrections` | ~35 fixes to the 8 coding standards and 6 reference docs — `SecureStorage` Keychain, unauthenticated Ktor `post`, ~15 non-compiling samples, MVI/T-013 self-contradictions | In Progress |
-| T-023 | `T-023/shared-rules-and-docs` | New `rules-delivery.md`; settle push policy; honest sandbox claim; error-envelope shape; README counts + "what ships vs. what you bootstrap"; rewrite setup/migration guides | In Progress |
-| T-024 | `T-024/ship-path-skills` | Untrusted-input boundary for `/address-feedback`; guard the `capture-screenshots` stash; parse `--base`; point `code-review` at the real PR base and canonical doc paths | In Progress |
-| T-025 | `T-025/planning-board-skills` | Bind `/setup-repo`'s placeholder + split delivery + sandbox rewrite; worktrees instead of `git checkout -b` in 6 skills; board-adapter compliance; unify post-mortem paths and board schema | In Progress |
+| — | — | — | — | — |
 
 ## Review
 
@@ -36,6 +24,7 @@
 |---------|-------|-------------|----------|---------------|
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
+| T-018 | @Claude | **Epic** — Plugin audit remediation (159 verified findings; 9 P0, 13 P1). All 7 stories merged into `epic/T-018-plugin-audit-remediation`; validation CI green 8/8 on the assembled branch. See `docs/rfc/T-018-RFC-Plugin Audit Remediation.md` | @Zeyad | 2026-09-01 |
 
 ## Blocked
 
@@ -47,6 +36,13 @@
 
 | Task ID | Agent | Description | Output | Completed |
 |---------|-------|-------------|--------|-----------|
+| T-025 | @Claude | `/setup-repo` placeholder + split delivery + sandbox rewrite; worktrees instead of `git checkout -b` in 6 skills; board-adapter compliance; unified post-mortem paths and board schema | PR #31 | 2026-09-01 |
+| T-024 | @Claude | Untrusted-input boundary for `/address-feedback`; guarded the `capture-screenshots` stash; `--base` actually parsed; `code-review` uses the real PR base | PR #30 | 2026-09-01 |
+| T-023 | @Claude | New `rules-delivery.md`; push policy settled; honest sandbox claim; error-envelope shape; README counts + "what ships vs. what you bootstrap"; setup/migration guides rewritten | PR #29 | 2026-09-01 |
+| T-022 | @Claude | ~35 fixes to the 8 coding standards and 6 reference docs — `SecureStorage` Keychain, authenticated Ktor `post`, ~15 non-compiling samples, MVI/T-013 contradictions | PR #28 | 2026-09-01 |
+| T-021 | @Claude | `Write, Edit` for the five authoring agents; `agentModelRouting` removed; on-demand-standards instruction added to every engineering agent | PR #27 | 2026-09-01 |
+| T-020 | @Claude | Enforcement gates repaired — secret scan, force-unwrap gates, `commit-msg` regex, `pre-push` refspecs, worktree-aware installer, valid `hooks.json` | PR #26 | 2026-09-01 |
+| T-019 | @Claude | Version single-source-of-truth, release CI bumps the governing manifest, new validation CI, root LICENSE | PR #25 | 2026-09-01 |
 | T-015 | @Claude | Dynamic base-branch resolution for /dispatch, /dispatch-task, /create-pr (epic integration branches) + optional Copilot gate | PR #15 | 2026-08-26 |
 
 ## Decisions Log
