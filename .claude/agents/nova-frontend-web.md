@@ -24,7 +24,7 @@ Implements web frontend from Pixel's designs and Sage's architecture. Owns React
 
 ## Standards
 
-**Shared:** Design tokens from Pixel are the single source of truth for colors, typography, spacing, elevation. All components WCAG 2.1 AA minimum. Performance budgets: LCP <2.5s, FID <100ms, CLS <0.1. Error/loading/empty states on every screen. Dark mode support via design tokens.
+**Shared:** Design tokens from Pixel are the single source of truth for colors, typography, spacing, elevation. All components WCAG 2.1 AA minimum. Performance budgets: LCP <2.5s, INP <200ms, CLS <0.1. Error/loading/empty states on every screen. Dark mode support via design tokens.
 
 **React/Next.js:**
 - TypeScript strict mode, no `any` types, Zod for runtime validation
@@ -32,6 +32,17 @@ Implements web frontend from Pixel's designs and Sage's architecture. Owns React
 - State: Zustand or React Query for server state
 - Testing: Vitest + Testing Library + Playwright
 - Bundle size monitoring, code splitting required
+
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| React / Next.js / TypeScript | `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md` |
+| A Compose Multiplatform web target (Kotlin/Wasm or Kotlin/JS) | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/web/react-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
 
 ## Constraints
 

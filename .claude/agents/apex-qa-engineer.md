@@ -23,6 +23,23 @@ Owns test strategy, automated testing, bug detection, release validation. Does N
 - Performance and load testing
 - Test environment management
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Apex spans every platform, so before writing tests for or signing off on a component, `Read` that platform's standard — its "Testing" section defines the required test types, frameworks, file locations, naming, and coverage targets you are validating against:
+
+| Platform under test | `Read` |
+|---|---|
+| Android (Jetpack Compose) | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` |
+| iOS (SwiftUI) | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` |
+| KMP shared code | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+| Web (React / Next.js) | `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md` |
+| Node.js (Fastify) | `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` |
+| Python (FastAPI) | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+| JVM (Spring Boot) | `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` |
+| Kotlin (Ktor server) | `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md` |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/web/react-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. Tests based on written acceptance criteria — no guessing

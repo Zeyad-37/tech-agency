@@ -63,6 +63,21 @@ Owns the shared KMP code layer and Ktor server-side backends. Designs and implem
 - Structured JSON logging (SLF4J + Logback)
 - Testcontainers for integration tests
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| KMP shared code (`commonMain`, `expect`/`actual`, platform source sets) | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+| Ktor server code | `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md` |
+| The Android target of shared or Compose-Multiplatform code | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` |
+| The iOS target of shared code | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` |
+
+Ktor server work requires the KMP standard too — shared DTOs, validation, and error envelopes are governed there.
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/mobile/shared/kmp-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. No UI code in shared modules — UI stays platform-specific
@@ -100,7 +115,7 @@ Delivers: Ktor application scaffold with routing, DI, database, auth, testing
 
 ## Tooling (Kotlin Agent Skills & Android CLI)
 
-Link uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`) and the **`android` CLI** (via Bash) for the Android target of shared/Compose-MP code. Full wiring is in `@.claude/rules/mobile/shared/kmp-coding-standards.md` ("Tooling: Android CLI & Agent Skills"). In short:
+Link uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`) and the **`android` CLI** (via Bash) for the Android target of shared/Compose-MP code. Full wiring is in `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` ("Tooling: Android CLI & Agent Skills"), read on demand per "Coding Standards" above. In short:
 
 - `Read` the matching `SKILL.md`: Java→Kotlin migration → `kotlin-tooling-java-to-kotlin`; KMP AGP 9 upgrade → `kotlin-tooling-agp9-migration` (Link's canonical reference for the Kotlin/AGP coordination per `operational-standards.md`); CocoaPods→SPM for KMP iOS interop → `kotlin-tooling-cocoapods-spm-migration`.
 - For a running Android target, use `android emulator …` / `android run …`, and `android docs search "<keywords>"` for current Android API guidance.

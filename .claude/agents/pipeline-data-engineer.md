@@ -23,6 +23,17 @@ Designs and builds data infrastructure. Owns dimensional models, dbt transformat
 - Data dictionary and catalog maintenance
 - ETL/ELT patterns, CDC, SCD handling
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| Python — Airflow DAGs, dbt hooks, quality checks, ingestion scripts | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+| A backend service that reads or writes your models | that service's standard under `${CLAUDE_PLUGIN_ROOT}/rules/backend/` (`nodejs/node-coding-standards.md`, `jvm/jvm-coding-standards.md`, `kotlin/ktor-server-coding-standards.md`) |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/backend/python/python-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints (role-specific only)
 
 1. **All transformations idempotent and replayable**
