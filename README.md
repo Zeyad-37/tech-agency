@@ -2,9 +2,9 @@
 
 **AI-powered multi-agent development team for fullstack product delivery.**
 
-Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 27 slash commands, and 15 coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
+Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 48 skills (34 first-party workflows + 14 vendored Google/JetBrains skills), and 8 language coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
 
-**Version:** 1.0.0 | **Author:** Zeyad Gasser
+**Author:** Zeyad Gasser
 
 ---
 
@@ -13,6 +13,68 @@ Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 27 s
 Tech Agency simulates a complete engineering organization inside Claude Code. Each agent has a defined role, coding standards to follow, and handoff protocols for collaborating with other agents. Work is tracked on a Kanban board (`board-context.md`), and agents communicate through structured handoff templates.
 
 The system is designed around Kotlin Multiplatform (KMP) projects but supports the full stack: Android (Compose), iOS (SwiftUI), Web (React/Next.js), and multiple backend frameworks (Ktor, Spring Boot, Fastify, FastAPI).
+
+This repo also publishes a second plugin from the same marketplace — see [Sibling plugin: marketing-agency](#sibling-plugin-marketing-agency).
+
+---
+
+## What Ships vs. What You Bootstrap
+
+This is the single most important thing to understand before installing. **Installing the plugin is only half the setup.**
+
+| Component | Ships with the plugin? | How you get it |
+|---|---|---|
+| 19 agent definitions | **Yes** | Available immediately after install |
+| 48 skills (slash commands) | **Yes** | Available immediately after install |
+| 8 language coding standards | **Yes**, but **read on demand** | Stay in the plugin; an agent reads the one matching its task's stack. Never auto-loaded — see [Rules delivery](#rules-delivery) |
+| 11 shared policy rules | Ship in the plugin, but must be **copied into your project** | `/setup-repo` copies them to your `.claude/rules/shared/`, where they auto-load every session |
+| `board-context.md` Kanban board | **No** | `/setup-repo` creates it from a template |
+| Git hooks (`hooks/`) | **No** | `/setup-repo` writes them into your repo; you then run `./hooks/install-hooks.sh` once to symlink them into `.git/hooks/` |
+| `.claude/settings.json` (sandbox, permissions, board backend, model routing) | **No** | `/setup-repo` writes it into your project. The plugin's own `settings.json` does **not** configure your sandbox — Claude Code reads only a narrow set of keys from a plugin's settings file |
+| `docs/` scaffolding (`docs/prd/`, `docs/adr/`, `docs/post-mortem/`, …) | **No** | Created on demand by `/setup-repo` and by the agents that file artifacts |
+
+> **`/setup-repo` is a required post-install step, not an optional one.** Until you run it, your project has agents and skills but no board, no git hooks, no sandbox, and none of the shared policy rules in context. Agents will reference rules your session has never loaded.
+
+Run it once per project, from the project root:
+
+```
+/setup-repo
+```
+
+### Rules delivery
+
+Rules reach you by two different mechanisms, and the distinction matters:
+
+- **Shared policy rules (11 files)** — copied into your project's `.claude/rules/shared/` by `/setup-repo`, then auto-loaded every session. These govern process, not code: worktrees, the board, handoffs, push policy, quality gates, hooks.
+- **Language coding standards (8 files)** — stay in the plugin and are **read on demand** by the agent whose task is in that language. This is deliberate: loading all eight every session cost ~79k tokens regardless of stack, so an Android-only repo was paying for the React and FastAPI standards on every turn. The split cuts always-on rule context to roughly 14k.
+
+The consequence: **an agent must read its stack's coding standard before writing code in that stack.** It is an action, not an ambient fact. The full model — reference forms, the `${CLAUDE_PLUGIN_ROOT}` resolution snippet, and the per-standard owner table — is in [`.claude/rules/shared/rules-delivery.md`](.claude/rules/shared/rules-delivery.md).
+
+---
+
+## Two Constraints That Surprise People
+
+These are the two rules agents enforce most aggressively. If you install the plugin and are confused by an agent's behavior, it is almost certainly one of these.
+
+### 1. Worktree-first — agents refuse to work in the main checkout
+
+**Every task runs in its own git worktree. No exceptions.** The main checkout is an orchestration root only: it holds the canonical `.git` directory and parents the worktrees. Nothing else happens there.
+
+Before its first file write, an agent creates a worktree at `../{repo}-worktrees/{branch-slug}/`, `cd`s into it, and verifies `pwd` + `git branch --show-current`. If you ask an agent to edit a file while standing in the main checkout, it will create a worktree first — that is correct behavior, not confusion.
+
+Why: multiple Claude Code sessions can run in parallel on the same repo with no native way to discover each other. Requiring a worktree from the first action is the entire arbitration mechanism — no lock files, no busy-checks, no shared in-flight state.
+
+Cleanup is automatic: every `/create-pr` run sweeps all worktrees and removes any whose PR has already merged.
+
+The three narrow exceptions (read-only Q&A, initial `/setup-repo`, and the cleanup sweep itself) and the full protocol are in [`.claude/rules/shared/worktree-first.md`](.claude/rules/shared/worktree-first.md).
+
+### 2. Board-in-PR — board updates ship inside the PR that carries the change
+
+**There is no board-only PR, and no board commit on `main`.** A `board-context.md` edit is committed on the branch carrying the change it describes and merges in that change's PR. `→ Done` is written as the *final pre-merge commit* on the PR branch — not after the merge.
+
+A direct consequence you should expect: **a checkout of `main` shows a stale or empty "In Progress" column.** In-flight transitions live on unmerged branches. The merged board is an accurate record of *completed* work; live state is derived from open PRs (`gh pr list`), not read from the file.
+
+Full policy — where each transition commits, the `→ Done` sequencing at the merge gate, and conflict resolution — is in [`.claude/rules/shared/board-in-pr.md`](.claude/rules/shared/board-in-pr.md).
 
 ---
 
@@ -57,66 +119,144 @@ The system is designed around Kotlin Multiplatform (KMP) projects but supports t
 | **Neuron** | AI/ML Engineer | Model cards, ML pipeline design, prompt engineering, RAG design |
 | **Pipeline** | Data Engineer | Data model design, dbt models, pipeline design |
 
+**Total: 19 agents.**
+
 ---
 
-## Slash Commands
+## Skills
+
+48 skills ship with the plugin, all invoked as slash commands. 34 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
+
+### First-party workflows (34)
+
+#### Planning & requirements
+
+| Command | Description |
+|---------|-------------|
+| `/new-product` | Kick off a brand new product from scratch (PRD → BRD → ADR → board) |
+| `/new-feature` | Add a feature to an existing product (BRD or ADR depending on scope) |
+| `/write-prd` | Dispatch Morgan to write a standalone PRD — no chain into BRD/ADR/board |
+| `/tech-task` | Start a technical/infrastructure task that isn't a product feature |
+| `/rfc` | Write a Request for Comments for a large feature or technical change |
+
+#### Board & flow
 
 | Command | Description |
 |---------|-------------|
 | `/kick-off` | Start the day — runs daily sync, replenishes board, picks up next task |
 | `/daily-sync` | Aggregate status from all agents, flag blockers and WIP violations |
-| `/new-product` | Kick off a brand new product from scratch (PRD → BRD → ADR → board) |
-| `/new-feature` | Add a feature to an existing product (BRD or ADR depending on scope) |
-| `/tech-task` | Start a technical/infrastructure task that isn't a product feature |
-| `/rfc` | Write a Request for Comments for a large feature or technical change |
 | `/pick-up-task` | Pick the next available task from the Kanban board |
 | `/update-board` | Move a task between board columns (In Progress, Blocked, Review, Done) |
 | `/replenish` | Review backlog, prioritize items, move them to Ready |
+| `/sprint-report` | Generate a sprint report with metrics and trends |
+| `/retro` | Run a retrospective analyzing cycle times, throughput, and blockers |
+
+#### Parallel execution
+
+| Command | Description |
+|---------|-------------|
 | `/dispatch` | Dispatch a task to an agent in an isolated git worktree for parallel execution |
 | `/dispatch-task` | Plan (tech-task / new-feature / bug / crash chain) then dispatch the implementation in parallel |
-| `/code-review` | Perform a structured code review on a PR or branch |
-| `/create-pr` | Create a pull request with standardized format |
+
+#### Ship a change
+
+| Command | Description |
+|---------|-------------|
 | `/ship-it` | End-to-end delivery: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag |
 | `/ship-pr` | Ready branch → open PR → `/review-and-address` → merge; `--auto-merge` flag |
+| `/create-pr` | Create a pull request with standardized format. Auto-pushes by default; `--no-push` stops at the pre-push gate |
+| `/code-review` | Perform a structured code review on a PR or branch, in a fresh-context subagent |
 | `/review-and-address` | Existing PR → `/code-review` (post verdict) → `/address-feedback`; `--auto-merge` flag |
 | `/address-feedback` | Resolve all PR comments + failing checks; `--auto-merge` flag to merge once green |
+| `/capture-screenshots` | Capture before/after screenshots for UI changes (Paparazzi / swift-snapshot-testing / Playwright) |
+| `/lint-changed` | Run detekt per-changed-file via SARIF diff — reports only violations the branch introduced |
+
+#### Diagnose & respond
+
+| Command | Description |
+|---------|-------------|
 | `/investigate-bug` | Investigate a functional bug with root cause analysis |
 | `/investigate-crash` | Investigate a Crashlytics crash spike and identify the culprit commit |
+| `/postmortem` | Write a 5-Whys post-mortem tracing both how the issue was introduced and how it escaped each gate |
 | `/hotfix` | Trigger the hotfix process for a critical production bug |
-| `/dependency-upgrade` | Evaluate and upgrade project dependencies |
 | `/health-check` | Run a project health audit (coverage, lint, vulnerabilities, docs) |
-| `/release` | Execute the full release checklist across all agents |
-| `/retro` | Run a retrospective analyzing cycle times, throughput, and blockers |
-| `/sprint-report` | Generate a sprint report with metrics and trends |
+
+#### Maintain the system
+
+| Command | Description |
+|---------|-------------|
+| `/setup-repo` | Set up a repository with Tech Agency configuration — **required after install** |
 | `/onboard-agent` | Rapidly onboard an agent onto an existing feature or codebase area |
-| `/setup-repo` | Set up a repository with Tech Agency configuration |
+| `/dependency-upgrade` | Evaluate and upgrade project dependencies |
+| `/extract-library` | Extract a module into a standalone published KMP library (Maven Central, consumer swap, composite-build dev flow) |
+| `/sync-rule` | Mirror edits in `.claude/rules/` between a consumer project and this canonical repo, so the two don't drift |
+| `/release` | Execute the full release checklist across all agents |
 | `/audit-memory` | Audit Claude Code's auto-memory store for stale or duplicate entries (run every ~30 days) |
-| `/postmortem` | Generate a post-mortem document for an incident |
-| `/capture-screenshots` | Capture screenshots for documentation or review |
+
+### Vendored skills (14)
+
+Copied (not submoduled) into `.claude/skills/`, version-pinned to an upstream commit. Both sets are Apache-2.0; provenance, commit pins, and attribution are recorded in [`.claude/skills/VENDORED-SKILLS.md`](.claude/skills/VENDORED-SKILLS.md).
+
+**From [github.com/android/skills](https://github.com/android/skills) — Google LLC (10):**
+
+| Skill | Use it for |
+|---|---|
+| `/android-cli` | Driving the `android` CLI — emulators, deploys, SDK management, docs search |
+| `/android-compose-theming` | Compose Styles API, design-system theming, `Modifier.styleable` |
+| `/android-compose-adaptive` | Adaptive/responsive UI across phones, tablets, foldables, TV, XR |
+| `/android-xml-to-compose` | Migrating a legacy XML View to Compose |
+| `/android-navigation-3` | Navigation 3 — deep links, multi-backstack, scenes |
+| `/android-edge-to-edge` | Edge-to-edge migration, system-bar and IME inset bugs |
+| `/android-testing-setup` | Standing up Android test infrastructure and harnesses |
+| `/android-r8-analyzer` | Auditing R8 keep rules, app-size optimization |
+| `/android-perfetto-trace-analysis` | Root-causing jank, latency, and memory from a Perfetto trace |
+| `/android-perfetto-sql` | Translating a data question into Perfetto SQL against a trace |
+
+**From [github.com/Kotlin/kotlin-agent-skills](https://github.com/Kotlin/kotlin-agent-skills) — JetBrains (4):**
+
+| Skill | Use it for |
+|---|---|
+| `/kotlin-backend-jpa-entity-mapping` | JPA/Hibernate entity design, N+1 and `LazyInitializationException` diagnosis |
+| `/kotlin-tooling-java-to-kotlin` | Framework-aware Java → idiomatic Kotlin conversion |
+| `/kotlin-tooling-agp9-migration` | AGP 9.0+ upgrades and KMP + AGP incompatibilities |
+| `/kotlin-tooling-cocoapods-spm-migration` | Migrating KMP iOS interop from CocoaPods to Swift Package Manager |
 
 ---
 
-## Coding Standards & Rules
+## Rules
 
-Tech Agency includes 15 coding standards files that agents follow when writing code. These live in `.claude/rules/` and are automatically loaded as project instructions.
+19 rule files ship with the plugin, in two sets with two different delivery mechanisms. See [Rules delivery](#rules-delivery) above, and [`.claude/rules/shared/rules-delivery.md`](.claude/rules/shared/rules-delivery.md) for the authoritative model.
 
-| Standard | Scope |
-|----------|-------|
-| `shared-standards.md` | Communication protocol, quality gates, git policy, security/observability/testing baselines |
-| `kmp-coding-standards.md` | KMP shared code — Clean Architecture, MVI pattern, Konsist enforcement, expect/actual |
-| `compose-coding-standards.md` | Android/Jetpack Compose — Hilt DI, Retrofit, Navigation, Material 3 |
-| `swiftui-coding-standards.md` | iOS/SwiftUI — MVVM, async/await, NavigationStack, accessibility |
-| `react-coding-standards.md` | React/Next.js — App Router, React Query, Zustand, Tailwind, Playwright |
-| `node-coding-standards.md` | Node.js/Fastify — Prisma, BullMQ, Zod validation, Pino logging |
-| `python-coding-standards.md` | Python/FastAPI — SQLAlchemy 2.0, Pydantic v2, Celery, structlog |
-| `jvm-coding-standards.md` | Spring Boot/JVM — JPA, Flyway, Resilience4j, Testcontainers |
-| `ktor-server-coding-standards.md` | Ktor Server — Exposed ORM, Koin DI, shared client-server KMP types |
-| `operational-standards.md` | API versioning, feature flags, DB change safety, SLOs, incident severity |
-| `handoff-protocol.md` | 19 handoff templates for structured agent-to-agent communication |
-| `agent-preamble.md` | Steps every agent must perform at the start and end of any task |
-| `board-adapter.md` | Platform-agnostic board operations (markdown, Jira, Linear, Asana) |
-| `git-hooks.md` | Commit message format, pre-commit checks, pre-push checks |
-| `crash-investigation.md` | Crashlytics crash spike investigation and post-mortem protocol |
+### Shared policy rules (11) — copied into your project, auto-loaded every session
+
+| Rule | Scope |
+|------|-------|
+| [`shared/rules-delivery.md`](.claude/rules/shared/rules-delivery.md) | Which rules live where, how to reference each, and the on-demand read obligation |
+| [`shared/agent-preamble.md`](.claude/rules/shared/agent-preamble.md) | Steps every agent must perform at the start and end of any task |
+| [`shared/worktree-first.md`](.claude/rules/shared/worktree-first.md) | Every task runs in its own git worktree; branch naming; base-branch resolution |
+| [`shared/board-in-pr.md`](.claude/rules/shared/board-in-pr.md) | Board edits ship inside the PR carrying the change they describe |
+| [`shared/board-adapter.md`](.claude/rules/shared/board-adapter.md) | Platform-agnostic board operations (markdown, Jira, Linear, Asana) |
+| [`shared/shared-standards.md`](.claude/rules/shared/shared-standards.md) | Communication, quality gates, git + push policy, security/observability/testing baselines, Kanban protocol |
+| [`shared/operational-standards.md`](.claude/rules/shared/operational-standards.md) | API versioning, feature flags, DB change safety, SLOs, incident severity, privacy |
+| [`shared/handoff-protocol.md`](.claude/rules/shared/handoff-protocol.md) | 19 handoff templates for structured agent-to-agent communication |
+| [`shared/crash-investigation.md`](.claude/rules/shared/crash-investigation.md) | Crash spike investigation and post-mortem protocol |
+| [`shared/git-hooks.md`](.claude/rules/shared/git-hooks.md) | Commit message format, pre-commit checks, pre-push checks |
+| [`shared/kotlin-agent-skills.md`](.claude/rules/shared/kotlin-agent-skills.md) | When to route a Kotlin task through a JetBrains Kotlin Agent Skill |
+
+### Language coding standards (8) — stay in the plugin, read on demand
+
+| Standard | Owner | Scope |
+|----------|-------|-------|
+| [`mobile/shared/kmp-coding-standards.md`](.claude/rules/mobile/shared/kmp-coding-standards.md) | Link | KMP shared code — Clean Architecture, MVI pattern, Konsist enforcement, expect/actual |
+| [`mobile/android/compose-coding-standards.md`](.claude/rules/mobile/android/compose-coding-standards.md) | Kai | Android/Jetpack Compose — Hilt DI, Retrofit, Navigation, Material 3 |
+| [`mobile/ios/swiftui-coding-standards.md`](.claude/rules/mobile/ios/swiftui-coding-standards.md) | Swift | iOS/SwiftUI — MVVM, async/await, NavigationStack, accessibility |
+| [`web/react-coding-standards.md`](.claude/rules/web/react-coding-standards.md) | Nova | React/Next.js — App Router, React Query, Zustand, Tailwind, Playwright |
+| [`backend/nodejs/node-coding-standards.md`](.claude/rules/backend/nodejs/node-coding-standards.md) | Flux | Node.js/Fastify — Prisma, BullMQ, Zod validation, Pino logging |
+| [`backend/python/python-coding-standards.md`](.claude/rules/backend/python/python-coding-standards.md) | Pyra | Python/FastAPI — SQLAlchemy 2.0, Pydantic v2, Celery, structlog |
+| [`backend/jvm/jvm-coding-standards.md`](.claude/rules/backend/jvm/jvm-coding-standards.md) | Forge | Spring Boot/JVM — JPA, Flyway, Resilience4j, Testcontainers |
+| [`backend/kotlin/ktor-server-coding-standards.md`](.claude/rules/backend/kotlin/ktor-server-coding-standards.md) | Link | Ktor Server — Exposed ORM, Koin DI, shared client-server KMP types |
+
+The nested directory layout above is canonical in the plugin and in every consumer project. The old flat layout (`.claude/rules/<name>.md`) is dead.
 
 ---
 
@@ -125,34 +265,29 @@ Tech Agency includes 15 coding standards files that agents follow when writing c
 ```
 tech-agency/
 ├── .claude-plugin/
-│   └── marketplace.json         # Marketplace manifest (makes this repo a plugin source)
-├── .claude/
-│   ├── .claude-plugin/
-│   │   └── plugin.json          # Plugin identity and metadata
+│   └── marketplace.json         # Marketplace manifest — publishes both plugins below
+├── .claude/                     # ← the tech-agency plugin itself (marketplace source)
 │   ├── agents/                  # 19 agent definition files
-│   │   ├── atlas-orchestrator.md
-│   │   ├── kai-android-engineer.md
-│   │   ├── link-kmp-engineer.md
-│   │   └── ... (16 more)
-│   ├── rules/                   # 15 coding standards (auto-loaded)
-│   │   ├── shared-standards.md
-│   │   ├── kmp-coding-standards.md
-│   │   └── ... (13 more)
-│   ├── skills/                  # 27 slash command skills
-│   │   ├── kick-off/
-│   │   ├── ship-it/
-│   │   ├── address-feedback/
-│   │   ├── daily-sync/
-│   │   ├── new-product/
-│   │   └── ... (22 more)
-│   └── settings.json            # Board backend config
+│   ├── rules/
+│   │   ├── shared/              # 11 shared policy rules (copied into consumers by /setup-repo)
+│   │   ├── mobile/{shared,android,ios}/   # KMP, Compose, SwiftUI standards
+│   │   ├── web/                 # React standard
+│   │   └── backend/{nodejs,python,jvm,kotlin}/  # Fastify, FastAPI, Spring, Ktor standards
+│   ├── skills/                  # 48 skills — 34 first-party + 14 vendored
+│   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 14
+│   │   └── LICENSE-APACHE-2.0.txt
+│   ├── hooks.json               # Session hooks
+│   └── settings.json            # This repo's own config — NOT applied to installing users
+├── marketing-agency/            # ← the marketing-agency plugin (second marketplace source)
 ├── docs/
-│   ├── skills-catalog.md        # Full agent skill catalog
-│   ├── references/              # Testing and observability references
-│   └── by-type/                 # Cross-reference index by document type
-├── hooks/                       # Git hooks (commit-msg, pre-commit, pre-push)
-├── prompts/                     # Agent prompt templates
-├── board-context.md             # Live Kanban board state
+│   ├── setup-guide.md           # Install + /setup-repo walkthrough
+│   ├── migration-guide.md       # Incremental adoption for existing projects
+│   ├── skills-catalog.md        # Per-agent inline skill catalog
+│   ├── prompts/                 # Slash command reference + prompting cheat sheet
+│   └── references/              # Testing and observability deep references
+├── hooks/                       # Git hooks (commit-msg, pre-commit, pre-push, install-hooks.sh)
+├── board-context.md             # This repo's own Kanban board
+├── VERSION
 └── README.md
 ```
 
@@ -162,19 +297,42 @@ tech-agency/
 
 Tech Agency is distributed as a Claude Code plugin from this GitHub repo. Installing at user scope makes it available in every project on the machine.
 
-### First-time setup (run once per machine)
+### 1. Register the marketplace and install (once per machine)
 
 ```bash
-# 1. Register the marketplace
 claude plugin marketplace add github:Zeyad-37/tech-agency --scope user
-
-# 2. Install the plugin
 claude plugin install tech-agency@tech-agency --scope user
 ```
 
+The marketplace name and the plugin name are both `tech-agency`, hence `tech-agency@tech-agency`.
+
+### 2. Bootstrap each project (required, once per project)
+
+Open Claude Code in your project and run:
+
+```
+/setup-repo
+```
+
+This writes the shared policy rules into `.claude/rules/shared/`, creates `board-context.md`, installs the git hooks into `hooks/`, and writes `.claude/settings.json` (sandbox, permissions, board backend, model routing). Then install the git hooks into `.git/`:
+
+```bash
+./hooks/install-hooks.sh
+```
+
+**Skipping step 2 leaves you with agents and skills but no board, no hooks, no sandbox, and no policy rules in context.**
+
+### 3. Verify
+
+```
+/daily-sync
+```
+
+should read your new board and report status. Then `/kick-off` to start work.
+
 ### Auto-updates
 
-Add this to your `~/.claude/settings.json` to automatically pull the latest version at the start of every Claude Code session:
+Add this to your `~/.claude/settings.json` to pull the latest version at the start of every session:
 
 ```json
 {
@@ -194,7 +352,7 @@ Add this to your `~/.claude/settings.json` to automatically pull the latest vers
 }
 ```
 
-After this is in place, any changes merged to `main` on this repo will be picked up automatically the next time you open Claude Code.
+Any change merged to `main` on this repo is then picked up automatically the next time you open Claude Code.
 
 ### Manual update
 
@@ -202,9 +360,19 @@ After this is in place, any changes merged to `main` on this repo will be picked
 claude plugin update tech-agency --scope user
 ```
 
-### Verify
+---
 
-Open Claude Code and type `/kick-off` to start your first daily sync.
+## Sibling plugin: marketing-agency
+
+This repo's marketplace publishes a **second plugin**, `marketing-agency`, from the `marketing-agency/` directory. It is a proactive, self-improving marketing system designed to complement tech-agency: it runs funnel audits, proposes experiments, hands engineering work back to tech-agency, turns releases into launch content, and teaches the marketing craft as it works (mentor mode).
+
+Install it from the same marketplace:
+
+```bash
+claude plugin install marketing-agency@tech-agency --scope user
+```
+
+The two are independent — you can install either alone. Installed together, `marketing-agency`'s `/handoff-tech` and `/launch-from-release` skills bridge into the tech-agency board and release flow.
 
 ---
 
@@ -212,7 +380,7 @@ Open Claude Code and type `/kick-off` to start your first daily sync.
 
 ### Kanban Board
 
-All work is tracked in `board-context.md` with columns: Backlog → Ready → In Progress → Review → Blocked → Done. Agents pull tasks from Ready, update the board as they work, and hand off deliverables using structured templates. WIP limit is 2 items per agent.
+All work is tracked in `board-context.md` with columns: Backlog → Ready → In Progress → Review → Blocked → Done. Agents pull tasks from Ready, update the board as they work, and hand off deliverables using structured templates. WIP limit is 2 items per agent. Board updates ship inside the PR carrying the change — see [Board-in-PR](#2-board-in-pr--board-updates-ship-inside-the-pr-that-carries-the-change).
 
 ### Handoff Protocol
 
@@ -222,18 +390,39 @@ Agents communicate through 19 handoff templates defined in `handoff-protocol.md`
 
 All handoff documents (PRD, BRD, ADR, RFC, design specs, security reviews) require explicit approval from @Zeyad before the receiving agent may act on them.
 
-### Branch Strategy
+### Branch Strategy & Push Policy
 
-Work happens on branches following the naming convention `{STORY-ID}/{description}`. Agents commit locally but never push to remote unless explicitly told to. Git hooks enforce commit message format (`[STORY-ID] @AgentName: description`), block secrets, and prevent force-unwraps in Kotlin/Swift code.
+Work happens on branches named by task type: `{STORY-ID}/{slug}`, `tech/{slug}`, `deps/{slug}`, `hotfix/{version}/{slug}`, `{BUG-ID}/{slug}`.
+
+**Invoking `/create-pr` or `/ship-pr` is itself the authorization to push that branch** — those skills commit, run the pre-push gate, push, and open the PR without asking again. Outside them, agents never run a bare `git push`; they commit locally and let the skill push. Nothing ever pushes to `main`.
+
+Git hooks enforce the commit message format `[ID] @Agent: description` — where `[ID]` is letters optionally followed by `-<digits>` (`[US-042]`, `[T-015]`, `[TECH]`) and the `@Agent:` tag is optional — plus secret detection, force-unwrap blocking in Kotlin/Swift, lint, and branch-name checks.
 
 ### Parallel Execution
 
-The `/dispatch` command creates isolated git worktrees so multiple agents can work simultaneously without file conflicts. Each agent gets its own branch and working directory. Worktrees branch off — and PR back into — a dynamically resolved base: an explicit `--base <branch>`, an epic integration branch (`epic/{EPIC-ID}-{slug}`), a hotfix release tag, or `main` by default.
+`/dispatch` creates isolated git worktrees so multiple agents can work simultaneously without file conflicts. Each agent gets its own branch and working directory. Worktrees branch off — and PR back into — a dynamically resolved base: an explicit `--base <branch>`, an epic integration branch (`epic/{EPIC-ID}-{slug}`), a hotfix release tag, or `main` by default.
 
 `/dispatch-task` layers planning on top: it runs the appropriate planning chain (`/tech-task`, `/new-feature`, `/investigate-bug`, or `/investigate-crash`) first, waits for approval, then dispatches the resulting implementation tasks to parallel worktrees.
 
 ---
 
+## Documentation
+
+| Doc | What it covers |
+|---|---|
+| [`docs/setup-guide.md`](docs/setup-guide.md) | Install, `/setup-repo`, what lands where, verification |
+| [`docs/migration-guide.md`](docs/migration-guide.md) | Phased adoption in an existing codebase |
+| [`docs/prompts/commands-reference.md`](docs/prompts/commands-reference.md) | Full reference for every slash command |
+| [`docs/prompts/cheat-sheet.md`](docs/prompts/cheat-sheet.md) | Copy-pasteable prompts for common workflows |
+| [`docs/skills-catalog.md`](docs/skills-catalog.md) | Per-agent inline skills (natural-language triggered) |
+| [`docs/board-config.md`](docs/board-config.md) | Board backend configuration (markdown / Jira / Linear / Asana) |
+| [`docs/ci-enforcement-policy.md`](docs/ci-enforcement-policy.md) | Quality gates, thresholds, ratchet mechanism |
+| [`docs/incident-response.md`](docs/incident-response.md) | Escalation, on-call, runbooks, feedback loops |
+| [`docs/tool-integrations.md`](docs/tool-integrations.md) | MCP connections per agent |
+| [`docs/project-knowledge-map.md`](docs/project-knowledge-map.md) | What context each agent needs |
+
+---
+
 ## License
 
-Private — All rights reserved.
+Private — All rights reserved. Vendored skills under `.claude/skills/` are Apache-2.0; see [`.claude/skills/VENDORED-SKILLS.md`](.claude/skills/VENDORED-SKILLS.md).

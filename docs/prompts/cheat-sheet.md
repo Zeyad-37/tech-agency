@@ -1,5 +1,46 @@
 # Prompting Cheat Sheet
 
+## Before Anything Else
+
+Install the plugin, then bootstrap the project. **Both steps are required.**
+
+```bash
+claude plugin marketplace add github:Zeyad-37/tech-agency --scope user
+claude plugin install tech-agency@tech-agency --scope user
+```
+
+Then, in Claude Code from your project root:
+
+```
+/setup-repo
+```
+
+followed by `./hooks/install-hooks.sh`. Until `/setup-repo` runs, you have agents and skills but no
+board, no git hooks, no sandbox, and none of the shared policy rules in context. Full walkthrough:
+`../setup-guide.md`.
+
+---
+
+## Command Index
+
+34 first-party commands ship with the plugin. Full documentation:
+[`commands-reference.md`](commands-reference.md).
+
+| Group | Commands |
+|---|---|
+| Planning | `/new-product` `/new-feature` `/write-prd` `/tech-task` `/rfc` |
+| Board & flow | `/kick-off` `/daily-sync` `/pick-up-task` `/update-board` `/replenish` `/sprint-report` `/retro` |
+| Parallel | `/dispatch` `/dispatch-task` |
+| Ship | `/ship-it` `/ship-pr` `/create-pr` `/code-review` `/review-and-address` `/address-feedback` `/capture-screenshots` `/lint-changed` |
+| Diagnose | `/investigate-bug` `/investigate-crash` `/postmortem` `/hotfix` `/health-check` |
+| Maintain | `/setup-repo` `/onboard-agent` `/dependency-upgrade` `/extract-library` `/sync-rule` `/release` `/audit-memory` |
+
+Plus 14 vendored skills — `/android-*` (Google) and `/kotlin-*` (JetBrains) — for Compose theming,
+adaptive layout, Navigation 3, edge-to-edge, R8, Perfetto traces, JPA mapping, Java→Kotlin, and the
+AGP 9 / SPM migrations.
+
+---
+
 ## Starting a New Product
 
 The entry point is always Morgan. Describe what you want, who it's for, and which platforms.
@@ -220,6 +261,27 @@ Affected version: vX.Y.Z. Affected platform: [iOS/Android/Web/API].
 
 ---
 
+## Shipping a Change End to End
+
+Once code is written on a branch, one command takes it to merged:
+
+```
+/ship-pr
+```
+
+It opens the PR, runs a fresh-context code review, addresses every resulting comment and failing
+check, and stops at a final approval gate. Add `--auto-merge` to merge as soon as everything is
+green. `/ship-it` is the same thing with the kickoff and implementation on the front:
+
+```
+/ship-it --auto-merge add a dark mode toggle to settings
+```
+
+**Invoking `/create-pr` or `/ship-pr` is itself the authorization to push that branch** — you will
+not be asked again. Nothing ever pushes to `main`.
+
+---
+
 ## Tips
 
 - **You are the approval gate.** Every document (PRD, BRD, ADR, RFC, design spec, security review) waits for your sign-off before the next agent acts. Review and approve quickly to keep flow moving.
@@ -227,3 +289,5 @@ Affected version: vX.Y.Z. Affected platform: [iOS/Android/Web/API].
 - **For big features, start with an RFC.** Tell any engineer: "This is an epic — write an RFC first before coding."
 - **Use Atlas for coordination.** If you're unsure who should do what, ask Atlas: "Break down [feature] into tasks and assign agents."
 - **Check the board.** Run "daily sync" periodically to see where things stand and catch blockers early.
+- **Expect a worktree.** Every task creates its own git worktree at `../{repo}-worktrees/{branch-slug}/` before its first write. Agents will not work in the main checkout — that is the mechanism that lets several sessions run in parallel safely.
+- **Expect `main` to look idle.** Board transitions commit on the task branch and only reach `main` when the PR merges, so the merged "In Progress" column under-reports in-flight work. Use `gh pr list` for live state.
