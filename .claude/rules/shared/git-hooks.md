@@ -4,7 +4,7 @@ Git hooks are installed via `./hooks/install-hooks.sh` (symlinks `hooks/` script
 
 ## Commit Message Format (commit-msg hook)
 
-Every commit message MUST follow this format:
+Every commit message should follow this format:
 
 ```
 [STORY-ID] @AgentName: Short description of what changed and why
@@ -13,9 +13,15 @@ Every commit message MUST follow this format:
 Examples:
 - `[US-042] @Kai: Add email validation to registration flow`
 - `[BUG-017] @Swift: Fix null crash on profile load`
-- `[T-003] @Link: Refactor shared DTO validation`
+- `[T-016.1] @Link: Refactor shared DTO validation`
 
-Exceptions (not validated): merge commits (`Merge ...`), initial commits (`Initial ...`), revert commits (`Revert ...`).
+The hook **auto-normalizes** a non-conforming message instead of blocking it — a rejected commit costs the author a retype and teaches nothing, while a rewrite lands the commit and shows the correct form:
+
+- **STORY-ID**: an explicit `[ID]` already in the message wins; otherwise it is derived from the branch (`US-016/foo` → `US-016`); if the branch carries no ID (`tech/`, `deps/`, `main`, …) the token `CHORE` is used. Number-less tokens like `CHORE`/`TECH` are accepted, and dotted sub-task IDs (`T-016.1`) are valid — the accepted format is `[A-Z]+(-[0-9]+(\.[0-9]+)?)?`. Without the dotted suffix, every sub-task commit is silently relabelled `[CHORE]`, destroying traceability on exactly the epics that use sub-task IDs.
+- **@Agent**: an `@Agent` already leading the message is kept; otherwise it defaults to the git user's first name (`@Zeyad`). A mid-sentence `@mention` is not mistaken for the agent.
+- **description**: the original first line with any leading `[..]` / `@agent` fragments stripped. The body is preserved untouched.
+
+Exceptions (left untouched): merge commits (`Merge ...`), initial commits (`Initial ...`), revert commits (`Revert ...`).
 
 ## Pre-Commit Checks (run on every commit)
 
@@ -36,7 +42,7 @@ Exceptions (not validated): merge commits (`Merge ...`), initial commits (`Initi
 |-------|-----------|------------|
 | Branch naming convention | Warning | Rename: `git branch -m {STORY-ID}/{description}` — also accepts `epic/{EPIC-ID}-{slug}`, `tech/`, `deps/`, `hotfix/`, and sub-task IDs (`T-016.1/…`) |
 | Direct push to main | Yes | Create a PR instead: `gh pr create --base main` |
-| Commit message format (all commits) | Yes | Amend: `git commit --amend` or interactive rebase |
+| Commit message format (branch's own commits) | Yes | Amend: `git commit --amend` or interactive rebase. Only commits **unique to the branch** are validated — commits already reachable from the remote main branch are exempt, so a rebase onto `origin/main` does not drag main's squash-merge subjects and bot commits into the check and force `--no-verify`. The commit-msg hook already normalizes at commit time; this is the backstop for commits that bypassed it |
 | Rules mirror integrity | Yes (consumers only) | A file in `.claude/rules/` was hand-edited. See `@.claude/rules/rules-mirror.md` — move the edit to `.claude/rules-local/` or promote it upstream, then `.claude/skills/sync-rule/mirror.sh pull`. Runs only where `.claude/rules/.synced-from` exists |
 | Tests for affected modules | Yes | Fix failing tests |
 | Build verification | Yes | Fix build errors |
