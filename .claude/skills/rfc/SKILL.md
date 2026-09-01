@@ -25,15 +25,15 @@ If the feature is small and the approach is obvious, skip the RFC and go straigh
 Before writing:
 
 ```bash
-# Check if feature docs already exist
-ls docs/{feature-name}/ 2>/dev/null
+# Every artifact for a story shares its Task ID — one grep finds them all
+grep -rl "{Task-Id}" docs/artifacts/ 2>/dev/null
 
 # Read existing PRD and BRD
-cat docs/{feature-name}/prd.md 2>/dev/null
-cat docs/{feature-name}/brd.md 2>/dev/null
+cat docs/artifacts/prd/{Task-Id}-*.md 2>/dev/null
+cat docs/artifacts/brd/{Task-Id}-*.md 2>/dev/null
 
 # Check for existing ADRs that constrain the design
-ls docs/{feature-name}/adr-*.md 2>/dev/null
+ls docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
 
 # Check the board for related tasks
 cat board-context.md 2>/dev/null | grep -i "{feature-name}"
@@ -59,8 +59,8 @@ Produce the RFC following this structure exactly:
 **Date:** YYYY-MM-DD
 **Status:** Draft → In Review → Accepted / Rejected / Superseded
 **Stakeholders:** @Sage, @{implementing agents}, @{affected agents}
-**PRD:** docs/{feature-name}/prd.md (if exists)
-**BRD:** docs/{feature-name}/brd.md (if exists)
+**PRD:** docs/artifacts/prd/{Task-Id}-PRD-{Title}.md (if exists)
+**BRD:** docs/artifacts/brd/{Task-Id}-BRD-{Title}.md (if exists)
 
 ## 1. Goal
 
@@ -183,17 +183,13 @@ If no migration needed: "Greenfield implementation — no migration required."
 ## Step 3: Save the RFC
 
 ```bash
-# Save to the feature docs directory
-mkdir -p docs/{feature-name}
+# Save to the rfc artifact folder
+mkdir -p docs/artifacts/rfc
 ```
 
-Save to `docs/{feature-name}/rfc.md`.
+Save to `docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md`.
 
-Create the cross-reference per handoff protocol:
-```bash
-mkdir -p docs/by-type/rfc
-echo "See @docs/{feature-name}/rfc.md" > docs/by-type/rfc/{feature-name}.md
-```
+No cross-reference stub is created. The Task ID in the filename is the index — `grep -rl "{Task-Id}" docs/artifacts/` finds every artifact for this work across all types.
 
 ## Step 4: Submit for Review
 
@@ -202,7 +198,7 @@ The RFC requires approval before implementation begins (per `shared-standards.md
 ```markdown
 ## RFC Review Request
 
-**RFC:** docs/{feature-name}/rfc.md
+**RFC:** docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md
 **Author:** @{AgentName}
 **Status:** In Review
 

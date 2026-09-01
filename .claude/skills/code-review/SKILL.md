@@ -61,7 +61,7 @@ Then gather project context:
 
 1. **Identify the story/task**: Extract the story ID from commit messages (e.g., `[US-042]`)
 2. **Read the acceptance criteria**: Check `board-context.md` for the task description and criteria
-3. **Read feature docs**: Load PRD, BRD, ADR, RFC from `docs/{feature-name}/` if they exist
+3. **Read feature docs**: Load PRD, BRD, ADR, RFC from `docs/artifacts/` (grep by Task ID) if they exist
 4. **Identify the author agent**: Extract from commit messages (`@AgentName`)
 5. **Determine the review scope**: Which platforms, modules, and layers are affected
 
@@ -71,7 +71,7 @@ Check that the implementation follows the project's architectural decisions:
 
 ### ADR Compliance
 
-- Read all ADRs in `docs/{feature-name}/adr-*.md`
+- Read all ADRs in `docs/artifacts/adr/{Task-Id}-*.md`
 - Verify the implementation follows the decisions recorded there
 - Flag any deviation from an accepted ADR — these require an explicit change request to @Sage
 

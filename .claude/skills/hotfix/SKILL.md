@@ -97,7 +97,7 @@ git merge hotfix/v[X.Y.Z+1]/[short-description]
 ## Step 8: Post-Mortem
 
 The fixing engineer must write a post mortem within 24 hours.
-Save to `docs/{feature-name}/incident-{date}.md`.
+Save to `docs/artifacts/incident-notes/{Task-Id}-Incident-Notes-{Title}.md`.
 Schedule a brief retro with the team to capture prevention actions.
 
 If this was a crash spike, follow the full crash investigation protocol in `.claude/rules/crash-investigation.md`.

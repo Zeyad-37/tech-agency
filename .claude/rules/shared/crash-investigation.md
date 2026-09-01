@@ -27,9 +27,9 @@ Provide two options:
 
 ### 4. Generate Post Mortem
 
-After completing the investigation, generate a post mortem document as the **sole output** of the session. Save it to `docs/post-mortem/{Task-Id}-Post Mortem-Title.md` (e.g., `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
+After completing the investigation, generate a post mortem document as the **sole output** of the session. Save it to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-Title.md` (e.g., `docs/artifacts/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
 
-If `docs/post-mortem/` does not exist, create it.
+If `docs/artifacts/post-mortem/` does not exist, create it.
 
 The post mortem must follow this structure exactly:
 
@@ -87,7 +87,7 @@ Action points must cover all relevant layers: unit/integration tests, CI checks 
 
 ### 5. Update the Index
 
-Append a one-line entry to `docs/post-mortem/INDEX.md` (create the file if it doesn't exist):
+Append a one-line entry to `docs/artifacts/post-mortem/INDEX.md` (create the file if it doesn't exist):
 
 ```
 | YYYY-MM-DD | <Incident Title> | <Severity> | [Post Mortem](./filename.md) |
