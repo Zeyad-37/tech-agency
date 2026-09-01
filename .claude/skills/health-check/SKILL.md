@@ -339,4 +339,4 @@ For every P0 and P1 action item, create a task in `board-context.md`:
 
 Tag @Atlas to review the new tasks at the next daily sync.
 
-Save the full report to `docs/health-reports/YYYY-MM-DD.md`.
+Save the full report to `docs/artifacts/health-report/YYYY-MM-DD.md`.

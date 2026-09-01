@@ -15,7 +15,7 @@ Check for existing investigation artifacts:
 
 ```bash
 # Check for recent post-mortems from /investigate-crash or /investigate-bug
-ls .claude/post-mortems/ 2>/dev/null
+ls docs/artifacts/post-mortem/ 2>/dev/null
 
 # Check for bug reports
 find docs/ -name "bug-*.md" -mtime -7 2>/dev/null
@@ -96,9 +96,9 @@ Classify the systemic root cause:
 
 ## Step 4: Generate the Post-Mortem Document
 
-Save to `.claude/post-mortems/YYYY-MM-DD_{incident-slug}.md`. If this deepens an existing post-mortem, **replace** the original file (keep the same filename).
+Save to `docs/artifacts/post-mortem/YYYY-MM-DD_{incident-slug}.md`. If this deepens an existing post-mortem, **replace** the original file (keep the same filename).
 
-If `.claude/post-mortems/` does not exist, create it.
+If `docs/artifacts/post-mortem/` does not exist, create it.
 
 ```markdown
 # {Incident Title}
@@ -194,7 +194,7 @@ Priority SLAs:
 
 ## Recurrence Check
 
-{Check `.claude/post-mortems/INDEX.md` for similar past incidents. If this is a recurrence:}
+{Check `docs/artifacts/post-mortem/INDEX.md` for similar past incidents. If this is a recurrence:}
 - **Previous incident:** {link to prior post-mortem}
 - **Previous prevention actions:** {were they completed? did they work?}
 - **Why recurrence:** {what the previous actions missed}
@@ -202,7 +202,7 @@ Priority SLAs:
 
 ## Step 5: Update the Index
 
-Append a one-line entry to `.claude/post-mortems/INDEX.md` (create the file if it doesn't exist):
+Append a one-line entry to `docs/artifacts/post-mortem/INDEX.md` (create the file if it doesn't exist):
 
 ```
 | YYYY-MM-DD | {Incident Title} | {Severity} | 5 Whys | [Post Mortem](./{filename}.md) |
@@ -230,7 +230,7 @@ Every prevention action point MUST become a tracked task. Use `board.create_task
    - **Priority**: Match the priority from the table
    - **Due date**: Per the SLA (P0=48h, P1=1wk, P2=2wks, P3=next sprint)
    - **Labels**: `post-mortem`, `prevention`, `{category}` (e.g., `testing-gap`, `tooling-gap`)
-   - **Source**: `[Post-mortem: .claude/post-mortems/YYYY-MM-DD_{slug}.md]`
+   - **Source**: `[Post-mortem: docs/artifacts/post-mortem/YYYY-MM-DD_{slug}.md]`
 
 3. **Verify**: Count the action points in the post-mortem and confirm the same number of tasks were created.
 

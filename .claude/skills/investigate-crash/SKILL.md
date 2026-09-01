@@ -76,8 +76,8 @@ Key sections:
 - Contributing factors
 - Lessons learned
 
-Save to `.claude/post-mortems/YYYY-MM-DD_{crash-slug}.md`.
-Update `.claude/post-mortems/INDEX.md` with a new entry.
+Save to `docs/artifacts/post-mortem/YYYY-MM-DD_{crash-slug}.md`.
+Update `docs/artifacts/post-mortem/INDEX.md` with a new entry.
 
 ## Step 5: Next Steps
 
@@ -95,11 +95,11 @@ Every "Prevention Action Points" row in the post-mortem MUST become a tracked ta
    - **Owner**: The "Suggested Owner" from the post-mortem table (or @Atlas if unassigned)
    - **Priority**: Match the priority from the post-mortem (P0/P1/P2/P3)
    - **Due date**: P0 = 48 hours, P1 = 1 week, P2 = 2 weeks, P3 = next sprint
-   - **Source**: `[Post-mortem: .claude/post-mortems/YYYY-MM-DD_{slug}.md]`
+   - **Source**: `[Post-mortem: docs/artifacts/post-mortem/YYYY-MM-DD_{slug}.md]`
    - **Description**: The action text from the post-mortem table
 
 2. Verify: count the action points in the post-mortem table and confirm the same number of tasks exist in `board-context.md`.
 
-3. If this incident is a recurrence of a previous incident (check `.claude/post-mortems/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
+3. If this incident is a recurrence of a previous incident (check `docs/artifacts/post-mortem/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
 
 This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/incident-response.md` for the full feedback loop closure policy.

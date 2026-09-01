@@ -88,6 +88,6 @@ Tag release after successful production deploy: git tag v[X.Y.Z]
 - Morgan publishes release notes
 - Scroll updates public documentation
 - Echo prepares support for new features
-- Save release record to `docs/releases/v[X.Y.Z].md`
+- Save release record to `docs/artifacts/release-record/v[X.Y.Z].md`
 - If a marketing-agency shared context exists for this product (directory containing `releases.md` + `config.md`, e.g. a `*-shared-context` sibling of the repo), append a row to its `releases.md`: date, version, user-facing summary, size (patch/minor/major/tier-1), Consumed = no — this feeds marketing-agency's `launch-from-release`
-- Note the release in `docs/board/done-{YYYY}-Q{N}.md` — mark which entries shipped in this version. There is no Done column to clear: tasks are archived to the quarter file at the moment they complete, so the live board is already clean. This is still a board edit, so it rides with the release record rather than landing on `main` on its own (see `@.claude/rules/shared/board-in-pr.md`): commit it on the **same branch** as `docs/releases/v[X.Y.Z].md` and open one PR carrying both.
+- Note the release in `docs/board/done-{YYYY}-Q{N}.md` — mark which entries shipped in this version. There is no Done column to clear: tasks are archived to the quarter file at the moment they complete, so the live board is already clean. This is still a board edit, so it rides with the release record rather than landing on `main` on its own (see `@.claude/rules/shared/board-in-pr.md`): commit it on the **same branch** as `docs/artifacts/release-record/{Task-Id}-Release-Record-v[X.Y.Z].md` and open one PR carrying both.

@@ -35,7 +35,7 @@ Write a BRD for adding [feature] to [product].
 Context: [what exists, what's changing].
 Existing architecture: docs/[product]/system-design.md
 ```
-Save to `docs/{feature-name}/brd.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/brd/{Task-Id}-BRD-{Feature-Name}.md`. **Get @Zeyad approval.**
 
 Then have Sage review if architectural changes are needed. If yes, write an ADR. If the feature fits within existing architecture, skip Sage and go to Atlas for board setup.
 
@@ -43,7 +43,7 @@ Then have Sage review if architectural changes are needed. If yes, write an ADR.
 This is an RFC situation. Tell the implementing agent:
 ```
 This is an epic. Write an RFC before any code.
-Save to docs/{feature-name}/rfc.md.
+Save to docs/artifacts/rfc/{Task-Id}-RFC-{Feature-Name}.md.
 Include: Goal, Background, Proposed Plan, Alternatives (2+), Open Questions, Estimated Scope.
 ```
 **Get @Zeyad approval on the RFC.**
@@ -67,7 +67,7 @@ For small features that skip board setup, create the branch immediately after ro
 For medium and large features, invoke Atlas:
 ```
 Break down the [feature] into tasks and add to the board.
-Reference: docs/{feature-name}/brd.md [and adr/rfc if applicable].
+Reference: docs/artifacts/brd/{Task-Id}-BRD-{Feature-Name}.md [and the adr/rfc if applicable].
 Assign agents based on the work involved.
 ```
 
@@ -78,10 +78,10 @@ Assign agents based on the work involved.
 If the feature has a user-facing component, invoke Pixel:
 ```
 Design the [screens/components] for [feature].
-Reference: docs/{feature-name}/brd.md for user stories.
+Reference: docs/artifacts/brd/{Task-Id}-BRD-{Feature-Name}.md for user stories.
 Target platforms: [platforms].
 ```
-Save to `docs/{feature-name}/design-spec.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/design-spec/{Task-Id}-Design-Spec-{Title}.md`. **Get @Zeyad approval.**
 
 ## Step 6: Testing Requirements (mandatory — no exceptions)
 
@@ -143,7 +143,7 @@ If either detekt or tests fail, fix the issue and re-run before proceeding. Do n
 
 ## Handoff Reminders
 
-- All docs saved to `docs/{feature-name}/` with cross-references in `docs/by-type/`
+- All docs saved to `docs/artifacts/{doc-type}/` with the Task ID in the filename (see `@.claude/rules/shared/handoff-protocol.md`)
 - Every handoff doc needs @Zeyad approval before the next step
 - Engineers should read all existing feature docs before starting (per agent-preamble.md)
 - **No PR without passing tests and detekt** — this is a hard gate, not a suggestion
