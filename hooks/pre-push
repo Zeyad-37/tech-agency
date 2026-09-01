@@ -26,8 +26,10 @@ echo -n "  Checking branch naming... "
 # Allowed patterns: story-id/description, hotfix/*, release/*, tech/*, deps/*, main, develop
 if [[ "$BRANCH" == "main" || "$BRANCH" == "develop" ]]; then
     echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^[A-Z]+-[0-9]+/.+ ]]; then
+elif [[ "$BRANCH" =~ ^[A-Z]+-[0-9]+(\.[0-9]+)?/.+ ]]; then
     echo -e "${GREEN}OK ($BRANCH)${NC}"
+elif [[ "$BRANCH" =~ ^epic/ ]]; then
+    echo -e "${GREEN}OK ($BRANCH — integration branch)${NC}"
 elif [[ "$BRANCH" =~ ^hotfix/ ]]; then
     echo -e "${GREEN}OK ($BRANCH)${NC}"
 elif [[ "$BRANCH" =~ ^release/ ]]; then
@@ -39,7 +41,7 @@ elif [[ "$BRANCH" =~ ^deps/ ]]; then
 else
     echo -e "${YELLOW}WARNING${NC}"
     echo -e "  ${YELLOW}Branch '$BRANCH' doesn't follow naming convention.${NC}"
-    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, tech/{description}, deps/{package}, hotfix/{version}/{description}${NC}"
+    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, epic/{EPIC-ID}-{slug}, tech/{description}, deps/{package}, hotfix/{version}/{description}${NC}"
     # Warning only, not blocking
 fi
 
@@ -88,7 +90,7 @@ if [ -n "$COMMITS" ]; then
             continue
         fi
         # Check format: [STORY-ID] @Agent: description
-        if ! echo "$MSG" | grep -qE '^\[[A-Z]+-[0-9]+\]\s+@[A-Za-z]+:'; then
+        if ! echo "$MSG" | grep -qE '^\[[A-Z]+-[0-9]+(\.[0-9]+)?\]\s+@[A-Za-z]+:'; then
             BAD_COMMITS="$BAD_COMMITS\n    - $HASH: $MSG"
         fi
     done <<< "$COMMITS"
@@ -103,6 +105,25 @@ if [ -n "$BAD_COMMITS" ]; then
     ERRORS=$((ERRORS + 1))
 else
     echo -e "${GREEN}OK${NC}"
+fi
+
+# ---------------------------------------------------------------------------
+# 3b. Rules mirror integrity (consumer repos only)
+#
+# .claude/rules/ is a generated mirror of the tech-agency plugin's rules — see
+# .claude/rules/rules-mirror.md. A hand-edited mirror file is drift that would
+# otherwise never be noticed, so it blocks the push. Skipped in tech-agency
+# itself, which owns the rules and has no manifest.
+# ---------------------------------------------------------------------------
+if [ -f ".claude/rules/.synced-from" ] && [ -x ".claude/skills/sync-rule/mirror.sh" ]; then
+    echo -n "  Checking rules mirror... "
+    if MIRROR_OUT=$(.claude/skills/sync-rule/mirror.sh check 2>&1); then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${RED}DRIFT${NC}"
+        echo "$MIRROR_OUT" | sed 's/^/  /'
+        ERRORS=$((ERRORS + 1))
+    fi
 fi
 
 # ---------------------------------------------------------------------------
