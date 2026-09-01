@@ -1,5 +1,8 @@
 # Jetpack Compose / Android Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md`, falling back to `.claude/rules/mobile/android/compose-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Kai. All Android code MUST follow these standards. This document covers Android-specific concerns. For shared KMP architecture (MVI pattern, Clean Architecture layers, use cases, repositories, data models, Konsist enforcement), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here.
 
 **Reading Guide**: Android development requires reading BOTH documents:
@@ -11,7 +14,7 @@ Owner: Kai. All Android code MUST follow these standards. This document covers A
 | Concern | KMP (commonMain) | Android (androidApp / androidMain) |
 |---------|-------------------|-------------------------------------|
 | DI | Koin | Hilt |
-| Testing | kotlin.test + Mokkery + Turbine | JUnit 5 + Robolectric + Mockito + Turbine |
+| Testing | kotlin.test + Mokkery + Turbine | JUnit 5 (plain JVM) / JUnit 4 (Robolectric, Compose rule, Paparazzi) + Mockito + Turbine |
 | Networking | Ktor | Retrofit + OkHttp |
 | Mocking HTTP | Ktor MockEngine | MockWebServer |
 | ViewModel | KMP base `ViewModel<I, S, E>` | Same (consumed via `koinViewModel()` or wrapped with Hilt) |
@@ -58,7 +61,7 @@ androidApp/
 │   │       └── AccessibilityModifiers.kt
 │   └── shared/                       # Bridge layer to consume KMP ViewModels
 │       └── ViewModelBridge.kt        # Hilt providers wrapping Koin KMP ViewModels
-├── src/test/                         # Unit tests (JUnit 5 + Robolectric + Mockito)
+├── src/test/                         # Unit tests (JUnit 5; JUnit 4 for Robolectric/Paparazzi/Compose-rule tests)
 │   └── kotlin/com/example/{project}/
 ├── src/androidTest/                  # Instrumented + Compose UI tests
 │   └── kotlin/com/example/{project}/
@@ -78,6 +81,9 @@ fun NotesListScreen(
     onNavigateToDetail: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Declared in the wrapper and threaded into Content, whose Scaffold owns
+    // the matching SnackbarHost. Both halves must reference the same instance.
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Collect one-shot effects
     LaunchedEffect(Unit) {
@@ -89,12 +95,14 @@ fun NotesListScreen(
         }
     }
 
+    LaunchedEffect(Unit) { viewModel.process(NotesListInput.LoadNotes) }
+
     NotesListContent(
         state = state,
-        onLoadNotes = { viewModel.process(NotesListInput.LoadNotes) },
-        onDeleteNote = { id -> viewModel.process(NotesListInput.DeleteNote(id)) },
-        onRetry = { viewModel.process(NotesListInput.LoadNotes) },
-        onNoteClick = onNavigateToDetail,
+        snackbarHostState = snackbarHostState,
+        // Every event here is a 1:1 dispatch, so Content takes `process`
+        // rather than five named lambdas. See "Event Callback Shape" below.
+        process = viewModel::process,
     )
 }
 ```
@@ -103,7 +111,8 @@ Rules:
 - Use `koinViewModel()` to obtain KMP ViewModels (Koin provides them from `sharedPresentation` modules).
 - Collect `state` via `collectAsStateWithLifecycle()`.
 - Collect `effect` in a `LaunchedEffect(Unit)` block — effects are one-shot (navigation, snackbar).
-- Send user actions via `viewModel.process(Input)` — never call ViewModel methods directly for business logic.
+- Send user actions via `viewModel.process(Input)` — never call ViewModel methods directly for business logic. Dispatch initial loads from a `LaunchedEffect`, never from the composition body, which re-runs on every recomposition.
+- `SnackbarHostState` is created in the wrapper with `remember` and passed to Content. A `SnackbarHost` in Content with a state created elsewhere shows nothing.
 - If Hilt-only Android ViewModels are needed (rare), use `@HiltViewModel` + `hiltViewModel()`.
 
 ### Hilt ↔ Koin Bridge (when needed)
@@ -137,30 +146,35 @@ fun NotesListScreen(
 @Composable
 private fun NotesListContent(
     state: NotesListState,
-    onLoadNotes: () -> Unit,
-    onDeleteNote: (String) -> Unit,
-    onRetry: () -> Unit,
-    onNoteClick: (String) -> Unit,
+    snackbarHostState: SnackbarHostState,
+    process: (NotesListInput) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Notes") }) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Box(modifier = modifier.padding(padding)) {
-            when {
-                state.isLoading -> LoadingState()
-                state.error != null -> ErrorState(
+            // Exhaustive `when` over the sealed state — T-013 category (a).
+            // No flag chain, and each branch's payload is already non-null, so
+            // there is no smart cast to fail across the module boundary.
+            when (state) {
+                is NotesListState.Loading -> LoadingState()
+
+                is NotesListState.Error -> ErrorState(
                     message = state.error.toUserMessage(),
-                    onRetry = onRetry,
+                    onRetry = { process(NotesListInput.LoadNotes) },
                 )
-                state.notes.isEmpty() -> EmptyState(
-                    message = "No notes yet",
+
+                is NotesListState.Empty -> EmptyState(
+                    message = stringResource(R.string.notes_empty),
                     icon = Icons.Outlined.StickyNote2,
                 )
-                else -> NotesList(
+
+                is NotesListState.Loaded -> NotesList(
                     notes = state.notes,
-                    onNoteClick = onNoteClick,
-                    onDelete = onDeleteNote,
+                    onNoteClick = { id -> process(NotesListInput.OpenNote(id)) },
+                    onDelete = { id -> process(NotesListInput.DeleteNote(id)) },
                 )
             }
         }
@@ -168,9 +182,14 @@ private fun NotesListContent(
 }
 ```
 
+Two things this shape buys you that the flag chain does not:
+
+- **The compiler enforces completeness.** Adding a `Refreshing` leaf to the state breaks every `when` that does not handle it. A `when { state.isLoading -> ... }` chain silently falls through to `else` and renders the wrong screen.
+- **No cross-module smart cast.** `state.error.toUserMessage()` on a nullable `error` field needs a smart cast that Kotlin refuses when the state type lives in another module (`sharedPresentation`) from the composable (`androidApp`). Inside `is NotesListState.Error`, `state.error` is declared non-null, so there is nothing to smart-cast.
+
 Rules:
 - **Stateful wrapper + stateless content** pattern. Screen holds ViewModel; Content is pure.
-- Content composable renders based on `State` fields (from the KMP contract's `data class State`).
+- Content composable renders with one exhaustive `when` over the KMP contract's `sealed State` leaves — never a chain of flag checks.
 - Navigation callbacks as lambda parameters — never pass `NavController` into composables.
 - All event callbacks as lambdas with default `= {}` for previews.
 - `Modifier` as the first optional parameter after required params.
@@ -189,11 +208,13 @@ private fun SettingsContent(
 ) {
     SteadyToggleRow(
         checked = state.isAppLockEnabled,
-        onCheckedChange = { process(ToggleAppLockInput) },
+        // Inputs are action-nouns nested in the feature's sealed Input type —
+        // `SettingsInput.ToggleAppLock`, not a top-level `ToggleAppLockInput`.
+        onCheckedChange = { process(SettingsInput.ToggleAppLock) },
     )
     SteadyTimePickerRow(
         time = state.notificationTime,
-        onClick = { process(ShowTimePickerInput) },
+        onClick = { process(SettingsInput.ShowTimePicker) },
     )
 }
 ```
@@ -202,7 +223,7 @@ This is the default for any screen where events are predominantly 1:1 dispatches
 
 **Exception: named lambdas.** Use when the wrapper genuinely *translates* between UI events and Inputs and that translation work shouldn't leak into Content. Concrete triggers:
 
-- **State derivation** — wrapper composes a new `Input` from current `state` (e.g. `process(ValidateFormInput(state.form.copy(name = ...)))`). Pushing this into Content forces Content to import the form-state shape.
+- **State derivation** — wrapper composes a new `Input` from current `state` (e.g. `process(SignUpInput.ValidateForm(state.form.copy(name = ...)))`). Pushing this into Content forces Content to import the form-state shape.
 - **Permission / coroutine flows** — wrapper awaits a `PermissionsController` inside `coroutineScope.launch` before dispatching. Content must not import permission APIs or launch coroutines.
 - **Local UI state mutation** — handler also touches `remember`-scoped state (T-013 cat-(e)) such as `activeSurface`, sheet state, focus requesters. The mutation isn't an Input and shouldn't be one.
 
@@ -274,24 +295,32 @@ T-013 category (e) sealed types that model mutually-exclusive ephemeral UI state
 
 ## Every Screen Must Handle 4 States
 
-The KMP `State` data class defines the state shape. Compose renders all four states:
+The KMP sealed `State` gives each of the four states its own leaf, and the screen root renders them with one exhaustive `when`. The four states are **branches**, not flag combinations:
 
 ```kotlin
 // KMP contract (in sharedPresentation)
-data class NotesListState(
-    val notes: List<Note> = emptyList(),
-    val isLoading: Boolean = true,
-    val error: AppError? = null,
-) : State
-
-// Compose renders:
-// 1. Loading:  state.isLoading == true
-// 2. Error:    state.error != null
-// 3. Empty:    state.notes.isEmpty() && !state.isLoading
-// 4. Success:  state.notes.isNotEmpty()
+sealed interface NotesListState : State {
+    data object Loading : NotesListState
+    data object Empty : NotesListState
+    data class Error(val error: AppError) : NotesListState
+    data class Loaded(val notes: List<Note>) : NotesListState
+}
 ```
 
-No exceptions. Every screen composable covers all four.
+```kotlin
+// Compose renders one branch per leaf — no combination is reachable,
+// and no combination is missed.
+when (state) {
+    is NotesListState.Loading -> LoadingState()
+    is NotesListState.Error -> ErrorState(state.error, onRetry = ...)
+    is NotesListState.Empty -> EmptyState(...)
+    is NotesListState.Loaded -> NotesList(state.notes, ...)
+}
+```
+
+No exceptions. Every screen composable covers all four leaves, and the compiler is what enforces it.
+
+A flag-bearing `data class` (`isLoading` + `error` + an emptiness check) is the wrong shape for two reasons: it admits states that cannot exist — `isLoading = true` *and* `error != null` — leaving the render order to decide which one wins, and it gives the compiler nothing to check, so a fifth state added later compiles cleanly and renders as whatever the `else` branch happens to be. Konsist rejects it (T-013 category (a)).
 
 ## Render Decisions Are Typed Structures (T-013)
 
@@ -473,12 +502,12 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 |-----------|-----------|----------|--------|
 | Unit (ViewModel, InputHandler) | JUnit 5 + Mockito + Turbine | `src/test/` | CI (every commit) |
 | API (Retrofit endpoints) | JUnit 5 + MockWebServer | `src/test/` | CI (every commit) |
-| Compose UI (component behavior) | Compose Test Rule | `src/androidTest/` or `src/test/` (Robolectric) | CI (every commit) |
-| UI interaction tests (Input dispatch) | Compose Test Rule + capturing fake | `src/test/` (Robolectric) | CI (every commit) |
-| Integration (full stack) | JUnit 5 + Hilt + Testcontainers | `src/androidTest/` | CI (every PR) |
-| Screenshot / Visual Regression | Paparazzi | `src/test/` (JVM, no emulator) | CI (every PR) |
-| E2E (user flows) | Maestro or Compose UI Test + Espresso | `src/androidTest/` | CI (nightly) |
-| Performance Benchmarking | Jetpack Macrobenchmark | `benchmark/` module | CI (nightly) |
+| Compose UI (component behavior) | **JUnit 4** + Compose Test Rule | `src/androidTest/` or `src/test/` (Robolectric) | CI (every commit) |
+| UI interaction tests (Input dispatch) | **JUnit 4** + Compose Test Rule + capturing fake | `src/test/` (Robolectric) | CI (every commit) |
+| Integration (full stack) | **JUnit 4** + Hilt + Testcontainers | `src/androidTest/` | CI (every PR) |
+| Screenshot / Visual Regression | **JUnit 4** + Paparazzi | `src/test/` (JVM, no emulator) | CI (every PR) |
+| E2E (user flows) | Maestro, or **JUnit 4** + Compose UI Test + Espresso | `src/androidTest/` | CI (nightly) |
+| Performance Benchmarking | **JUnit 4** + Jetpack Macrobenchmark | `benchmark/` module | CI (nightly) |
 | Stress / Load | k6 (backend) + coroutine stress harness | `stress-tests/` | CI (pre-release) |
 | Security | OWASP dependency-check + lint rules | `build-logic/` | CI (every PR) |
 | Accessibility | Compose semantics assertions + TalkBack | `src/test/` + manual | CI (every PR) + manual |
@@ -487,7 +516,14 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
 ### Testing Rules Summary
 
-- **JUnit 5** for all Android tests (`@Test`, `@BeforeEach`, `@ExtendWith`).
+- **Which JUnit — this is not a preference, it is dictated by the tooling:**
+
+  | Test kind | Runner | Why |
+  |---|---|---|
+  | Plain JVM unit tests (ViewModel, InputHandler, mapper, Retrofit + MockWebServer) | **JUnit 5** (`@Test` from `org.junit.jupiter.api`, `@BeforeEach`, `@ExtendWith`) | Nothing forces JUnit 4 here. |
+  | Paparazzi, Macrobenchmark, Compose test rule, Robolectric, Espresso, Hilt instrumented tests | **JUnit 4** (`@Test` from `org.junit`, `@Before`, `@get:Rule`, `@RunWith`) | These ship a JUnit 4 `TestRule` / `Runner`. Jupiter has no `Rule` concept and ignores `@get:Rule` outright — `paparazzi.snapshot { }` then fails at runtime with an uninitialized rule rather than at compile time. |
+
+  Both engines run in the same module: keep `junit-vintage-engine` on the test runtime classpath alongside `junit-jupiter`, and make sure each test file imports `@Test` from the right package. A JUnit 5 `@Test` on a class with a `@get:Rule` is the single most common way these suites silently stop exercising anything.
 - **Mockito** (`whenever`, `verify`) for mocking in Android tests. Mokkery is for KMP `commonTest` only.
 - **Turbine** for testing `StateFlow` / `Flow` emissions (shared with KMP).
 - **MockWebServer** for Retrofit API tests.
@@ -496,18 +532,36 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 - Every stateless `*Content` composable that exposes a `process: (Input) -> Unit` lambda MUST have a Compose UI test that asserts each interactive surface in the bottom bar, action bar, or floating CTAs dispatches the correct `Input` on tap. The test runs against the stateless `Content` (no ViewModel), uses a capturing fake for `process`, and verifies the dispatched `Input` by type and payload. This is separate from screenshot tests, which verify rendering but not wiring — an accidental swap (Delete actually fires Archive) would ship under screenshot-only coverage.
 
 ```kotlin
-@Test
-fun delete_button_dispatches_delete_input() {
-    val dispatched = mutableListOf<Input>()
-    composeTestRule.setContent {
-        NotesListContent(
-            state = sampleSuccessState,
-            snackBarHostState = remember { SnackbarHostState() },
-            process = { dispatched += it },
-        )
+// JUnit 4 — the Compose test rule is a JUnit 4 TestRule.
+import org.junit.Rule
+import org.junit.Test
+
+class NotesListContentTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @Test
+    fun delete_button_dispatches_delete_input() {
+        // Given
+        val dispatched = mutableListOf<NotesListInput>()
+        val note = Note(id = "note-1", title = "Groceries", content = "…")
+
+        composeTestRule.setContent {
+            NotesListContent(
+                state = NotesListState.Loaded(notes = listOf(note)),
+                snackbarHostState = remember { SnackbarHostState() },
+                process = { dispatched += it },
+            )
+        }
+
+        // When
+        composeTestRule.onNodeWithContentDescription("Delete Groceries").performClick()
+
+        // Then — assert the payload too, not just the type. A test that only
+        // checks `is DeleteNote` still passes when the wrong note's id is sent.
+        assertEquals(listOf(NotesListInput.DeleteNote("note-1")), dispatched)
     }
-    composeTestRule.onNodeWithText("Delete").performClick()
-    assertTrue(dispatched.any { it is DeleteNoteInput })
 }
 ```
 
@@ -711,10 +765,14 @@ For AGP 9.0+ upgrades or KMP+AGP incompatibilities, invoke the JetBrains `kotlin
 
 ```kotlin
 android {
-    compileSdk = 35
+    // Track the CURRENT Google Play target-API requirement, not this number.
+    // Play refuses new app and update submissions below the requirement, and
+    // it advances every year — verify before starting a release, e.g. with
+    // `android docs search "target API level requirement"`.
+    compileSdk = 36
     defaultConfig {
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
     }
 
     compileOptions {
@@ -740,6 +798,8 @@ android {
 - `allWarningsAsErrors = true` — zero tolerance for warnings.
 - Version catalog (`libs.versions.toml`) for all dependencies — shared with KMP modules.
 - `minSdk = 24`.
+- **`targetSdk` tracks the current Google Play target-API requirement — it is not a pinned constant.** Play blocks submissions below it, and the bar moves every year (API 36 as of 2026). Confirm the requirement at the start of each release cycle rather than trusting the value already in the build file; a stale `targetSdk` is discovered at upload time, which is the worst possible moment.
+- `compileSdk` is `>= targetSdk`, and normally equal to it.
 - Compose BOM for aligned Compose library versions.
 
 ## Tooling: Android CLI & Agent Skills

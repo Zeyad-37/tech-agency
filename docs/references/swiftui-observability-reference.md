@@ -1,6 +1,6 @@
 # SwiftUI Observability Reference
 
-This is the detailed observability reference with code examples for SwiftUI/iOS. See `.claude/rules/swiftui-coding-standards.md` for the summary rules.
+This is the detailed observability reference with code examples for SwiftUI/iOS. See `.claude/rules/mobile/ios/swiftui-coding-standards.md` for the summary rules.
 
 ## Structured Logging
 
@@ -25,20 +25,48 @@ Logger.viewModel.error("Failed to load: \(error.localizedDescription, privacy: .
 // Core/CrashReporting/CrashReporterBridge.swift
 import shared
 
+/// Thin bridge over the shared `CrashReporter` interface. Every method here
+/// maps to a member that actually exists on the KMP interface — see
+/// `kmp-observability-reference.md` § Crash Reporting. If you need a method
+/// that is not there, add it to the shared interface first; do not invent a
+/// name on the Swift side, because nothing will fail until runtime.
 final class CrashReporterBridge {
     static let shared = CrashReporterBridge()
-    private let kmpReporter = SharedCrashReporter()
+    // Top-level Kotlin functions are exported under a class named after their
+    // FILE: `getCrashReporter()` lives in `CrashReporter.kt`, so Swift sees
+    // `CrashReporterKt`. Move the function to another file and this name
+    // changes with it.
+    private let kmpReporter: CrashReporter = CrashReporterKt.getCrashReporter()
 
     func setUserId(_ userId: String) {
-        kmpReporter.setUserId(userId)
+        kmpReporter.setUserId(userId: userId)
     }
 
-    func addBreadcrumb(message: String, level: String = "info") {
+    func setCustomKey(_ key: String, value: String) {
+        kmpReporter.setCustomKey(key: key, value: value)
+    }
+
+    func clearCustomKeys() {
+        kmpReporter.clearCustomKeys()
+    }
+
+    func addBreadcrumb(message: String, level: BreadcrumbLevel = .info) {
         kmpReporter.addBreadcrumb(message: message, level: level)
     }
 
-    func recordException(_ error: Error) {
-        kmpReporter.recordException(error.localizedDescription)
+    /// Named `logException` to match the shared interface — NOT
+    /// `recordException`, which does not exist on it.
+    ///
+    /// A Swift `Error` is not a `KotlinThrowable`, so it has to be wrapped.
+    /// Use `String(describing:)`, which preserves the domain and code, rather
+    /// than `localizedDescription`, which flattens every NSError to the same
+    /// user-facing sentence and makes crashes impossible to group.
+    func logException(_ error: Error, context: [String: String] = [:]) {
+        let description = String(describing: error)
+        kmpReporter.logException(
+            throwable: KotlinThrowable(message: description),
+            context: context
+        )
     }
 }
 
@@ -77,10 +105,11 @@ final class PerformanceTracker {
     }
 }
 
-// Usage
+// Usage — `state` is an enum, so match on the case. There is no
+// `state.isLoading` property; the four states are branches, not flags.
 var body: some View {
     ZStack {
-        if viewModel.state.isLoading {
+        if case .loading = viewModel.state {
             ProgressView()
                 .task {
                     await PerformanceTracker.shared.measure("UserProfileLoad") {
@@ -96,13 +125,23 @@ var body: some View {
 
 ```swift
 // App/AppDelegate.swift
-@UIApplicationMain
-final class AppDelegate: UIResponder, UIApplicationDelegate {
+// `@main`, not the deprecated `@UIApplicationMain`.
+// In a SwiftUI app the entry point is the App struct, which adopts this
+// delegate via @UIApplicationDelegateAdaptor — see below.
+final class AppDelegate: NSObject, UIApplicationDelegate {
     private let sessionId = UUID().uuidString
 
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+    // The parameter needs an INTERNAL name (`launchOptions`) as well as the
+    // external one. Declared as `didFinishLaunchingWithOptions:` alone, the
+    // value is unnamed inside the body and every `launchOptions` below fails
+    // to compile.
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
         let launchSource: String
-        if let notification = launchOptions?[.remoteNotification] {
+        // The payload is unused — bind with `_` rather than an unused `let`.
+        if launchOptions?[.remoteNotification] != nil {
             launchSource = "push_notification"
         } else if let url = launchOptions?[.url] as? URL {
             launchSource = "deep_link: \(url.scheme ?? "unknown")"
@@ -111,9 +150,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         CrashReporterBridge.shared.addBreadcrumb(message: "App launched: \(launchSource)")
-        Logger.viewModel.info("Session started: \(self.sessionId, privacy: .public), source: \(launchSource, privacy: .public)")
+        Logger.viewModel.info(
+            "Session started: \(self.sessionId, privacy: .public), source: \(launchSource, privacy: .public)"
+        )
 
         return true
+    }
+}
+
+// App/{App}App.swift
+@main
+struct MyApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        WindowGroup { RootScreen() }
     }
 }
 ```

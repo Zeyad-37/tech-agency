@@ -1,5 +1,8 @@
 # Kotlin Multiplatform (KMP) Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md`, falling back to `.claude/rules/mobile/shared/kmp-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owners: Link (shared modules + Ktor server + web targets), Kai (Android integration), Swift (iOS integration), Nova (web integration). All KMP shared code MUST follow these standards.
 
 ## Project Structure
@@ -123,18 +126,32 @@ sealed interface NotesListInput : Input {
         override val eventData = mapOf("noteId" to noteId)
     }
     data class SearchNotes(val query: String) : NotesListInput
+    data class OpenNote(val noteId: String) : NotesListInput {
+        override val eventData = mapOf("noteId" to noteId)
+    }
 }
 
 /**
- * Persistent screen state
+ * Persistent screen state — one leaf per screen shape (T-013 category (a)).
+ * The screen root renders with an exhaustive `when (state)`; there are no
+ * `isLoading` / `error != null` / `isEmpty()` flag combinations to reconcile.
  */
-data class NotesListState(
-    val notes: List<Note> = emptyList(),
-    val isLoading: Boolean = true,
-    val searchQuery: String = "",
-    val error: AppError? = null,
-) : State {
-    override val eventName: String = "NotesListState"
+sealed interface NotesListState : State {
+    /** Analytics name. Leaves override it when finer granularity is wanted. */
+    override val eventName: String get() = "NotesListState"
+
+    data object Loading : NotesListState
+
+    data object Empty : NotesListState
+
+    data class Error(val error: AppError) : NotesListState {
+        override val eventName: String = "NotesListState.Error"
+    }
+
+    data class Loaded(
+        val notes: List<Note>,
+        val searchQuery: String = "",
+    ) : NotesListState
 }
 
 /**
@@ -162,7 +179,7 @@ sealed interface NotesListResult : Result {
 
 Rules:
 - `Input` = user actions. `sealed interface` implementing `Input`.
-- `State` = persistent screen state. Single `data class` implementing `State`. Must define sensible defaults.
+- `State` = persistent screen state. A `sealed interface` (or `sealed class`) implementing `State`, with one `data class` / `data object` leaf per screen shape — typically `Loading`, `Empty`, `Error`, `Loaded`. A single `data class` carrying `isLoading` / `error` / emptiness flags is the T-013 category (a) anti-pattern and is rejected by the Konsist rule below.
 - `Effect` = one-shot events (navigation, toasts). `sealed interface` implementing `Effect`. Never reduced into State.
 - `Result` = internal outcomes of processing inputs. `sealed interface` implementing `Result`. Reduced into State by the ViewModel or InputHandlers.
 - All `Input`, `State`, and `Effect` types implement `Track` for automatic analytics.
@@ -179,7 +196,7 @@ class NotesListViewModel(
     private val deleteNoteUseCase: DeleteNoteUseCase,
     analyticsService: AnalyticsService,
 ) : ViewModel<NotesListInput, NotesListState, NotesListEffect>(
-    initialState = NotesListState(),
+    initialState = NotesListState.Loading,
     inputHandlers = listOf(
         LoadNotesInputHandler(getNotesUseCase),
         DeleteNoteInputHandler(deleteNoteUseCase),
@@ -191,7 +208,7 @@ class NotesListViewModel(
 
 Rules:
 - Extend the base `ViewModel<I, S, E>` with the screen's Input, State, Effect types.
-- Pass `initialState` with sensible defaults.
+- Pass `initialState` — the sealed leaf the screen opens in, usually `Loading`. Never a flag-bearing `data class`.
 - Register all `InputHandler` instances in the `inputHandlers` list.
 - ViewModel itself should be thin — delegate logic to InputHandlers.
 - Dependencies are use cases and services, never repositories directly (use cases mediate).
@@ -387,46 +404,184 @@ Rules:
 - `viewModel` for ViewModels.
 - Koin modules are aggregated at the app level and loaded at startup.
 
-## Expect / Actual
+## Platform Abstractions: Interface + DI (preferred) vs Expect / Actual
+
+An `actual` declaration must match its `expect` **exactly**, constructor included. The moment one platform needs a dependency the other does not — Android's `Context` is the usual case — `expect class` stops working: `commonMain` has no way to supply the argument, and the two actuals cannot legally differ in their constructor signature.
+
+The working pattern is a plain `interface` in `commonMain` plus platform implementations bound through Koin. Use it for anything that carries platform dependencies.
 
 ```kotlin
-// commonMain — expect declaration
-expect class SecureStorage {
+// commonMain — a plain interface. No expect, no constructor to reconcile.
+interface SecureStorage {
     suspend fun save(key: String, value: String)
     suspend fun get(key: String): String?
     suspend fun delete(key: String)
 }
+```
 
-// androidMain — actual implementation
-actual class SecureStorage(private val context: Context) {
-    private val prefs = EncryptedSharedPreferences.create(...)
+```kotlin
+// androidMain — Android Keystore-backed EncryptedSharedPreferences
+class AndroidSecureStorage(context: Context) : SecureStorage {
 
-    actual suspend fun save(key: String, value: String) {
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs = EncryptedSharedPreferences.create(
+        context,
+        "secure_storage",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    override suspend fun save(key: String, value: String) = withContext(Dispatchers.IO) {
         prefs.edit { putString(key, value) }
     }
 
-    actual suspend fun get(key: String): String? =
+    override suspend fun get(key: String): String? = withContext(Dispatchers.IO) {
         prefs.getString(key, null)
+    }
 
-    actual suspend fun delete(key: String) {
+    override suspend fun delete(key: String) = withContext(Dispatchers.IO) {
         prefs.edit { remove(key) }
     }
 }
+```
 
-// iosMain — actual implementation
-actual class SecureStorage {
-    actual suspend fun save(key: String, value: String) {
-        NSUserDefaults.standardUserDefaults.setObject(value, forKey = key)
+```kotlin
+// iosMain — Keychain. NEVER NSUserDefaults: it is a plaintext plist, is
+// included in device backups, and is readable by anyone with file access.
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.MemScope
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
+import platform.CoreFoundation.CFDictionaryAddValue
+import platform.CoreFoundation.CFDictionaryCreateMutable
+import platform.CoreFoundation.CFMutableDictionaryRef
+import platform.CoreFoundation.CFRelease
+import platform.CoreFoundation.CFStringRef
+import platform.CoreFoundation.CFTypeRefVar
+import platform.CoreFoundation.kCFAllocatorDefault
+import platform.CoreFoundation.kCFBooleanTrue
+import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
+import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
+import platform.Foundation.CFBridgingRelease
+import platform.Foundation.CFBridgingRetain
+import platform.Foundation.NSData
+import platform.Foundation.NSString
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.create
+import platform.Foundation.dataUsingEncoding
+import platform.Security.*
+
+@OptIn(ExperimentalForeignApi::class)
+class IosSecureStorage(
+    private val service: String,
+) : SecureStorage {
+
+    override suspend fun save(key: String, value: String): Unit = memScoped {
+        // The Keychain has no upsert — replacing an item is delete-then-add.
+        delete(key)
+
+        val data = (value as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+            ?: error("Keychain value for '$key' is not valid UTF-8")
+
+        val attributes = newQuery(capacity = 5)
+        CFDictionaryAddValue(attributes, kSecClass, kSecClassGenericPassword)
+        attributes.putBridged(kSecAttrService, service)
+        attributes.putBridged(kSecAttrAccount, key)
+        attributes.putBridged(kSecValueData, data)
+        // Device-only: never synced to iCloud, never restored to another device.
+        CFDictionaryAddValue(
+            attributes,
+            kSecAttrAccessible,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        )
+
+        val status = SecItemAdd(attributes, null)
+        CFRelease(attributes)
+        check(status == errSecSuccess) { "Keychain add failed for '$key' (OSStatus $status)" }
     }
-    // ...
+
+    override suspend fun get(key: String): String? = memScoped {
+        val query = newQuery(capacity = 5)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        query.putBridged(kSecAttrService, service)
+        query.putBridged(kSecAttrAccount, key)
+        CFDictionaryAddValue(query, kSecReturnData, kCFBooleanTrue)
+        CFDictionaryAddValue(query, kSecMatchLimit, kSecMatchLimitOne)
+
+        val result = alloc<CFTypeRefVar>()
+        val status = SecItemCopyMatching(query, result.ptr)
+        CFRelease(query)
+
+        when (status) {
+            errSecSuccess -> (CFBridgingRelease(result.value) as? NSData)
+                ?.let { NSString.create(it, NSUTF8StringEncoding) as String? }
+            errSecItemNotFound -> null
+            else -> error("Keychain read failed for '$key' (OSStatus $status)")
+        }
+    }
+
+    override suspend fun delete(key: String): Unit = memScoped {
+        val query = newQuery(capacity = 3)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        query.putBridged(kSecAttrService, service)
+        query.putBridged(kSecAttrAccount, key)
+
+        val status = SecItemDelete(query)
+        CFRelease(query)
+        check(status == errSecSuccess || status == errSecItemNotFound) {
+            "Keychain delete failed for '$key' (OSStatus $status)"
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun MemScope.newQuery(capacity: Int): CFMutableDictionaryRef? =
+    CFDictionaryCreateMutable(
+        kCFAllocatorDefault,
+        capacity.convert(),
+        kCFTypeDictionaryKeyCallBacks.ptr,
+        kCFTypeDictionaryValueCallBacks.ptr,
+    )
+
+/** Adds an Obj-C value, balancing the +1 that `CFBridgingRetain` takes. */
+@OptIn(ExperimentalForeignApi::class)
+private fun CFMutableDictionaryRef?.putBridged(key: CFStringRef?, value: Any) {
+    val cfValue = CFBridgingRetain(value)
+    CFDictionaryAddValue(this, key, cfValue)
+    CFRelease(cfValue)
+}
+```
+
+Binding happens in the platform Koin module — the one place a legitimate `expect`/`actual` seam lives, because a `Module` value has no constructor to vary:
+
+```kotlin
+// commonMain
+expect val platformModule: Module
+
+// androidMain
+actual val platformModule = module {
+    single<SecureStorage> { AndroidSecureStorage(androidContext()) }
+}
+
+// iosMain
+actual val platformModule = module {
+    single<SecureStorage> { IosSecureStorage(service = "com.example.app.secure") }
 }
 ```
 
 Rules:
-- `expect`/`actual` only for genuine platform differences (file system, secure storage, biometrics, platform APIs).
-- Define `expect` in `commonMain`. Provide `actual` for every target (`androidMain`, `iosMain`, etc.).
-- Never use `expect`/`actual` for things that can be solved with a multiplatform library.
-- Platform-specific dependencies only inside `actual` implementations.
+- **Prefer `interface` in `commonMain` + platform classes bound via Koin.** Reach for `expect`/`actual` only when the declaration's signature is genuinely identical on every target (top-level functions, value declarations like `platformModule`, typealiases).
+- **`actual` declarations cannot vary their constructor.** If one platform needs a `Context`, a `service` name, or any other platform-only dependency, `expect class` is the wrong tool — that dependency must be injected, which means an interface.
+- **A platform implementation must meet the security bar of the strongest platform.** When one platform stores something encrypted and hardware-backed (Android Keystore / EncryptedSharedPreferences), every other platform must reach an equivalent bar (iOS Keychain, Web `IndexedDB` behind Web Crypto with a non-extractable key). Never let one target quietly downgrade to plaintext (`NSUserDefaults`, `SharedPreferences`, `localStorage`) — the abstraction's name promises the guarantee on every target, and the weakest implementation is the one an attacker uses.
+- Never use `expect`/`actual` for something a multiplatform library already solves.
+- Platform-specific dependencies live only inside platform source sets — never leak `Context`, `NSData`, or a `CFDictionaryRef` across an interface boundary.
 - Wrap platform APIs behind domain interfaces so consumers stay platform-agnostic.
 
 ## KMP/Web Targets (Kotlin/Wasm & Kotlin/JS)
@@ -563,9 +718,10 @@ All observability in KMP uses expect/actual pattern to remain tool-agnostic. Pla
 
 ### Key Observability Rules
 
-- **Structured Logging**: `expect interface Logger` in `commonMain`. Platform actuals delegate to chosen logging framework. Include `traceId`, `userId`, `module` in context. NEVER log PII, tokens, passwords.
-- **Crash Reporting**: `expect interface CrashReporter` in `commonMain`. Install `CoroutineExceptionHandler` at ViewModel scope. Call `setUserId()` on login, `clearCustomKeys()` on logout.
-- **Performance Monitoring**: `expect interface PerformanceTrace` in `commonMain`. Instrument critical paths: network calls, DB operations, serialization.
+- **Structured Logging**: a plain `interface Logger` in `commonMain`, plus `expect fun createLogger(module: String): Logger` as the only expect/actual seam. Each platform's `actual createLogger` returns a class implementing the shared interface by delegating to the chosen logging framework. (An `expect interface` would require an `actual interface` per target, which the delegating class could not then implement.) Include `traceId`, `userId`, `module` in context. NEVER log PII, tokens, passwords.
+- **Crash Reporting**: plain `interface CrashReporter` + `expect fun getCrashReporter(): CrashReporter`. Install `CoroutineExceptionHandler` at ViewModel scope. Call `setUserId()` on login, `clearCustomKeys()` on logout.
+- **Performance Monitoring**: plain `interface PerformanceTrace` + `expect fun getPerformanceTrace(): PerformanceTrace`. Instrument critical paths: network calls, DB operations, serialization.
+- **No `java.*` / `System.*` in any of it** — these interfaces and their shared-code callers compile for iOS and Wasm too. `kotlin.time.TimeSource` for elapsed time, `kotlinx.datetime.Clock` for timestamps.
 - **Network Observability**: Ktor client plugin for tracing headers, request/response logging (sanitized), and metrics collection.
 - All observability interfaces live in `commonMain` — no hardcoded vendor dependencies in shared code.
 - Platform implementations injected via Koin or your DI system.
@@ -725,20 +881,30 @@ plugins {
 @Composable
 fun NotesListScreen(
     viewModel: NotesListViewModel = koinViewModel(),
+    onNavigateToDetail: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
+    // Effects are one-shot — collected in a LaunchedEffect, never in the body.
     LaunchedEffect(Unit) {
         viewModel.effect.collect { effect ->
             when (effect) {
-                is NotesListEffect.NavigateToDetail -> navController.navigate(...)
+                is NotesListEffect.NavigateToDetail -> onNavigateToDetail(effect.noteId)
                 is NotesListEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
             }
         }
     }
 
-    // Render based on state...
-    viewModel.process(NotesListInput.LoadNotes)
+    // Inputs are dispatched from effects/callbacks — never from the composition
+    // body, which re-runs on every recomposition.
+    LaunchedEffect(Unit) { viewModel.process(NotesListInput.LoadNotes) }
+
+    NotesListContent(
+        state = state,
+        snackbarHostState = snackbarHostState,
+        process = viewModel::process,
+    )
 }
 ```
 
@@ -764,18 +930,27 @@ fun NotesListScreen(
     viewModel: NotesListViewModel = koinInject(),
 ) {
     val state by viewModel.state.collectAsState()
+    // Same Content, same signature as the Android host — material3's
+    // SnackbarHostState is multiplatform, so the web host owns one too.
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.effect.collect { effect ->
             when (effect) {
                 is NotesListEffect.NavigateToDetail -> /* browser routing */ Unit
-                is NotesListEffect.ShowSnackbar -> /* web notification */ Unit
+                is NotesListEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
             }
         }
     }
 
+    LaunchedEffect(Unit) { viewModel.process(NotesListInput.LoadNotes) }
+
     // Render based on state (Compose Multiplatform UI)...
-    viewModel.process(NotesListInput.LoadNotes)
+    NotesListContent(
+        state = state,
+        snackbarHostState = snackbarHostState,
+        process = viewModel::process,
+    )
 }
 ```
 
