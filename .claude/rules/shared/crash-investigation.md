@@ -27,7 +27,19 @@ Provide two options:
 
 ### 4. Generate Post Mortem
 
-After completing the investigation, generate a post mortem document as the **sole output** of the session. Save it to `docs/post-mortem/{Task-Id}-Post Mortem-Title.md` (e.g., `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
+After completing the investigation, generate a post mortem document as the **sole output** of the session.
+
+**Canonical location — `docs/post-mortem/`.** Save the document to
+`docs/post-mortem/{Task-Id}-Post Mortem-Title.md`
+(e.g., `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
+
+This directory is canonical and non-negotiable. It follows the `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`
+filing convention from `@.claude/rules/shared/handoff-protocol.md`, which every other agency artifact
+(PRD, BRD, ADR, RFC, incident notes, release records) also follows. Do **not** write post-mortems to
+`.claude/post-mortems/` — that path is not the convention, is not where any other artifact lives, and
+is not where `/postmortem`, `/investigate-crash`, `/health-check`, or a human reader will look for
+them. If you encounter an existing `.claude/post-mortems/` directory in a project, treat it as legacy:
+new documents go to `docs/post-mortem/`.
 
 If `docs/post-mortem/` does not exist, create it.
 
@@ -87,15 +99,27 @@ Action points must cover all relevant layers: unit/integration tests, CI checks 
 
 ### 5. Update the Index
 
-Append a one-line entry to `docs/post-mortem/INDEX.md` (create the file if it doesn't exist):
+Append a one-line entry to `docs/post-mortem/INDEX.md` — the canonical index, alongside the
+canonical directory. Create the file if it doesn't exist.
 
-```
-| YYYY-MM-DD | <Incident Title> | <Severity> | [Post Mortem](./filename.md) |
-```
-
-If INDEX.md is new, add a header row first:
+**Canonical schema — exactly these four columns, in this order:**
 
 ```
 | Date | Incident | Severity | Report |
 |------|----------|----------|--------|
 ```
+
+Each entry is one row:
+
+```
+| YYYY-MM-DD | <Incident Title> | <Severity> | [Post Mortem](./filename.md) |
+```
+
+- `Date` is ISO `YYYY-MM-DD`.
+- `Severity` is one of `P0`, `P1`, `P2`, `P3`.
+- `Report` is a relative link (`./filename.md`) to the document in the same directory.
+- Newest entries append to the bottom.
+
+Do not add, drop, rename, or reorder columns, and do not maintain a second index at any other path.
+Any index found at `.claude/post-mortems/INDEX.md`, or carrying a different column set, is legacy —
+migrate its rows into this schema rather than writing to it.

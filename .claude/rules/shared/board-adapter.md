@@ -114,13 +114,48 @@ The exact mapping depends on the project's board configuration. When setting up 
 
 1. **Always check `board_backend`** before any board interaction. Read `.claude/settings.json` at the start of any skill that touches the board.
 
-2. **Use operations, not raw access.** Never write `cat board-context.md` directly in a skill. Always go through the operation abstraction. If the backend is markdown, the operation translates to `cat board-context.md` — but the skill shouldn't know that.
+2. **Use operations, not raw access.** Never write `cat board-context.md`, `grep … board-context.md`, or a direct `Edit` of `board-context.md` in a skill. Always name the operation instead. If the backend is markdown, the operation translates to exactly that command — but the skill must not encode the translation, because a skill that hardcodes `cat board-context.md` silently reads an empty board on a Jira-backed project.
+
+   The operation names a skill may use are exactly those in the two tables above:
+
+   - **Read:** `board.read_all()`, `board.read_column(column)`, `board.read_task(task_id)`, `board.read_agent_wip(agent)`, `board.search(query)`
+   - **Write:** `board.move_task(task_id, from, to)`, `board.assign_task(task_id, agent)`, `board.create_task(task)`, `board.update_task(task_id, fields)`, `board.add_comment(task_id, comment)`, `board.add_blocker(task_id, reason)`, `board.remove_blocker(task_id)`
+
+   A skill step reads: "`board.read_column('Ready')` — resolve via the backend in `.claude/settings.json`". It does not read: "run `cat board-context.md`".
 
 3. **Handle both backends gracefully.** If an MCP tool is not available for the configured backend, report the error clearly: "Board backend is set to {tool} but the MCP connection is not available. Please check your MCP configuration or switch to markdown."
 
 4. **Keep `board-context.md` as fallback.** Even when using an external tool, `board-context.md` can serve as a local cache or backup. If the external tool is unreachable, the agent may fall back to the last cached state in `board-context.md` and note that it's potentially stale.
 
 5. **Sync after external operations.** When using an external backend, after any write operation, the agent should update `board-context.md` as a local mirror if it exists. This keeps the file useful for quick offline reference.
+
+## Known Limitation — Live State Is Derived, Not Read
+
+The read operations above return what the **merged** board says. On the `markdown` backend that is
+not the same as what is actually in flight.
+
+Per `@.claude/rules/shared/board-in-pr.md`, a task's `→ In Progress`, `→ Blocked`, and `→ Review`
+transitions are committed on the task's own branch and do not reach `main` until that branch's PR
+merges. A checkout of `main` therefore shows an empty or stale In Progress column even while several
+agents are mid-task. The merged board is an accurate record of **completed** work (the Done column,
+the decisions log, the task inventory); it is not a live view.
+
+**Live state must be derived from open PRs and their branches**, not from the merged file:
+
+```bash
+gh pr list --state open --json number,title,headRefName,author
+git branch -r --list 'origin/*'
+# and, per branch, that branch's own board-context.md
+```
+
+Consumers that report live state — `/pick-up-task`'s 2-item WIP check, and `/daily-sync`'s In
+Progress count, WIP violations, blockers, and cycle-time alerts — currently read the columns
+straight from the merged file and will therefore **under-report in-flight work**. Treat their
+In Progress numbers as a lower bound. Reworking those consumers onto the derived source is tracked
+in `docs/tech-debt/backlog.md`.
+
+This limitation is specific to the `markdown` backend. External backends (Jira, Linear, Asana) write
+through their API immediately, so their reads are live.
 
 ## Adding a New Backend
 
@@ -131,4 +166,10 @@ To add support for a new board tool:
 3. Document the status mapping in `docs/board-config.md`
 4. Test with `/daily-sync` to verify read operations work
 5. Test with `/pick-up-task` to verify write operations work
-6. No changes to any skill files are needed — the adapter handles translation
+6. **Audit the skills for raw board access before trusting the new backend.** The adapter handles translation only for skills that actually go through it. Any skill that hardcodes `cat board-context.md` or edits the file directly bypasses the adapter and will read or write the wrong thing:
+
+   ```bash
+   grep -rn "board-context\.md" .claude/skills/ | grep -v "board\."
+   ```
+
+   Every hit is a skill that must be converted to a named operation from rule 2 before the backend switch is safe. This is the one step that is *not* free — the adapter removes the need to re-implement translation logic per skill, but it cannot rescue a skill that never called it.

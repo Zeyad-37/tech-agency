@@ -84,6 +84,8 @@ The base branch — what a worktree branches **off from** and what its PR merges
 
 An epic integration branch is itself created from `origin/main` (`git branch epic/{EPIC-ID}-{slug} origin/main && git push -u origin epic/{EPIC-ID}-{slug}`) and is NOT a worktree task branch — no direct commits on it; it only receives story-branch PR merges and periodic `main` merges to stay current.
 
+Publishing a new, empty epic integration branch is the one **named exception** to the push policy's "no bare `git push` outside `/create-pr` / `/ship-pr`" rule (see "Push Policy" in `@.claude/rules/shared/shared-standards.md`): the branch must exist on the remote before any story worktree can be cut from it, and there is no PR to carry it. It pushes zero commits — only a ref pointing at `origin/main`. Do this only when @Zeyad has approved the epic, and never use it as cover for pushing commits.
+
 ## Board Updates Happen in the Worktree
 
 `board-context.md` is edited in the worktree alongside the task work. The board update commits onto the task branch and merges back to `main` via the same PR as the code change. There is no "Atlas updates the board in the main checkout" path — that would violate the worktree-first rule.
