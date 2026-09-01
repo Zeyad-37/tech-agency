@@ -64,20 +64,34 @@ fi
 # ---------------------------------------------------------------------------
 echo -n "  Checking commit message format... "
 
-# Get commits that will be pushed (local commits not yet on remote)
+# Only commits UNIQUE to this branch are validated. Commits already reachable
+# from the remote main branch are excluded — after a rebase onto origin/main the
+# naive $REMOTE_REF..HEAD range would include main's own history (squash-merge
+# subjects like "[T-032] Title (#239)", bot commits like "CI: ... [skip ci]"),
+# which can never match the required format and would force --no-verify.
 REMOTE=${1:-origin}
-REMOTE_REF=$(git rev-parse "$REMOTE/$BRANCH" 2>/dev/null || echo "")
+# --verify --quiet: without it, rev-parse echoes the literal ref name to stdout
+# even when the ref doesn't exist (e.g. first push of a new branch), poisoning
+# EXCLUDE_REFS with a bogus ref and breaking the git log below.
+REMOTE_REF=$(git rev-parse --verify --quiet "$REMOTE/$BRANCH" 2>/dev/null || echo "")
+# Try the target remote's main first, then local main. (When REMOTE=origin the
+# first lookup already covers origin/main; never fall back to a *different*
+# remote's main — that could exclude the wrong history on multi-remote setups.)
+MAIN_REF=$(git rev-parse --verify --quiet "$REMOTE/main" 2>/dev/null || git rev-parse --verify --quiet main 2>/dev/null || echo "")
 
-if [ -n "$REMOTE_REF" ]; then
-    COMMITS=$(git log --oneline "$REMOTE_REF..HEAD" 2>/dev/null || true)
-else
-    # New branch — check all commits since branching from main
-    MAIN_REF=$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || echo "")
-    if [ -n "$MAIN_REF" ]; then
-        COMMITS=$(git log --oneline "$MAIN_REF..HEAD" 2>/dev/null || true)
-    else
+EXCLUDE_REFS=""
+[ -n "$REMOTE_REF" ] && EXCLUDE_REFS="$EXCLUDE_REFS $REMOTE_REF"
+[ -n "$MAIN_REF" ] && EXCLUDE_REFS="$EXCLUDE_REFS $MAIN_REF"
+
+if [ -n "$EXCLUDE_REFS" ]; then
+    # EXCLUDE_REFS is intentionally unquoted: space-separated commit hashes
+    # shellcheck disable=SC2086
+    COMMITS=$(git log --oneline HEAD --not $EXCLUDE_REFS 2>/dev/null) || {
+        echo -e "  ${YELLOW}WARNING: could not list commits for format check — skipping${NC}"
         COMMITS=""
-    fi
+    }
+else
+    COMMITS=""
 fi
 
 BAD_COMMITS=""
@@ -90,7 +104,7 @@ if [ -n "$COMMITS" ]; then
             continue
         fi
         # Check format: [STORY-ID] @Agent: description
-        if ! echo "$MSG" | grep -qE '^\[[A-Z]+-[0-9]+(\.[0-9]+)?\]\s+@[A-Za-z]+:'; then
+        if ! echo "$MSG" | grep -qE '^\[[A-Z]+(-[0-9]+(\.[0-9]+)?)?\] @[A-Za-z]+: '; then
             BAD_COMMITS="$BAD_COMMITS\n    - $HASH: $MSG"
         fi
     done <<< "$COMMITS"
