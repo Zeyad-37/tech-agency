@@ -1,6 +1,6 @@
 ---
 name: tech-task
-description: "Kick off a technical or infrastructure task that isn't a product feature. Use for tooling improvements, refactoring, CI/CD changes, design system work, tech debt cleanup, dependency upgrades, DevOps tasks, or any engineering initiative that doesn't start with a PRD/BRD. Triggers: 'tech task', 'infrastructure task', 'improve [tooling]', 'set up [infrastructure]', 'refactor [module]', 'create a design system', 'fix the build pipeline', 'clean up tech debt'."
+description: "Plan and start a technical or infrastructure task that isn't a product feature. Use for tooling improvements, refactoring, CI/CD changes, design system work, tech debt cleanup, dependency upgrades, DevOps tasks, or any engineering initiative that doesn't start with a PRD/BRD. Triggers: 'tech task', 'infrastructure task', 'improve [tooling]', 'set up [infrastructure]', 'refactor [module]', 'create a design system', 'fix the build pipeline', 'clean up tech debt'."
 ---
 
 # Tech Task Kickoff
@@ -21,21 +21,31 @@ Check existing context:
 - Recent ADRs — does an existing decision constrain this work?
 - `docs/ci-enforcement-policy.md` — relevant for CI/CD tasks
 
-## Step 2: Create a Branch
+## Step 2: Create a Worktree
 
-Before any implementation, create a working branch. Always branch from the latest `origin/main`, never from the currently checked-out branch:
+Before any implementation, create a **git worktree**. All Claude Code work happens in a worktree — the main checkout is an orchestration root only, and `git checkout -b` there stomps any parallel session. See `@.claude/rules/shared/worktree-first.md`.
+
+Resolve the base branch first, per `worktree-first.md` § Base Branch Resolution: explicit `--base` → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `origin/main`.
 
 ```bash
-git fetch origin main
-git checkout -b tech/{short-description} origin/main
-# e.g., tech/improve-git-hooks, tech/design-system, tech/refactor-auth-module
+MAIN_REPO="$(git rev-parse --show-toplevel)"
+
+BASE="main"                              # or epic/{EPIC-ID}-{slug} when this task belongs to an epic
+BRANCH="tech/{short-description}"        # e.g. tech/improve-git-hooks, tech/design-system
+# If the task already has a board story ID, use that convention instead:
+#   BRANCH="{STORY-ID}/{short-description}"
+WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+
+git -C "$MAIN_REPO" fetch origin "$BASE"
+git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+cd "$WORKTREE_DIR"
+
+# Verify BEFORE any write. If either check fails, STOP and report.
+pwd                          # must equal $WORKTREE_DIR
+git branch --show-current    # must equal $BRANCH
 ```
 
-If the task already has a board story ID, use the standard convention instead:
-```bash
-git fetch origin main
-git checkout -b {STORY-ID}/{short-description} origin/main
-```
+The worktree's PR merges back into `$BASE` — branch-off and merge-into are always the same branch.
 
 ## Step 3: Route by Scope
 
@@ -62,12 +72,12 @@ Skip ADR. Go straight to the relevant agent:
 | ML infra, model serving setup | @Neuron |
 | Architecture decisions, cross-cutting concerns | @Sage |
 
-Create a board task via `board.create_task()`:
+Create a board task via `board.create_task()` (see `@.claude/rules/shared/board-adapter.md`). New tasks land in Backlog, whose schema is `| Task ID | Priority | Description | Requested By |`:
 ```
 Task: [description]
 Type: Tech Task
 Priority: [P1-P3]
-Assigned To: @[Agent]
+Assigned To: @[Agent]        (board.assign_task once it moves to Ready)
 Acceptance Criteria:
   - [specific, testable criteria]
 ```
@@ -100,7 +110,7 @@ Determine:
 ```
 @Sage — Write an ADR for: [task description].
 Focus on: approach, alternatives, trade-offs, affected modules.
-Save to docs/tech-tasks/{task-name}/adr.md.
+Save to docs/adr/{Task-Id}-ADR-{Title}.md.
 ```
 **Get @Zeyad approval on the ADR.** Then create board tasks.
 
@@ -109,14 +119,14 @@ Save to docs/tech-tasks/{task-name}/adr.md.
 This requires an RFC. Tell the assigned agent:
 ```
 This is a significant technical initiative. Write an RFC before starting.
-Save to docs/tech-tasks/{task-name}/rfc.md.
+Save to docs/rfc/{Task-Id}-RFC-{Title}.md.
 Include: Goal, Background, Proposed Plan, Alternatives (2+), Open Questions, Estimated Scope.
 ```
 **Get @Zeyad approval on the RFC.**
 
 Then have Sage break it into tasks:
 ```
-@Sage — Break down the RFC at docs/tech-tasks/{task-name}/rfc.md into implementable tasks.
+@Sage — Break down the RFC at docs/rfc/{Task-Id}-RFC-{Title}.md into implementable tasks.
 Assign each to the appropriate agent based on domain.
 ```
 
@@ -131,7 +141,9 @@ Then invoke Atlas for board setup:
 For medium and large tasks, invoke Atlas:
 ```
 @Atlas — Set up board tasks for tech task: [name].
-Reference: docs/tech-tasks/{task-name}/[adr or rfc].md
+Reference: docs/adr/{Task-Id}-ADR-{Title}.md or docs/rfc/{Task-Id}-RFC-{Title}.md
+Create them via board.create_task(). New tasks land in Backlog:
+  | Task ID | Priority | Description | Requested By |
 Assign agents based on domain expertise.
 Type all tasks as "Tech Task" for tracking.
 ```
@@ -146,7 +158,7 @@ If the task involves creating or updating a design system:
 Target platforms: [platforms].
 Output: Design tokens (JSON), component specs with variants/states/accessibility.
 ```
-Save to `docs/tech-tasks/{task-name}/design-spec.md`. **Get @Zeyad approval.**
+Save to `docs/design-spec/{Task-Id}-Design Spec-{Title}.md`. **Get @Zeyad approval.**
 
 2. Then fan out to platform engineers:
 ```
@@ -168,17 +180,19 @@ After implementation:
 
 ## Artifact Storage
 
-All tech task artifacts go to `docs/tech-tasks/{task-name}/`:
-- `rfc.md` — RFC (large tasks only)
-- `adr.md` — ADR (if architectural decisions were made)
-- `design-spec.md` — Design spec (design system tasks)
-- Cross-reference in `docs/by-type/tech-task/{task-name}.md`
+Tech task artifacts are filed by **document type**, exactly like feature artifacts — per `@.claude/rules/shared/handoff-protocol.md`, `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`:
+
+- `docs/rfc/{Task-Id}-RFC-{Title}.md` — RFC (large tasks only)
+- `docs/adr/{Task-Id}-ADR-{Title}.md` — ADR (if architectural decisions were made)
+- `docs/design-spec/{Task-Id}-Design Spec-{Title}.md` — design spec (design system tasks)
+
+There is no `docs/tech-tasks/` tree and no `docs/by-type/` cross-reference tree. The type folder *is* the index, and the `T-`/`tech-` task ID in the filename is what identifies it as tech work.
 
 ## Handoff Reminders
 
 - Every handoff doc needs @Zeyad approval before the next step
 - Tag tasks as "Tech Task" on the board so sprint reports can distinguish feature work from infrastructure work
 - If the task resolves tech debt, also update `docs/tech-debt/resolved.md` with the resolution
-- Engineers should check existing docs and ADRs before starting (per agent-preamble.md)
+- Engineers should check existing docs and ADRs before starting (per `@.claude/rules/shared/agent-preamble.md`)
 - Use `/update-board` at every lifecycle transition (→ In Progress, → Blocked, → Review, → Done) to commit the board change on the branch so it merges with the code
 - Use `/create-pr` after moving to Review to create a standardized pull request with the task ID in the title and participating agents in the body
