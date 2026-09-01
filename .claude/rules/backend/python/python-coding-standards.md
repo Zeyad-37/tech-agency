@@ -1,5 +1,8 @@
 # Python / FastAPI Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md`, falling back to `.claude/rules/backend/python/python-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Pyra. All Python backend code MUST follow these standards.
 
 ## Project Structure
@@ -158,7 +161,7 @@ class ValidationError(AppError):
 
 ```python
 # shared/schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Generic, TypeVar
 
 T = TypeVar("T")
@@ -168,19 +171,25 @@ class ApiResponse(BaseModel, Generic[T]):
     data: T
     meta: dict | None = None
 
-class ErrorResponse(BaseModel):
-    status: str = "error"
-    error: ErrorDetail
-
+# ErrorDetail is defined BEFORE ErrorResponse. A bare forward reference fails
+# at import — NameError on Python <= 3.13, and a Pydantic "not fully defined"
+# error on 3.14+, where PEP 649 defers the annotation until Pydantic resolves
+# it. Every router imports this module, so either way the app never boots.
 class ErrorDetail(BaseModel):
     code: str
     message: str
-    details: dict = {}
+    details: dict = Field(default_factory=dict)
+
+class ErrorResponse(BaseModel):
+    status: str = "error"
+    error: ErrorDetail
 ```
 
 - Never return bare lists — always wrap in `data`.
 - `meta` for pagination metadata.
 - Never leak tracebacks in production responses.
+- **Define a model before the model that references it.** Pydantic v2 builds the schema at class-creation time, so an unbound name fails on import rather than on first use — `NameError` on Python ≤ 3.13, a Pydantic "not fully defined" error on 3.14+. If two models genuinely reference each other, quote the annotation (`error: "ErrorDetail"`) and call `ErrorResponse.model_rebuild()` after both are defined.
+- Mutable defaults go through `Field(default_factory=dict)` / `Field(default_factory=list)`, never a bare `{}` or `[]`.
 
 ## Pagination
 
@@ -241,8 +250,9 @@ class User(TimestampMixin, Base):
 - Use `contextvar` for request-scoped state (e.g., correlation ID), not thread-locals.
 
 ```python
-# GOOD
-async def get_user(self, user_id: str) -> User:
+# GOOD — the return type says `| None` because scalar_one_or_none() may return
+# None. Repositories report absence; the service turns it into NotFoundError.
+async def get_user(self, user_id: str) -> User | None:
     async with self.session_factory() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()

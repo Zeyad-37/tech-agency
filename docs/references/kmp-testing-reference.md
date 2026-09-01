@@ -1,6 +1,6 @@
 # KMP Testing Reference
 
-This is the detailed testing reference for KMP coding standards. See `.claude/rules/kmp-coding-standards.md` for the summary rules.
+This is the detailed testing reference for KMP coding standards. See `.claude/rules/mobile/shared/kmp-coding-standards.md` for the summary rules.
 
 ## Test Location
 
@@ -101,7 +101,7 @@ class LoadNotesInputHandlerTest {
         everySuspend { getNotesUseCase() } returns Result.success(notes)
 
         // When & Then
-        handler.handle(NotesListInput.LoadNotes, NotesListState()).test {
+        handler.handle(NotesListInput.LoadNotes, NotesListState.Loading).test {
             assertIs<NotesListResult.Loading>(awaitItem())
             val loaded = awaitItem() as NotesListResult.NotesLoaded
             assertEquals(1, loaded.notes.size)
@@ -236,8 +236,9 @@ class NoteCardSnapshotTest {
         paparazzi.snapshot {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(isLoading = false, notes = emptyList()),
-                    onLoadNotes = {}, onDeleteNote = {}, onRetry = {}, onNoteClick = {},
+                    state = NotesListState.Empty,
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
@@ -364,10 +365,9 @@ class ViewModelStressTest {
         }
         jobs.joinAll()
 
-        // State should be valid (not corrupted)
+        // State should have settled on a terminal leaf, not still Loading.
         val finalState = viewModel.state.value
-        assertNotNull(finalState)
-        assertFalse(finalState.isLoading) // should have settled
+        assertIsNot<NotesListState.Loading>(finalState)
     }
 }
 ```
@@ -527,8 +527,9 @@ class NotesListAccessibilityTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(isLoading = true),
-                    onLoadNotes = {}, onDeleteNote = {}, onRetry = {}, onNoteClick = {},
+                    state = NotesListState.Loading,
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
@@ -554,8 +555,9 @@ class NotesListAccessibilityTest {
         composeRule.setContent {
             AppTheme {
                 NotesListContent(
-                    state = NotesListState(isLoading = false, error = AppError.NetworkUnavailable),
-                    onLoadNotes = {}, onDeleteNote = {}, onRetry = {}, onNoteClick = {},
+                    state = NotesListState.Error(AppError.NetworkUnavailable),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    process = {},
                 )
             }
         }
