@@ -3,7 +3,23 @@ set -euo pipefail
 
 # =============================================================================
 # Pre-Push Hook — Heavier checks before code leaves the machine
-# Install: ./hooks/install-hooks.sh (or manually symlink to .git/hooks/)
+# Install: ./hooks/install-hooks.sh
+#
+# git invokes this hook as:   pre-push <remote-name> <remote-url>
+# and feeds one line per ref being pushed on STDIN:
+#
+#     <local ref> <local sha> <remote ref> <remote sha>
+#
+# The refspecs on stdin are the ONLY sound source of "what is about to be
+# pushed where". Deciding from `git rev-parse --abbrev-ref HEAD` instead is
+# wrong in both directions:
+#   - `git push origin HEAD:main` from a feature branch is a push to main, but
+#     the current branch is not main, so it would be allowed.
+#   - `git push origin v1.2.3` while standing on main pushes a tag, not main,
+#     but it would be blocked.
+#
+# STDIN IS CONSUMED ONCE, UP FRONT. Nothing after that block may read stdin,
+# so every subcommand below is explicitly given </dev/null.
 # =============================================================================
 
 RED='\033[0;31m'
@@ -12,45 +28,105 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 ERRORS=0
+ZERO_SHA='0000000000000000000000000000000000000000'
+
+REMOTE="${1:-origin}"
 
 echo "🚀 Running pre-push checks..."
 
-# Get the current branch name
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
 # ---------------------------------------------------------------------------
-# 1. Branch naming convention
+# 0. Consume the refspecs from stdin (must happen before anything else)
 # ---------------------------------------------------------------------------
-echo -n "  Checking branch naming... "
+PUSHES_TO_MAIN=""     # local refs being pushed onto refs/heads/main
+PUSHED_BRANCHES=""    # local branch short-names being pushed
+COMMIT_RANGES=""      # rev ranges covering the new commits, one per line
+SAW_REFSPEC=false
 
-# Allowed patterns: story-id/description, hotfix/*, release/*, tech/*, deps/*, main, develop
-if [[ "$BRANCH" == "main" || "$BRANCH" == "develop" ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^[A-Z]+-[0-9]+/.+ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^hotfix/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^release/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^tech/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^deps/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-else
-    echo -e "${YELLOW}WARNING${NC}"
-    echo -e "  ${YELLOW}Branch '$BRANCH' doesn't follow naming convention.${NC}"
-    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, tech/{description}, deps/{package}, hotfix/{version}/{description}${NC}"
-    # Warning only, not blocking
+if [ ! -t 0 ]; then
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        [ -n "${remote_ref:-}" ] || continue
+        SAW_REFSPEC=true
+
+        # A local sha of all zeros means "delete this remote ref". Deleting a
+        # branch pushes no commits, so the content checks do not apply — but
+        # deleting main is still a direct, destructive write to main and is
+        # blocked by the same gate as pushing onto it.
+        if [ "$local_sha" = "$ZERO_SHA" ]; then
+            if [ "$remote_ref" = "refs/heads/main" ]; then
+                PUSHES_TO_MAIN="${PUSHES_TO_MAIN}(delete)"$'\n'
+            fi
+            continue
+        fi
+
+        case "$remote_ref" in
+            refs/tags/*)
+                # Tags are not branch pushes. Releases are tagged on main by
+                # design, so blocking them here would break the release flow.
+                continue
+                ;;
+            refs/heads/main)
+                PUSHES_TO_MAIN="${PUSHES_TO_MAIN}${local_ref}"$'\n'
+                ;;
+        esac
+
+        case "$local_ref" in
+            refs/heads/*) PUSHED_BRANCHES="${PUSHED_BRANCHES}${local_ref#refs/heads/}"$'\n' ;;
+        esac
+
+        if [ "$remote_sha" = "$ZERO_SHA" ]; then
+            # New remote branch: everything on it that is not already on the remote.
+            COMMIT_RANGES="${COMMIT_RANGES}${local_sha} --not --remotes=${REMOTE}"$'\n'
+        else
+            COMMIT_RANGES="${COMMIT_RANGES}${remote_sha}..${local_sha}"$'\n'
+        fi
+    done
+fi
+
+# Manual invocation (no refspecs on stdin) — fall back to the current branch so
+# the hook is still useful when run by hand.
+CURRENT_BRANCH=$(git symbolic-ref --short -q HEAD || echo "")
+if ! $SAW_REFSPEC && [ -n "$CURRENT_BRANCH" ]; then
+    PUSHED_BRANCHES="${CURRENT_BRANCH}"$'\n'
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Prevent direct push to main
+# 1. Branch naming convention (warning only)
+# ---------------------------------------------------------------------------
+echo -n "  Checking branch naming... "
+
+# Prefixes in active use in this repo. Verified against `git branch -a`.
+BRANCH_NAME_RE='^(main|develop)$|^[A-Za-z]+-[0-9]+(\.[0-9]+)?/.+|^(hotfix|release|tech|deps|epic|claude|triage)/.+'
+
+BAD_BRANCHES=""
+if [ -n "$PUSHED_BRANCHES" ]; then
+    while IFS= read -r b; do
+        [ -n "$b" ] || continue
+        printf '%s\n' "$b" | grep -qE "$BRANCH_NAME_RE" || BAD_BRANCHES="${BAD_BRANCHES}    - $b"$'\n'
+    done <<<"$PUSHED_BRANCHES"
+fi
+
+if [ -n "$BAD_BRANCHES" ]; then
+    echo -e "${YELLOW}WARNING${NC}"
+    echo -e "  ${YELLOW}Branch name(s) don't follow the naming convention:${NC}"
+    printf '%s' "$BAD_BRANCHES"
+    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, tech/{description}, deps/{package},${NC}"
+    echo -e "  ${YELLOW}          hotfix/{version}/{description}, epic/{EPIC-ID}-{slug}, triage/{description}${NC}"
+    # Warning only, not blocking
+else
+    echo -e "${GREEN}OK${NC}"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Prevent direct writes to main — pushes onto it and deletions of it
+#    (blocking)
 # ---------------------------------------------------------------------------
 echo -n "  Checking push target... "
 
-if [[ "$BRANCH" == "main" ]]; then
+if [ -n "$PUSHES_TO_MAIN" ]; then
     echo -e "${RED}BLOCKED${NC}"
-    echo -e "  ${RED}Direct push to main is not allowed. Use a pull request.${NC}"
+    echo -e "  ${RED}Writing directly to refs/heads/main is not allowed. Use a pull request.${NC}"
+    echo -e "  ${RED}Local refs targeting main ('(delete)' means a branch deletion):${NC}"
+    printf '%s' "$PUSHES_TO_MAIN" | while IFS= read -r r; do [ -n "$r" ] && echo "    - $r"; done
     echo -e "  ${YELLOW}Create a PR: gh pr create --base main${NC}"
     ERRORS=$((ERRORS + 1))
 else
@@ -58,149 +134,140 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Commit message format validation (all commits being pushed)
+# 3. Commit message format for every commit being pushed (blocking)
+#    Same canonical regex as hooks/commit-msg — keep the two in sync.
 # ---------------------------------------------------------------------------
 echo -n "  Checking commit message format... "
 
-# Get commits that will be pushed (local commits not yet on remote)
-REMOTE=${1:-origin}
-REMOTE_REF=$(git rev-parse "$REMOTE/$BRANCH" 2>/dev/null || echo "")
+COMMIT_SUBJECT_RE='^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}'
 
-if [ -n "$REMOTE_REF" ]; then
-    COMMITS=$(git log --oneline "$REMOTE_REF..HEAD" 2>/dev/null || true)
-else
-    # New branch — check all commits since branching from main
-    MAIN_REF=$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || echo "")
-    if [ -n "$MAIN_REF" ]; then
-        COMMITS=$(git log --oneline "$MAIN_REF..HEAD" 2>/dev/null || true)
-    else
-        COMMITS=""
+# Collect the commits covered by the pushed ranges.
+COMMIT_SHAS=""
+if [ -n "$COMMIT_RANGES" ]; then
+    while IFS= read -r range; do
+        [ -n "$range" ] || continue
+        # shellcheck disable=SC2086 — $range is a deliberately word-split rev range
+        COMMIT_SHAS="${COMMIT_SHAS}$(git rev-list --no-merges $range 2>/dev/null || true)"$'\n'
+    done <<<"$COMMIT_RANGES"
+elif [ -n "$CURRENT_BRANCH" ]; then
+    BASE=$(git rev-parse -q --verify "$REMOTE/$CURRENT_BRANCH" || git rev-parse -q --verify "$REMOTE/main" || echo "")
+    if [ -n "$BASE" ]; then
+        COMMIT_SHAS=$(git rev-list --no-merges "$BASE..HEAD" 2>/dev/null || true)
     fi
 fi
 
 BAD_COMMITS=""
-if [ -n "$COMMITS" ]; then
-    while IFS= read -r commit; do
-        HASH=$(echo "$commit" | cut -d' ' -f1)
-        MSG=$(git log --format=%s -1 "$HASH" 2>/dev/null || true)
-        # Skip merge commits and initial commits
-        if [[ "$MSG" == Merge* ]] || [[ "$MSG" == "Initial"* ]]; then
-            continue
-        fi
-        # Check format: [STORY-ID] @Agent: description
-        if ! echo "$MSG" | grep -qE '^\[[A-Z]+-[0-9]+\]\s+@[A-Za-z]+:'; then
-            BAD_COMMITS="$BAD_COMMITS\n    - $HASH: $MSG"
-        fi
-    done <<< "$COMMITS"
+if [ -n "$COMMIT_SHAS" ]; then
+    while IFS= read -r sha; do
+        [ -n "$sha" ] || continue
+        MSG=$(git log --format=%s -1 "$sha" 2>/dev/null || true)
+        [ -n "$MSG" ] || continue
+        case "$MSG" in
+            Merge\ *|Initial\ *|Revert\ *) continue ;;
+        esac
+        printf '%s\n' "$MSG" | grep -qE "$COMMIT_SUBJECT_RE" \
+            || BAD_COMMITS="${BAD_COMMITS}    - ${sha:0:9}: $MSG"$'\n'
+    done <<<"$COMMIT_SHAS"
 fi
 
 if [ -n "$BAD_COMMITS" ]; then
     echo -e "${RED}FAILED${NC}"
-    echo -e "  ${RED}Commits with incorrect format:${NC}"
-    echo -e "$BAD_COMMITS"
-    echo -e "  ${YELLOW}Expected format: [STORY-ID] @Agent: description${NC}"
-    echo -e "  ${YELLOW}Example: [US-042] @Kai: Add email validation to registration flow${NC}"
+    echo -e "  ${RED}Commits with an invalid subject line:${NC}"
+    printf '%s' "$BAD_COMMITS"
+    echo -e "  ${YELLOW}Expected: [TAG] @AgentName: description   (@AgentName is optional)${NC}"
+    echo -e "  ${YELLOW}Example:  [US-042] @Kai: Add email validation to registration flow${NC}"
+    echo -e "  ${YELLOW}Fix with: git commit --amend, or an interactive rebase${NC}"
     ERRORS=$((ERRORS + 1))
 else
     echo -e "${GREEN}OK${NC}"
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Run tests for affected modules
+# 4. Run tests for affected modules (blocking)
 # ---------------------------------------------------------------------------
 echo -n "  Running tests... "
 
-# Detect which files changed
-if [ -n "$REMOTE_REF" ]; then
-    CHANGED_FILES=$(git diff --name-only "$REMOTE_REF..HEAD" 2>/dev/null || true)
-else
-    CHANGED_FILES=$(git diff --name-only "$(git merge-base HEAD main 2>/dev/null || echo HEAD~1)..HEAD" 2>/dev/null || true)
+CHANGED_FILES=""
+if [ -n "$COMMIT_SHAS" ]; then
+    while IFS= read -r sha; do
+        [ -n "$sha" ] || continue
+        CHANGED_FILES="${CHANGED_FILES}$(git show --name-only --format= "$sha" 2>/dev/null || true)"$'\n'
+    done <<<"$COMMIT_SHAS"
+    CHANGED_FILES=$(printf '%s' "$CHANGED_FILES" | sort -u)
 fi
 
-TEST_FAILED=false
+has_ext() { printf '%s\n' "$CHANGED_FILES" | grep -qE "$1"; }
 
+TEST_FAILED=false
 TESTS_RAN=false
 
 # Kotlin/JVM/Android (Gradle)
-if echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
+if has_ext '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running Gradle tests...${NC}"
-    if ! ./gradlew test --daemon -q 2>&1 | tail -5; then
-        TEST_FAILED=true
-    fi
+    ./gradlew test --daemon -q </dev/null || TEST_FAILED=true
 fi
 
 # TypeScript/JavaScript (Node)
-if echo "$CHANGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
+if has_ext '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running npm tests...${NC}"
-    if command -v npm &>/dev/null; then
-        if ! npm test --silent 2>&1 | tail -5; then
-            TEST_FAILED=true
-        fi
+    if command -v npm >/dev/null 2>&1; then
+        npm test --silent </dev/null || TEST_FAILED=true
     fi
 fi
 
 # Python
-if echo "$CHANGED_FILES" | grep -qE '\.py$'; then
+if has_ext '\.py$'; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running pytest...${NC}"
-    if command -v pytest &>/dev/null; then
-        if ! pytest -q 2>&1 | tail -5; then
-            TEST_FAILED=true
-        fi
+    if command -v pytest >/dev/null 2>&1; then
+        pytest -q </dev/null || TEST_FAILED=true
     fi
 fi
 
 # Swift/iOS
-if echo "$CHANGED_FILES" | grep -qE '\.swift$' && { [ -f "Package.swift" ] || compgen -G "*.xcodeproj" > /dev/null 2>&1; }; then
+if has_ext '\.swift$' && { [ -f "Package.swift" ] || ls -d ./*.xcodeproj >/dev/null 2>&1; }; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running Swift tests...${NC}"
-    if command -v swift &>/dev/null; then
-        if ! swift test --quiet 2>&1 | tail -5; then
-            TEST_FAILED=true
-        fi
+    if command -v swift >/dev/null 2>&1; then
+        swift test --quiet </dev/null || TEST_FAILED=true
     fi
 fi
 
 if ! $TESTS_RAN; then
     echo -e "${YELLOW}SKIPPED (no matching test runner found)${NC}"
-fi
-
-if $TEST_FAILED; then
+elif $TEST_FAILED; then
     echo -e "  ${RED}Tests FAILED. Fix failing tests before pushing.${NC}"
     ERRORS=$((ERRORS + 1))
-elif echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java|ts|tsx|js|jsx|py|swift)$'; then
+else
     echo -e "  ${GREEN}Tests passed.${NC}"
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Build verification
+# 5. Build verification (blocking)
 # ---------------------------------------------------------------------------
 echo -n "  Verifying build... "
 
 BUILD_FAILED=false
+BUILD_RAN=false
 
-if echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
-    if ! ./gradlew assemble --daemon -q 2>/dev/null; then
-        BUILD_FAILED=true
+if has_ext '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
+    BUILD_RAN=true
+    ./gradlew assemble --daemon -q </dev/null || BUILD_FAILED=true
+elif has_ext '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
+    if command -v npm >/dev/null 2>&1 && grep -q '"build"' package.json; then
+        BUILD_RAN=true
+        npm run build --silent </dev/null || BUILD_FAILED=true
     fi
-elif echo "$CHANGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
-    if command -v npm &>/dev/null && grep -q '"build"' package.json 2>/dev/null; then
-        if ! npm run build --silent 2>/dev/null; then
-            BUILD_FAILED=true
-        fi
-    fi
-elif echo "$CHANGED_FILES" | grep -qE '\.py$' && [ -f "pyproject.toml" ]; then
-    # Python type-check as build verification
-    if command -v mypy &>/dev/null; then
-        if ! mypy src/ --quiet 2>/dev/null; then
-            BUILD_FAILED=true
-        fi
+elif has_ext '\.py$' && [ -f "pyproject.toml" ]; then
+    if command -v mypy >/dev/null 2>&1; then
+        BUILD_RAN=true
+        mypy src/ --quiet </dev/null || BUILD_FAILED=true
     fi
 fi
 
@@ -208,8 +275,10 @@ if $BUILD_FAILED; then
     echo -e "${RED}FAILED${NC}"
     echo -e "  ${RED}Build failed. Fix build errors before pushing.${NC}"
     ERRORS=$((ERRORS + 1))
-else
+elif $BUILD_RAN; then
     echo -e "${GREEN}OK${NC}"
+else
+    echo -e "${YELLOW}SKIPPED (nothing to build)${NC}"
 fi
 
 # ---------------------------------------------------------------------------
