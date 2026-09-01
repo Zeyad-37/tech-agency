@@ -1,7 +1,7 @@
 ---
 name: morgan-product-owner
 description: Strategic entry point for all new work. Owns product vision, roadmap, PRDs, and prioritization. Balances user needs, business goals, and technical feasibility.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write, Edit
 model: opus
 ---
 
