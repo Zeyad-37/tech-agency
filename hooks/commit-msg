@@ -31,10 +31,11 @@ if echo "$COMMIT_MSG" | grep -qE '^Revert '; then
 fi
 
 # Validate format: [STORY-ID] @Agent: description
-# STORY-ID: one or more uppercase letters, a dash, one or more digits (e.g., US-042, T-001, BUG-123)
+# STORY-ID: uppercase letters, a dash, digits, and an optional sub-task segment
+#           (e.g., US-042, T-001, BUG-123, T-016.1)
 # Agent: @ followed by one or more word characters
 # Description: at least 3 characters
-if ! echo "$COMMIT_MSG" | head -1 | grep -qE '^\[[A-Z]+-[0-9]+\]\s+@[A-Za-z]+:\s+.{3,}'; then
+if ! echo "$COMMIT_MSG" | head -1 | grep -qE '^\[[A-Z]+-[0-9]+(\.[0-9]+)?\]\s+@[A-Za-z]+:\s+.{3,}'; then
     echo ""
     echo -e "${RED}❌ Commit message format is invalid.${NC}"
     echo ""
