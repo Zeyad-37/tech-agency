@@ -1,5 +1,8 @@
 # React / Next.js Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md`, falling back to `.claude/rules/web/react-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Nova. All web frontend code MUST follow these standards.
 
 ## Project Structure
@@ -400,9 +403,11 @@ No exceptions. Every component that depends on async data covers all four states
 | Metric | Target |
 |--------|--------|
 | LCP | < 2.5s |
-| FID / INP | < 100ms |
+| INP | < 200ms |
 | CLS | < 0.1 |
 | Bundle (initial JS) | < 150KB gzipped |
+
+FID is retired — it was replaced as a Core Web Vital by INP, whose "good" threshold is 200ms, not FID's 100ms. Do not carry an FID row or an FID budget into new projects.
 
 ### Rules
 
@@ -729,7 +734,7 @@ Performance budgets:
 | Metric | Target | Alert Threshold |
 |--------|--------|-----------------|
 | LCP | < 2.5s | > 3.0s |
-| FID / INP | < 100ms | > 200ms |
+| INP | < 200ms | > 200ms (P75 leaves the "good" band) |
 | CLS | < 0.1 | > 0.15 |
 | Bundle (initial JS) | < 150KB gzipped | > 180KB |
 | Performance score | > 90 | < 85 |
@@ -780,30 +785,39 @@ Rules:
 
 ### Security Tests
 
+These assertions need a real browser and a real HTTP response, so they are **Playwright** tests, not Vitest ones. `page` is a Playwright fixture — it only exists on `test`, and Vitest's `it` would hand it `undefined`.
+
 ```typescript
-// Security-focused tests
-describe('Security', () => {
-  it('CSP headers are set correctly', async ({ page }) => {
+// e2e/security.spec.ts
+import { expect, test } from '@playwright/test';
+
+test.describe('Security', () => {
+  test('CSP headers are set correctly', async ({ page }) => {
     const response = await page.goto('/');
     const csp = response?.headers()['content-security-policy'];
     expect(csp).toBeDefined();
     expect(csp).not.toContain('unsafe-eval');
   });
 
-  it('no secrets in client bundle', async ({ page }) => {
+  test('no secrets in client bundle', async ({ page, request }) => {
     await page.goto('/');
     const scripts = await page.evaluate(() =>
       Array.from(document.querySelectorAll('script[src]')).map((s) => (s as HTMLScriptElement).src),
     );
+
+    expect(scripts.length).toBeGreaterThan(0); // guard against a vacuous pass
+
     for (const src of scripts) {
-      const content = await (await fetch(src)).text();
-      expect(content).not.toMatch(/NEXT_PUBLIC_.*SECRET/i);
-      expect(content).not.toMatch(/sk_live_/);
-      expect(content).not.toMatch(/password/i);
+      // Playwright's `request` fixture, not the page's own fetch.
+      const content = await (await request.get(src)).text();
+      expect(content, `secret-shaped string in ${src}`).not.toMatch(/NEXT_PUBLIC_\w*SECRET/i);
+      expect(content, `live key in ${src}`).not.toMatch(/sk_live_/);
     }
   });
 });
 ```
+
+Note the dropped `/password/i` assertion: any bundle containing a login form legitimately ships the word "password" (labels, autocomplete attributes, validation messages), so that pattern fails on every real app and gets deleted or skipped rather than fixed. Match on secret **shapes** (`sk_live_`, `AKIA[0-9A-Z]{16}`, a JWT prefix), not on English words.
 
 CI pipeline security checks:
 
@@ -961,15 +975,63 @@ Rules:
 // lib/api/client.ts
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
+/**
+ * `params` is OUR field, not a `RequestInit` one. Spreading a config that
+ * carries `params` straight into `fetch` drops it silently — every filtered
+ * or paginated request then returns page one, with no error to notice.
+ * Serialize it into the URL instead.
+ */
+export type RequestConfig = Omit<RequestInit, 'body' | 'method'> & {
+  params?: Record<string, string | number | boolean | undefined | null>;
+};
+
+/**
+ * Internal shape: adds back the two fields `apiClient` itself controls. Callers
+ * get `RequestConfig`, which cannot name `method` or `body` at all — so the
+ * verb cannot be overridden even by a config spread in the wrong order.
+ */
+type FetchOptions = RequestConfig & Pick<RequestInit, 'body' | 'method'>;
+
+function buildUrl(path: string, params?: RequestConfig['params']): string {
+  const url = new URL(`${BASE_URL}${path}`);
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      // Drop undefined/null so `?cursor=undefined` never reaches the server.
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+  return url.toString();
+}
+
+async function fetchWithAuth<T>(
+  path: string,
+  { params, headers, ...init }: FetchOptions = {},
+): Promise<T> {
+  const response = await fetch(buildUrl(path, params), {
+    ...init,
+    // Auth travels in an httpOnly cookie — see "Security in Code" below.
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...requestTrace(),
+      ...headers,
+    },
+  });
+
+  return handleResponse<T>(response); // defined in "API Error Handling" above
+}
+
 export const apiClient = {
   get: <T>(path: string, config?: RequestConfig) =>
-    fetchWithAuth<T>(`${BASE_URL}${path}`, { method: 'GET', ...config }),
+    fetchWithAuth<T>(path, { ...config, method: 'GET' }),
 
   post: <T>(path: string, body: unknown, config?: RequestConfig) =>
-    fetchWithAuth<T>(`${BASE_URL}${path}`, {
+    fetchWithAuth<T>(path, {
+      ...config,
       method: 'POST',
       body: JSON.stringify(body),
-      ...config,
     }),
   // put, patch, delete ...
 };
@@ -979,6 +1041,8 @@ export const apiClient = {
 - One React Query hook file per resource (`use-users.ts`, `use-products.ts`).
 - Never call `fetch` directly in components — always go through `apiClient` → React Query hook.
 - API base URL from env var `NEXT_PUBLIC_API_URL`.
+- **`method` and `body` are set after the config spread**, not before. Spreading a caller's config last lets it overwrite the verb, turning a `post` into whatever the caller passed. The public `RequestConfig` also omits both fields so the type system refuses the override outright; only the internal `FetchOptions` may name them.
+- Query parameters go through the `params` field and `URLSearchParams`. Never hand-concatenate a query string — unescaped user input in a URL is an injection surface, and `URL` escaping is free.
 
 ## Security in Code
 
@@ -1000,16 +1064,20 @@ export const apiClient = {
 - Breadcrumbs: automatically capture console logs, navigation events, user clicks, XHR/fetch calls.
 - Custom context: attach React component tree, current route, feature flags to error reports.
 
+`@sentry/nextjs` initializes from its own config files, not from `app/layout.tsx` — the SDK must be running before any application module loads, and a layout runs far too late to instrument the server or capture early errors.
+
 ```typescript
-// app/layout.tsx
-import * as Sentry from "@sentry/nextjs";
+// instrumentation-client.ts — runs before any client code
+import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
   environment: process.env.NODE_ENV,
   release: process.env.NEXT_PUBLIC_APP_VERSION,
   integrations: [
-    new Sentry.Replay({
+    // Functional integration. `new Sentry.Replay()` was a v7 class and was
+    // removed in v8 — the class form throws "is not a constructor".
+    Sentry.replayIntegration({
       maskAllText: true,
       blockAllMedia: true,
     }),
@@ -1018,13 +1086,43 @@ Sentry.init({
   replaysSessionSampleRate: 0.1,
   replaysOnErrorSampleRate: 1.0,
 });
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
+```
+
+```typescript
+// sentry.server.config.ts — server runtime
+import * as Sentry from '@sentry/nextjs';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  release: process.env.NEXT_PUBLIC_APP_VERSION,
+  tracesSampleRate: 0.1,
+});
+```
+
+```typescript
+// instrumentation.ts — loads the right server config per runtime
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('./sentry.server.config');
+  }
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    await import('./sentry.edge.config');
+  }
+}
+
+export { captureRequestError as onRequestError } from '@sentry/nextjs';
 ```
 
 Rules:
 - Every error-prone boundary (pages, feature components) wrapped in error boundary.
 - User ID and email hash attached before sensitive operations.
 - Source maps uploaded automatically via build step or deployment hook.
-- Sentry DSN from `NEXT_PUBLIC_SENTRY_DSN` environment variable.
+- Client DSN from `NEXT_PUBLIC_SENTRY_DSN`; the server DSN is `SENTRY_DSN` and must **not** carry the `NEXT_PUBLIC_` prefix, which would ship it to the browser.
+- Integrations are **functions** (`replayIntegration()`, `browserTracingIntegration()`) from SDK v8 onward. Any `new Sentry.X()` in a sample predates v8 and will not run.
+- Never call `Sentry.init` from `app/layout.tsx`, a provider, or a `useEffect` — it must precede application code.
 
 ### Client-Side Logging
 
@@ -1057,7 +1155,7 @@ const clientLogger = {
 
 ### Performance Monitoring (Real User Monitoring / RUM)
 
-- Track Web Vitals: LCP, FID/INP, CLS, TTFB, FCP — report to your RUM provider.
+- Track Web Vitals: LCP, INP, CLS, TTFB, FCP — report to your RUM provider. (INP replaced FID as a Core Web Vital; `web-vitals` v4 no longer ships an FID reporter.)
 - Custom performance marks: wrap critical flows (search, checkout, data table render) with `performance.mark()` / `performance.measure()`.
 - Bundle size monitoring: track JS payload size per route — alert if a route exceeds budget.
 - API call latency: measure and report fetch duration per endpoint from the client perspective.
@@ -1065,23 +1163,36 @@ const clientLogger = {
 
 ```typescript
 // lib/observability/web-vitals.ts
-import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+// v3 renamed every `getX` reporter to `onX`; v4 dropped FID entirely in
+// favour of INP. Importing `getCLS`/`getFID` fails to resolve on any
+// currently supported version.
+import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from 'web-vitals';
 
 function sendMetrics(metric: Metric) {
-  // Send to RUM backend (DataDog, New Relic, etc.)
-  navigator.sendBeacon(`${process.env.NEXT_PUBLIC_METRICS_URL}/vitals`, {
+  // sendBeacon takes a BodyInit — a bare object is coerced to the useless
+  // string "[object Object]". Serialize it, and use a Blob so the request
+  // carries a Content-Type.
+  const body = JSON.stringify({
     name: metric.name,
     value: metric.value,
     id: metric.id,
     rating: metric.rating,
   });
+
+  const url = `${process.env.NEXT_PUBLIC_METRICS_URL}/vitals`;
+  const blob = new Blob([body], { type: 'application/json' });
+
+  // sendBeacon can refuse (queue full, payload too large) — fall back.
+  if (!navigator.sendBeacon(url, blob)) {
+    void fetch(url, { body, method: 'POST', keepalive: true });
+  }
 }
 
-getCLS(sendMetrics);
-getFID(sendMetrics);
-getFCP(sendMetrics);
-getLCP(sendMetrics);
-getTTFB(sendMetrics);
+onCLS(sendMetrics);
+onINP(sendMetrics);
+onFCP(sendMetrics);
+onLCP(sendMetrics);
+onTTFB(sendMetrics);
 
 // Custom performance tracking
 export function trackPerformance(name: string, fn: () => void) {
@@ -1099,41 +1210,65 @@ export function trackPerformance(name: string, fn: () => void) {
 - Route change tracking: log every navigation with `{ from, to, duration }`.
 - Feature flag exposure tracking: log when a user is exposed to a flag variant.
 
+Trace IDs are generated in the API client, not by monkey-patching `window.fetch`. Patching the global is a debugging trick, not a design: it races with every other library that does the same, it survives past unmount if two components mount the hook, and it silently instruments third-party requests you did not intend to touch. `apiClient` already funnels every call — put the header there.
+
+```typescript
+// lib/observability/trace.ts
+/** W3C trace-context IDs: 16 random bytes for a trace, 8 for a span, lowercase hex. */
+function randomHex(bytes: number): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export const newTraceId = () => randomHex(16);
+export const newSpanId = () => randomHex(8);
+
+/** `version-traceId-spanId-flags`; flags 01 = sampled. */
+export function traceparent(traceId: string, spanId: string): string {
+  return `00-${traceId}-${spanId}-01`;
+}
+```
+
 ```typescript
 // lib/observability/session.ts
-import { useRouter } from 'next/navigation';
+'use client';
 
-export function useSessionTracking() {
-  const router = useRouter();
+import { usePathname } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+
+export function useSessionTracking(): string {
   const [sessionId] = useState(() => crypto.randomUUID());
+  const pathname = usePathname();
 
+  // Declared with useRef — it must survive re-renders without causing them.
+  const previousPath = useRef<string | null>(null);
+  const routeStartTime = useRef<number>(performance.now());
+
+  // App Router has no route-change event: the pathname changing IS the event.
   useEffect(() => {
-    const handleRouteChange = (from: string, to: string) => {
-      const duration = performance.now() - routeStartTime.current;
-      clientLogger.info('route_change', { from, to, duration, sessionId });
-      routeStartTime.current = performance.now();
-    };
-
-    // Attach to all fetch/XHR calls
-    const originalFetch = window.fetch;
-    window.fetch = function (...args) {
-      const headers = args[1]?.headers || {};
-      return originalFetch.call(window, args[0], {
-        ...args[1],
-        headers: {
-          ...headers,
-          'traceparent': `00-${traceId}-${spanId}-01`,
-        },
+    const from = previousPath.current;
+    if (from !== null && from !== pathname) {
+      clientLogger.info('route_change', {
+        from,
+        to: pathname,
+        duration: performance.now() - routeStartTime.current,
+        sessionId,
       });
-    };
-
-    return () => {
-      window.fetch = originalFetch;
-    };
-  }, [sessionId]);
+    }
+    previousPath.current = pathname;
+    routeStartTime.current = performance.now();
+  }, [pathname, sessionId]);
 
   return sessionId;
 }
+```
+
+```typescript
+// lib/api/client.ts — the trace header belongs here, applied once
+const requestTrace = () => ({
+  traceparent: traceparent(newTraceId(), newSpanId()),
+});
 ```
 
 ### Server-Side Observability (Next.js API Routes / SSR)
