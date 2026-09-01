@@ -2,55 +2,90 @@
 set -euo pipefail
 
 # =============================================================================
-# Commit-Msg Hook — Validates commit message format
+# Commit-Msg Hook — Normalizes commit message format (auto-edit, non-blocking)
 # Format: [STORY-ID] @AgentName: Short description
 # Example: [US-042] @Kai: Add email validation to registration flow
+#
+# If the first line already conforms, it is left untouched. Otherwise it is
+# rewritten in place:
+#   - STORY-ID  : derived from the branch (US-016/foo -> US-016); else "CHORE"
+#   - @Agent    : kept if the message already has one; else the git user
+#   - description: the original first line, with any leading [..]/@agent stripped
+# Merge / Initial / Revert commits are skipped.
+#
+# Normalizing beats blocking: a rejected commit costs the author a retype and
+# teaches nothing, while a rewrite lands the commit AND shows the correct form.
 # =============================================================================
 
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
 COMMIT_MSG_FILE="$1"
-COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+FIRST_LINE=$(head -1 "$COMMIT_MSG_FILE")
 
-# Skip merge commits
-if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
+# Skip merge / initial / revert commits
+if printf '%s' "$FIRST_LINE" | grep -qE '^(Merge|Initial|Revert) '; then
     exit 0
 fi
 
-# Skip initial/scaffold commits
-if echo "$COMMIT_MSG" | grep -qE '^Initial '; then
+# Accepted format. The story number is optional so tokens like CHORE/TECH pass, and it may
+# carry a dotted sub-task suffix (T-047.1). Without that suffix every sub-task
+# commit gets silently relabelled [CHORE], destroying traceability on exactly
+# the epics where sub-task IDs are used.
+VALID_RE='^\[[A-Z]+(-[0-9]+(\.[0-9]+)?)?\] @[A-Za-z]+: .{3,}'
+if printf '%s' "$FIRST_LINE" | grep -qE "$VALID_RE"; then
+    echo -e "${GREEN}✅ Commit message format is valid.${NC}"
     exit 0
 fi
 
-# Skip revert commits
-if echo "$COMMIT_MSG" | grep -qE '^Revert '; then
-    exit 0
+# --- Auto-edit ---------------------------------------------------------------
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+# 1. STORY-ID token precedence: explicit token already in the message
+#    (e.g. "[T-099] ...") > branch-derived (US-016/foo -> US-016) > CHORE
+if [[ "$FIRST_LINE" =~ ^\[([A-Z]+(-[0-9]+(\.[0-9]+)?)?)\] ]]; then
+    TOKEN="${BASH_REMATCH[1]}"
+elif [[ "$BRANCH" =~ ^([A-Z]+-[0-9]+(\.[0-9]+)?)/ ]]; then
+    TOKEN="${BASH_REMATCH[1]}"
+else
+    TOKEN="CHORE"
 fi
 
-# Validate format: [STORY-ID] @Agent: description
-# STORY-ID: uppercase letters, a dash, digits, and an optional sub-task segment
-#           (e.g., US-042, T-001, BUG-123, T-016.1)
-# Agent: @ followed by one or more word characters
-# Description: at least 3 characters
-if ! echo "$COMMIT_MSG" | head -1 | grep -qE '^\[[A-Z]+-[0-9]+(\.[0-9]+)?\]\s+@[A-Za-z]+:\s+.{3,}'; then
-    echo ""
-    echo -e "${RED}❌ Commit message format is invalid.${NC}"
-    echo ""
-    echo -e "  ${YELLOW}Expected format:${NC} [STORY-ID] @AgentName: Short description"
-    echo -e "  ${YELLOW}Example:${NC}         [US-042] @Kai: Add email validation to registration flow"
-    echo ""
-    echo -e "  Your message:  ${RED}$COMMIT_MSG${NC}"
-    echo ""
-    echo -e "  Rules:"
-    echo -e "    - Story ID: uppercase letters + dash + number (e.g., US-042, T-001, BUG-123)"
-    echo -e "    - Agent name: must start with @ (e.g., @Kai, @Swift, @Link)"
-    echo -e "    - Description: at least 3 characters, describes what changed and why"
-    echo ""
-    exit 1
+# 2. Agent: preserve an existing *leading* @Agent in the message, else default
+#    to the git user. The capture is anchored to the start of the (token-stripped)
+#    line so a mid-sentence "@mention" is NOT mistaken for the agent — this stays
+#    consistent with the ^@ description-strip on the line below.
+AGENT_FRAGMENT=$(printf '%s' "$FIRST_LINE" | sed -E 's/^\[[^]]*\][[:space:]]*//')  # drop leading [..] first
+if [[ "$AGENT_FRAGMENT" =~ ^@([A-Za-z]+) ]]; then
+    AGENT="@${BASH_REMATCH[1]}"
+else
+    # Derive from git user's first name; strip to [A-Za-z] only so accents/
+    # hyphens/dots can't produce an @agent that fails the @[A-Za-z]+ format
+    # check (here and in pre-push). Empty after stripping -> @Dev.
+    RAW_AGENT=$(git config user.name 2>/dev/null | awk '{print $1}' || true)
+    CLEAN_AGENT=$(printf '%s' "$RAW_AGENT" | tr -cd 'A-Za-z')
+    if [ -n "$CLEAN_AGENT" ]; then
+        AGENT="@${CLEAN_AGENT}"
+    else
+        AGENT="@Dev"
+    fi
 fi
 
-echo -e "${GREEN}✅ Commit message format is valid.${NC}"
+# 3. Description: strip any leading [token], leading @agent, and a leading colon
+DESC="$FIRST_LINE"
+DESC=$(printf '%s' "$DESC" | sed -E 's/^\[[^]]*\][[:space:]]*//')              # drop leading [..]
+DESC=$(printf '%s' "$DESC" | sed -E 's/^@[A-Za-z]+[[:space:]]*:?[[:space:]]*//') # drop leading @agent[:]
+DESC=$(printf '%s' "$DESC" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')      # trim
+[ -z "$DESC" ] && DESC="$FIRST_LINE"
+
+NEW_FIRST="[$TOKEN] $AGENT: $DESC"
+
+# Rewrite: replace the first line, preserve the body / comments
+TMP=$(mktemp)
+printf '%s\n' "$NEW_FIRST" > "$TMP"
+tail -n +2 "$COMMIT_MSG_FILE" >> "$TMP"
+mv "$TMP" "$COMMIT_MSG_FILE"
+
+echo -e "${YELLOW}✏️  Commit message normalized to:${NC} ${GREEN}${NEW_FIRST}${NC}"
 exit 0
