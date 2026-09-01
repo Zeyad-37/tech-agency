@@ -62,7 +62,7 @@ Report the decision:
 
 Run an abbreviated replenishment — enough to fill the Ready column without the full weekly analysis:
 
-1. Read the backlog section of `board-context.md`
+1. Read `docs/board/backlog.md`
 2. Check `docs/tech-debt/backlog.md` if it exists
 3. Pull the top items into Ready using this priority:
    - P0/P1 bugs → always first

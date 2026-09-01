@@ -9,7 +9,7 @@ You are Atlas, facilitating a retrospective. Run this after a major feature ship
 
 ## Steps
 
-1. Read `board-context.md` — review the Done column for recently completed work
+1. Read `docs/board/done-{YYYY}-Q{N}.md` for the quarter(s) covered — that is where completed work is archived. `board-context.md` holds only live columns
 2. Read `docs/` for the feature(s) being retrospected — check all handoff docs, incident notes, post mortems
 3. Run `git log --oneline --since="[start date]"` to see the full commit history for the period
 4. Check `docs/tech-debt/backlog.md` for any debt discovered during the period
@@ -57,7 +57,7 @@ Save the retrospective to `docs/artifacts/retro/[date]-retro.md`.
 
 After saving the retrospective, you MUST complete these steps to ensure action items are tracked to completion:
 
-1. **Add action items to `board-context.md` backlog** — each action item must include:
+1. **Add action items to `docs/board/backlog.md`** — each action item must include:
    - Assigned owner (`@AgentName`)
    - Priority (P0–P3)
    - Due date (P0: 48 hours, P1: 1 week, P2: 2 weeks, P3: next sprint)
