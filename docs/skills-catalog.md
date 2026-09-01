@@ -2,10 +2,34 @@
 
 Skills are repeatable prompt routines with defined triggers, inputs, and output formats. There are two kinds:
 
-1. **Slash commands** (`.claude/skills/*/SKILL.md`) — 24 project-level workflows invoked with `/command-name`. See `prompts/commands-reference.md` for full documentation.
-2. **Agent skills** — inline skills defined in each agent file (`~/.claude/agents/`). These are triggered by natural-language prompts and run within the agent's domain.
+1. **Slash commands** (`.claude/skills/*/SKILL.md`) — **48 skills**, invoked with `/command-name`: 34 first-party Tech Agency workflows plus 14 skills vendored from Google (`android-*`) and JetBrains (`kotlin-*`). See [`prompts/commands-reference.md`](prompts/commands-reference.md) for full documentation of the first-party workflows, and [`../.claude/skills/VENDORED-SKILLS.md`](../.claude/skills/VENDORED-SKILLS.md) for the vendored set's provenance and licensing.
+2. **Agent skills** — inline skills defined in each agent file (`.claude/agents/`). These are triggered by natural-language prompts and run within the agent's domain. **This catalog lists these.**
 
-This catalog lists agent skills. For slash commands, see the commands reference.
+## Slash Commands at a Glance
+
+The 34 first-party commands, grouped by what they are for. Each is documented in
+[`prompts/commands-reference.md`](prompts/commands-reference.md).
+
+| Group | Commands |
+|---|---|
+| Planning & requirements | `/new-product`, `/new-feature`, `/write-prd`, `/tech-task`, `/rfc` |
+| Board & flow | `/kick-off`, `/daily-sync`, `/pick-up-task`, `/update-board`, `/replenish`, `/sprint-report`, `/retro` |
+| Parallel execution | `/dispatch`, `/dispatch-task` |
+| Ship a change | `/ship-it`, `/ship-pr`, `/create-pr`, `/code-review`, `/review-and-address`, `/address-feedback`, `/capture-screenshots`, `/lint-changed` |
+| Diagnose & respond | `/investigate-bug`, `/investigate-crash`, `/postmortem`, `/hotfix`, `/health-check` |
+| Maintain the system | `/setup-repo`, `/onboard-agent`, `/dependency-upgrade`, `/extract-library`, `/sync-rule`, `/release`, `/audit-memory` |
+
+The 14 vendored skills — `/android-cli`, `/android-compose-theming`, `/android-compose-adaptive`,
+`/android-xml-to-compose`, `/android-navigation-3`, `/android-edge-to-edge`,
+`/android-testing-setup`, `/android-r8-analyzer`, `/android-perfetto-trace-analysis`,
+`/android-perfetto-sql`, `/kotlin-backend-jpa-entity-mapping`, `/kotlin-tooling-java-to-kotlin`,
+`/kotlin-tooling-agp9-migration`, `/kotlin-tooling-cocoapods-spm-migration` — are documented
+upstream; when to route a task to one is specified in
+`@.claude/rules/shared/kotlin-agent-skills.md` (Kotlin) and in the Android and KMP coding standards.
+
+---
+
+## Agent Skills
 
 ## Atlas — Orchestrator
 | Skill | Trigger | Output |
