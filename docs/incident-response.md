@@ -1,6 +1,6 @@
 # Incident Response Procedures
 
-This document defines escalation procedures, on-call rotation templates, and runbook references. For incident severity definitions and SLAs, see `@.claude/rules/operational-standards.md` (lines 92–100).
+This document defines escalation procedures, on-call rotation templates, and runbook references. For incident severity definitions and SLAs, see the "Incident Severity Definitions" section of `@.claude/rules/shared/operational-standards.md`.
 
 ## Escalation Flow
 
@@ -178,7 +178,7 @@ Every service deployed to production MUST have a runbook covering at minimum:
 
 ### Post-Incident
 
-1. **Post-mortem**: P0 and P1 incidents get a post-mortem within 48 hours. Use the template in `.claude/rules/crash-investigation.md`.
+1. **Post-mortem**: P0 and P1 incidents get a post-mortem within 48 hours. Use the template in `@.claude/rules/shared/crash-investigation.md`, and save the document to `docs/post-mortem/{Task-Id}-Post Mortem-Title.md` with an entry appended to `docs/post-mortem/INDEX.md`. That directory and index schema are canonical — do not write post-mortems anywhere else.
 2. **Action items**: All prevention action items from the post-mortem are added to `board-context.md` with assigned owners and due dates. See "Feedback Loop Closure" below.
 3. **Retro**: @Atlas schedules a retro to discuss systemic issues if the same incident category occurs more than twice.
 

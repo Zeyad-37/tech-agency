@@ -10,50 +10,67 @@ This guide describes how to incrementally adopt the Tech Agency system in an exi
 
 ## Phase 1 — Foundation (Day 1)
 
-### 1.1 Copy the Agency Skeleton
+Nothing in this phase is manual file copying. You install a plugin and run one command.
 
-Copy the following into your existing project root:
+### 1.1 Install the Plugin
 
-```
-your-project/
-├── CLAUDE.md                       # Customize with your project's specifics
-├── board-context.md                # Initialize with your current backlog
-├── .claude/
-│   ├── settings.json               # Model routing
-│   ├── hooks.json                  # Session hooks
-│   ├── rules/
-│   │   ├── agent-preamble.md
-│   │   ├── shared-standards.md
-│   │   ├── operational-standards.md
-│   │   ├── handoff-protocol.md
-│   │   └── {your-stack}-coding-standards.md   # Only the ones relevant to your stack
-│   └── skills/                     # Copy the skills you need
-│       ├── daily-sync/
-│       ├── retro/
-│       ├── investigate-crash/
-│       └── ...
-├── hooks/                           # Git hooks — copy and install
-│   ├── pre-commit
-│   ├── commit-msg
-│   ├── pre-push
-│   └── install-hooks.sh
-└── docs/
-    └── (this guide, plus any new docs)
+```bash
+claude plugin marketplace add github:Zeyad-37/tech-agency --scope user
+claude plugin install tech-agency@tech-agency --scope user
 ```
 
-**Only copy the coding standards files for your stack.** A React + Node.js project needs `react-coding-standards.md` and `node-coding-standards.md`. A KMP mobile project needs `kmp-coding-standards.md`, `compose-coding-standards.md`, `swiftui-coding-standards.md`, and optionally `ktor-server-coding-standards.md`.
+This gives you the 19 agents, the 48 skills, and the 8 language coding standards. It gives you
+nothing inside your repo yet.
 
-### 1.2 Customize CLAUDE.md
+### 1.2 Run `/setup-repo`
 
-Edit `CLAUDE.md` to reflect your actual project:
+Open Claude Code in your project root and run:
 
-- Update the agent roster — remove agents irrelevant to your stack, add notes about which agents apply.
-- Update the workflow diagram to match your team's flow.
-- Update "Shared Standards" references to only list the rules you've copied.
+```
+/setup-repo
+```
 
-### 1.3 Initialize the Board
+`/setup-repo` is **non-destructive**: it audits what already exists and only fills gaps, so it is
+safe on a mature codebase. It bootstraps:
 
-Create `board-context.md` with your current work items. Use the Kanban columns defined in `shared-standards.md`: Backlog → Ready → In Progress → Review → Done.
+- `.claude/rules/shared/` — the 11 shared policy rules, which auto-load every session
+- `board-context.md` — the Kanban board
+- `hooks/` — the git hook scripts
+- `.claude/settings.json` — sandbox, permissions, board backend (model tier is set per agent in each agent's own `model:` frontmatter, not here)
+- `.claude/hooks.json` — session hooks
+- `docs/` artifact folders
+
+Then install the git hooks into `.git/`:
+
+```bash
+./hooks/install-hooks.sh
+```
+
+**You do not select or copy coding standards for your stack.** The 8 language standards stay in the
+plugin and are read on demand — an agent reads the one matching the language it is about to write.
+That is the whole point of the split: an Android-only repo never loads the React or FastAPI
+standard. See "Rules delivery" in `docs/setup-guide.md`, or the authoritative
+`@.claude/rules/shared/rules-delivery.md`.
+
+There is no `CLAUDE.md` step. The agency's project instructions arrive as the shared rules in
+`.claude/rules/shared/`, which Claude Code loads automatically. If your project already has its own
+`CLAUDE.md` for unrelated reasons, `/setup-repo` leaves it alone.
+
+### 1.3 Seed the Board
+
+`/setup-repo` creates an empty `board-context.md`. Populate it with your current work items, using
+the columns from `@.claude/rules/shared/shared-standards.md`: Backlog → Ready → In Progress → Review → Blocked → Done.
+
+`/replenish` will help — point it at your existing backlog (issue tracker export, TODO list, or a
+pasted list) and it will triage items into Backlog and promote the prioritized ones to Ready.
+
+If you would rather keep your existing tracker as the source of truth, set `board_backend` in
+`.claude/settings.json` to `jira`, `linear`, or `asana` and wire up the MCP connection — see
+`docs/board-config.md`. The board adapter translates every agent operation to your tool.
+
+**Expect `main` to show an empty "In Progress" column.** Board transitions commit on the task branch
+and only reach `main` when that branch's PR merges. That is by design — see
+`@.claude/rules/shared/board-in-pr.md`.
 
 ## Phase 2 — Observability & CI (Week 1)
 
@@ -90,6 +107,8 @@ When creating new modules or services within the existing project, use the `/set
 ### 3.1 New Code First
 
 Apply the coding standards to all **new** code immediately. Every new file, module, or feature follows the standards. This is the lowest-friction way to improve quality.
+
+Agents do this automatically — reading the stack's standard before writing code in it is a mandatory preamble step. To read one yourself, open it in the plugin at `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md` (the path table is in `docs/setup-guide.md` under "Rules delivery").
 
 ### 3.2 Modified Code Next
 
@@ -141,7 +160,7 @@ Move from whatever project management you're using to the `board-context.md` Kan
 
 ### 5.2 Adopt Handoff Templates
 
-Start using the handoff templates from `handoff-protocol.md` for cross-functional work. They ensure nothing falls through the cracks.
+Start using the handoff templates from `@.claude/rules/shared/handoff-protocol.md` for cross-functional work. They ensure nothing falls through the cracks.
 
 ### 5.3 Run Retros
 
@@ -149,7 +168,7 @@ Use the `/retro` skill after each feature or monthly. This closes the feedback l
 
 ### 5.4 Adopt the Release Process
 
-Integrate the release process from `shared-standards.md`: semantic versioning, release checklists, canary deployments, auto-rollback. Layer this on top of your existing deployment pipeline.
+Integrate the release process from `@.claude/rules/shared/shared-standards.md`: semantic versioning, release checklists, canary deployments, auto-rollback. Layer this on top of your existing deployment pipeline.
 
 ## Phase 6 — Full Compliance (Ongoing)
 
@@ -159,15 +178,15 @@ If using KMP, add Konsist tests to enforce layer dependencies. For other stacks,
 
 ### 6.2 SLO Definitions
 
-Define SLOs for every service per `operational-standards.md`. Store in `docs/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
+Define SLOs for every service per `@.claude/rules/shared/operational-standards.md`. Store in `docs/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
 
 ### 6.3 Feature Flags
 
-Adopt feature flags for all new user-facing features per `operational-standards.md`. This enables safe rollouts and instant rollback.
+Adopt feature flags for all new user-facing features per `@.claude/rules/shared/operational-standards.md`. This enables safe rollouts and instant rollback.
 
 ### 6.4 Data Privacy Audit
 
-Review your data handling against the Data Privacy & Compliance section of `operational-standards.md`. Document data classification, retention policies, and consent tracking.
+Review your data handling against the Data Privacy & Compliance section of `@.claude/rules/shared/operational-standards.md`. Document data classification, retention policies, and consent tracking.
 
 ## Checklist
 
@@ -175,10 +194,11 @@ Use this checklist to track your migration progress:
 
 ```
 Phase 1 — Foundation
-[ ] Agency skeleton copied into project
-[ ] CLAUDE.md customized
-[ ] board-context.md initialized
-[ ] Relevant coding standards files selected
+[ ] Plugin installed from the marketplace
+[ ] /setup-repo run — shared rules, board, hooks, settings.json in place
+[ ] Git hooks installed (./hooks/install-hooks.sh) and verified as symlinks
+[ ] Sandbox confirmed present in .claude/settings.json
+[ ] board-context.md seeded with current work (or external backend configured)
 
 Phase 2 — Observability & CI
 [ ] Health check endpoints added to all services

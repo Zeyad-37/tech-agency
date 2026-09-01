@@ -8,7 +8,9 @@ This file documents the board backend configuration for this project. The board 
 board_backend: markdown
 ```
 
-When using the `markdown` backend, the board state lives in `board-context.md` at the project root. All agents read and write this file directly through the board adapter operations defined in `.claude/rules/board-adapter.md`.
+When using the `markdown` backend, the board state lives in `board-context.md` at the project root. All agents read and write this file through the board adapter operations defined in `@.claude/rules/shared/board-adapter.md`.
+
+Note that on the `markdown` backend the merged board is **not** a live view of in-flight work: a task's In Progress / Blocked / Review transitions are committed on its own branch and only reach `main` when that branch's PR merges (see `@.claude/rules/shared/board-in-pr.md`). Live state is derived from open PRs. External backends do not have this property — they write through their API immediately.
 
 ## Switching to an External Tool
 
