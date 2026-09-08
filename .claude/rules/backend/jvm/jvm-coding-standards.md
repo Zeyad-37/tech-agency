@@ -1,5 +1,8 @@
 # JVM / Spring Boot Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md`, falling back to `.claude/rules/backend/jvm/jvm-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Forge. All Spring Boot / JVM backend code MUST follow these standards. For Kotlin-first backends that share code with KMP clients via Ktor, see @.claude/rules/backend/kotlin/ktor-server-coding-standards.md (owned by Link).
 
 ## Project Structure
@@ -420,9 +423,18 @@ class UserServiceTest {
 @Testcontainers
 class UserControllerIntegrationTest {
 
-    @Container
     companion object {
-        val postgres = PostgreSQLContainer("postgres:16-alpine")
+        // The annotations go on the FIELD, not on the companion object. With
+        // `@Container` on the companion, the Testcontainers extension finds no
+        // container, nothing starts, and the test silently runs against
+        // whatever DATABASE_URL is in the environment.
+        // `@JvmStatic` is required so JUnit 5 sees a static field.
+        // `@ServiceConnection` (Boot 3.1+) points spring.datasource.* at the
+        // container — without it the container starts but Spring ignores it.
+        @Container
+        @JvmStatic
+        @ServiceConnection
+        val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
     }
 
     @Autowired
@@ -477,15 +489,22 @@ class UserControllerSliceTest {
 @DataJpaTest
 @Testcontainers
 class UserRepositoryTest {
-    @Container companion object { val postgres = PostgreSQLContainer("postgres:16-alpine") }
+    companion object {
+        @Container @JvmStatic @ServiceConnection
+        val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+    }
+
     @Autowired lateinit var userRepository: UserRepository
 
     @Test
     fun `findByEmail returns user when exists`() {
         userRepository.save(User(email = "test@test.com", name = "Test"))
         val found = userRepository.findByEmail("test@test.com")
+        // AssertJ's isNotNull does not smart-cast, so bind the unwrapped value
+        // rather than writing `found!!` (blocked by the pre-commit hook).
         assertThat(found).isNotNull
-        assertThat(found!!.name).isEqualTo("Test")
+        val user = checkNotNull(found)
+        assertThat(user.name).isEqualTo("Test")
     }
 }
 ```
@@ -497,7 +516,11 @@ class UserRepositoryTest {
 @Testcontainers
 class UserLifecycleE2ETest {
 
-    @Container companion object { val postgres = PostgreSQLContainer("postgres:16-alpine") }
+    companion object {
+        @Container @JvmStatic @ServiceConnection
+        val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+    }
+
     @Autowired lateinit var restTemplate: TestRestTemplate
 
     @Test
@@ -510,7 +533,8 @@ class UserLifecycleE2ETest {
         // Login
         val login = restTemplate.postForEntity("/api/v1/auth/login",
             LoginRequest(email = "e2e@test.com", password = "Secure123!"), ApiResponse::class.java)
-        val token = (login.body!!.data as Map<*, *>)["token"] as String
+        val loginBody = checkNotNull(login.body) { "Login returned an empty body" }
+        val token = (loginBody.data as Map<*, *>)["token"] as String
 
         // Update
         val headers = HttpHeaders().apply { setBearerAuth(token) }
@@ -563,11 +587,30 @@ Rules:
 ### Security Tests
 
 ```kotlin
+@SpringBootTest(webEnvironment = RANDOM_PORT)
+@Testcontainers
 class SecurityTest {
+
+    companion object {
+        @Container @JvmStatic @ServiceConnection
+        val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+    }
+
+    @Autowired lateinit var restTemplate: TestRestTemplate
+    @Autowired lateinit var jwtService: JwtService
+
+    private val testUserId = UUID.randomUUID()
 
     @Test
     fun `protected endpoints require authentication`() {
-        val response = restTemplate.delete("/api/v1/users/1")
+        // TestRestTemplate.delete() returns Unit — it has no status to assert.
+        // Use exchange() for any request whose response you need to inspect.
+        val response = restTemplate.exchange(
+            "/api/v1/users/1",
+            HttpMethod.DELETE,
+            HttpEntity<Void>(HttpHeaders()),
+            ErrorResponse::class.java,
+        )
         assertThat(response.statusCode).isEqualTo(HttpStatus.UNAUTHORIZED)
     }
 
@@ -611,7 +654,21 @@ Rules:
 ### Testing Rules Summary
 
 - Use `MockK` for Kotlin, `Mockito` for Java.
-- `@Testcontainers` for real DB in integration tests.
+- `@Testcontainers` for real DB in integration tests. Three things must all be true or the container is silently bypassed:
+  1. `@Container` sits on the **container field**, never on the enclosing `companion object`.
+  2. The field is `@JvmStatic` inside a `companion object`, so JUnit 5 sees a static field and starts the container once per class rather than once per test.
+  3. Something wires the container into Spring — `@ServiceConnection` (Boot 3.1+), or a `@DynamicPropertySource` block for older versions:
+     ```kotlin
+     @JvmStatic
+     @DynamicPropertySource
+     fun datasourceProps(registry: DynamicPropertyRegistry) {
+         registry.add("spring.datasource.url", postgres::getJdbcUrl)
+         registry.add("spring.datasource.username", postgres::getUsername)
+         registry.add("spring.datasource.password", postgres::getPassword)
+     }
+     ```
+  Miss any one and the suite still goes green — against whatever `DATABASE_URL` happens to be set, which on a developer machine is usually the local dev database.
+- `TestRestTemplate.delete()`, `.put()` and `.postForObject()` do not return a `ResponseEntity`. Any assertion on status, headers, or an error body must go through `exchange()`.
 - `@DirtiesContext` only when absolutely necessary — prefer transaction rollback.
 - Test slices: `@WebMvcTest` for controller-only, `@DataJpaTest` for repository-only.
 - E2E tests: full API lifecycle with real DB and auth.

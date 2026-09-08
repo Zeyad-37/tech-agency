@@ -193,9 +193,7 @@ Report:
 
 ## Step 5: Board Hygiene
 
-```bash
-cat board-context.md
-```
+Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2) — check `board_backend` in `.claude/settings.json` (absent → `markdown`), then run `board.read_all()`.
 
 Check:
 

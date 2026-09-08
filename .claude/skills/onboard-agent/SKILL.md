@@ -21,18 +21,13 @@ If the feature name maps to a directory in `docs/`, use that. Otherwise, ask the
 
 Read all available documentation for the feature:
 
-```bash
-# Check if feature docs exist
-grep -rl "{Task-Id}" docs/artifacts/ 2>/dev/null || echo "No artifacts found for this task"
+Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`, as `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`. Find every document for this feature in one pass, then read each hit:
 
-# Read all docs
-cat docs/artifacts/prd/{Task-Id}-PRD-{Title}.md 2>/dev/null || echo "No PRD"
-cat docs/artifacts/brd/{Task-Id}-BRD-{Title}.md 2>/dev/null || echo "No BRD"
-ls docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
-cat docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md 2>/dev/null || echo "No RFC"
-ls docs/artifacts/design-spec/{Task-Id}-*.md 2>/dev/null
-ls docs/artifacts/incident-notes/{Task-Id}-*.md 2>/dev/null
-ls docs/artifacts/incident-notes/{Task-Id}-*.md 2>/dev/null
+```bash
+grep -ril "{TASK-ID}\|{feature-name}" \
+  docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ \
+  docs/artifacts/api-contract/ docs/artifacts/incident-notes/ docs/artifacts/post-mortem/ 2>/dev/null \
+  || echo "No documents found for this feature"
 ```
 
 Summarize each document found:
@@ -56,8 +51,8 @@ Summarize each document found:
 Read relevant ADRs and identify how this feature fits into the system:
 
 ```bash
-# Check for architecture-level docs
-cat docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
+# Architecture-level docs for this feature
+grep -ril "{TASK-ID}\|{feature-name}" docs/artifacts/adr/ docs/artifacts/rfc/ 2>/dev/null
 
 # Check which modules this feature touches
 grep -rl "{feature-name}" --include="*.kt" --include="*.swift" --include="*.ts" --include="*.tsx" --include="*.py" src/ | head -20
@@ -114,9 +109,7 @@ Produce:
 
 ## Step 5: Check Board State
 
-```bash
-cat board-context.md
-```
+Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2) — check `board_backend` in `.claude/settings.json` (absent → `markdown`), then run `board.search("{feature-name}")`, falling back to `board.read_all()` if the backend has no search.
 
 Find all tasks related to this feature:
 
@@ -230,14 +223,14 @@ Compile everything into a single briefing document:
 - [Decisions that might seem wrong but are intentional (with ADR refs)]
 ```
 
-Save the briefing to `docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}.md`.
+Save the briefing to `docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md` (create the folder if it does not exist), following the by-type convention in `@.claude/rules/shared/handoff-protocol.md`.
 
 ## Step 9: Announce
 
 Notify @Atlas that the agent has been onboarded:
 
 ```markdown
-@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}.md. Ready to begin work.
+@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md. Ready to begin work.
 ```
 
 If the agent should immediately pick up a task, suggest running `/pick-up-task` or `/kick-off` next.

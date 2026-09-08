@@ -37,6 +37,18 @@ Multi-stage builds, non-root user, health check, graceful shutdown, env var conf
 **JVM (Forge):**
 Java 21+ or Kotlin, Spring Boot 3+. JPA/Hibernate ORM (business-key equals/hashCode) + Flyway migrations + Spring Validation + circuit breakers on external calls + JUnit 5 + Testcontainers. Reactive only when justified.
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| JVM / Spring Boot (Java or Kotlin) | `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` |
+
+Kotlin-first backends that share code with KMP clients via Ktor belong to Link, not Forge — their standard is `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md`.
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`: `.claude/rules/backend/jvm/jvm-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. **Java 21+ or Kotlin, Spring Boot 3+**
@@ -55,7 +67,7 @@ Java 21+ or Kotlin, Spring Boot 3+. JPA/Hibernate ORM (business-key equals/hashC
 
 ## Tooling (Kotlin Agent Skills)
 
-Forge uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`). Full wiring is in `@.claude/rules/backend/jvm/jvm-coding-standards.md` ("Tooling: Kotlin Agent Skills"):
+Forge uses **vendored Kotlin Agent Skills** (`.claude/skills/kotlin-*`). Full wiring is in `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` ("Tooling: Kotlin Agent Skills"), read on demand per "Coding Standards" above:
 
 - JPA/Hibernate entity design & ORM trap diagnosis (N+1, `LazyInitializationException`, Kotlin data-class entity pitfalls, business-key `equals`/`hashCode`) → `Read` `kotlin-backend-jpa-entity-mapping`.
 - Converting Java sources to idiomatic Kotlin (Spring/Lombok/Hibernate-aware) → `Read` `kotlin-tooling-java-to-kotlin`.

@@ -1,6 +1,6 @@
 # SwiftUI Testing Reference
 
-This is the detailed testing reference with code examples for SwiftUI/iOS. See `.claude/rules/swiftui-coding-standards.md` for the summary rules.
+This is the detailed testing reference with code examples for SwiftUI/iOS. See `.claude/rules/mobile/ios/swiftui-coding-standards.md` for the summary rules.
 
 ## Unit Tests — ViewModels (XCTest)
 
@@ -176,7 +176,8 @@ final class DesignSystemSnapshotTests: XCTestCase {
         assertSnapshot(of: view, as: .image(layout: .fixed(width: 375, height: 200)))
     }
 
-    func test_userListScreen_allFourStates() {
+    @MainActor
+    func test_userListContent_allFourStates() {
         let states: [(String, UserListViewModel.State)] = [
             ("loading", .loading),
             ("empty", .empty),
@@ -185,9 +186,10 @@ final class DesignSystemSnapshotTests: XCTestCase {
         ]
 
         for (name, state) in states {
-            let viewModel = UserListViewModel(userService: MockUserService())
-            viewModel.state = state
-            let view = UserListScreen.Content(viewModel: viewModel)
+            // UserListContent takes a plain State value — no ViewModel, no
+            // service to mock, and nothing to assign to `private(set) state`
+            // (which is unreachable even under @testable import).
+            let view = UserListContent(state: state, onRetry: {})
             assertSnapshot(of: view, as: .image(layout: .device(.iPhone13)), named: name)
         }
     }
@@ -366,8 +368,9 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNotNil(deleteButton?.accessibilityHint)
     }
 
+    @MainActor
     func test_dynamicType_atLargestSize_noTruncation() {
-        let view = UserListScreen.Content(viewModel: MockViewModel(state: .loaded([.preview])))
+        let view = UserListContent(state: .loaded([.preview]), onRetry: {})
             .environment(\.sizeCategory, .accessibilityExtraExtraExtraLarge)
 
         let host = UIHostingController(rootView: view)

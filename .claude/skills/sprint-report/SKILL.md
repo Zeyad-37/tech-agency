@@ -1,6 +1,6 @@
 ---
 name: sprint-report
-description: Generate a sprint/period report with cycle times, throughput, agent utilization, and trends
+description: "Generate a sprint or period report with throughput, cycle times, agent utilization, quality signals, and trends against the previous period. Use when the user says 'sprint report', 'period report', 'sprint summary', 'how did the sprint go', 'throughput report', 'cycle time report', 'team metrics', or 'end of sprint review'."
 ---
 
 # /sprint-report — Sprint Report Generator
@@ -19,7 +19,7 @@ Read these sources:
 
 1. **Board state** — Read board via board adapter (`read_all`). Count tasks per column.
 2. **Git log** — `git log --since="<start>" --until="<end>" --oneline --format="%h|%ai|%s"` to get all commits in the period.
-3. **Done history** — Read `docs/board/done-{YYYY}-Q{N}.md` for the quarter(s) the period spans and count tasks completed within it. Extract story IDs from commit messages (`[STORY-ID]`). A period crossing a quarter boundary reads both files.
+3. **Done column history** — Count tasks that moved to Done during the period. Extract story IDs from commit messages (`[STORY-ID]`).
 4. **Retro reports** — Check `docs/artifacts/retro/` for any retros run during the period.
 5. **Health reports** — Check `docs/artifacts/health-report/` for the most recent health check.
 6. **Post-mortems** — Check `docs/artifacts/post-mortem/INDEX.md` for any incidents during the period.
@@ -48,10 +48,19 @@ For each agent with commits in the period:
 - Flag agents with 0 commits (idle) or >2 WIP (overloaded)
 
 ### Quality Signals
-- **Reviews**: count of review docs in `docs/*/review-*.md` created during the period
-- **Incidents**: count from post-mortem index
+- **Reviews**: count of reviews actually posted on PRs during the period. `/code-review` posts its verdict to the PR and deliberately writes **no** review markdown into the repo, so counting files would report 0 forever:
+
+  ```bash
+  gh pr list --state all --search "merged:>=<start>" --json number \
+    --jq '.[].number' \
+  | while read -r pr; do gh pr view "$pr" --json reviews --jq '.reviews | length'; done \
+  | paste -sd+ - | bc
+  ```
+
+  If `gh` is unavailable or unauthenticated, report the metric as "n/a (gh unavailable)" — never as 0, which reads as "nobody reviewed anything".
+- **Incidents**: count of rows added to `docs/artifacts/post-mortem/INDEX.md` during the period
 - **Health grade**: latest from health report (if available)
-- **Hotfixes**: count of hotfix branches created (`git branch --list 'hotfix/*'` merged in period)
+- **Hotfixes**: count of hotfix branches merged in the period (`git log --merges --since=<start> --until=<end> --oneline | grep -c 'hotfix/'`)
 
 ## Step 3 — Identify Trends
 

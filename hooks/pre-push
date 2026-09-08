@@ -122,14 +122,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3b. Rules mirror integrity (consumer repos only)
+# 3b. Shared-rules copy integrity (consumer repos only)
 #
-# .claude/rules/ is a generated mirror of the tech-agency plugin's rules — see
-# .claude/rules/rules-mirror.md. A hand-edited mirror file is drift that would
+# .claude/rules/shared/ is a generated copy of the plugin shared rules's rules — see
+# .claude/rules/shared/rules-delivery.md. A hand-edited mirror file is drift that would
 # otherwise never be noticed, so it blocks the push. Skipped in tech-agency
 # itself, which owns the rules and has no manifest.
 # ---------------------------------------------------------------------------
-if [ -f ".claude/rules/.synced-from" ]; then
+if [ -f ".claude/rules/shared/.synced-from" ]; then
     # mirror.sh ships inside the plugin, so a consumer normally has no local
     # copy. Resolve it the same way mirror.sh resolves its own source, or the
     # check silently never runs — which is the failure mode this epic exists
@@ -150,7 +150,7 @@ if [ -f ".claude/rules/.synced-from" ]; then
         # A manifest exists but the checker cannot be found. Say so loudly:
         # a mirror nobody verifies is exactly how the drift started.
         echo -e "${YELLOW}SKIPPED${NC}"
-        echo -e "  ${YELLOW}.claude/rules/.synced-from exists but mirror.sh was not found.${NC}"
+        echo -e "  ${YELLOW}.claude/rules/shared/.synced-from exists but mirror.sh was not found.${NC}"
         echo -e "  ${YELLOW}Install the plugin, or set CLAUDE_PLUGIN_ROOT. The mirror is UNVERIFIED.${NC}"
     elif MIRROR_OUT=$(bash "$MIRROR_SH" check 2>&1); then
         echo -e "${GREEN}OK${NC}"

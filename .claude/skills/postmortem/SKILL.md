@@ -16,16 +16,16 @@ Check for existing investigation artifacts:
 ```bash
 # Check for recent post-mortems from /investigate-crash or /investigate-bug
 ls docs/artifacts/post-mortem/ 2>/dev/null
+cat docs/artifacts/post-mortem/INDEX.md 2>/dev/null
 
-# Check for bug reports
-find docs/ -name "bug-*.md" -mtime -7 2>/dev/null
+# Check for bug reports and incident notes
+find docs/incident-notes docs/post-mortem -name '*.md' -mtime -7 2>/dev/null
 
 # Check for recent investigation commits
 git log --oneline -20
-
-# Read board for related tasks
-cat board-context.md 2>/dev/null | head -100
 ```
+
+Read the board for related tasks through the adapter, not by reading the file (`@.claude/rules/shared/board-adapter.md` rule 2) — read `board_backend` from `.claude/settings.json` (absent → `markdown`), then run `board.read_all()`.
 
 If a post-mortem or bug report already exists from a prior investigation:
 - Read it to extract: the immediate root cause, the fix applied, the timeline, and any prevention action points already identified
@@ -96,7 +96,7 @@ Classify the systemic root cause:
 
 ## Step 4: Generate the Post-Mortem Document
 
-Save to `docs/artifacts/post-mortem/YYYY-MM-DD_{incident-slug}.md`. If this deepens an existing post-mortem, **replace** the original file (keep the same filename).
+Save to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. If this deepens an existing post-mortem, **replace** the original file, keeping the same filename so the INDEX row keeps resolving.
 
 If `docs/artifacts/post-mortem/` does not exist, create it.
 
@@ -202,37 +202,40 @@ Priority SLAs:
 
 ## Step 5: Update the Index
 
-Append a one-line entry to `docs/artifacts/post-mortem/INDEX.md` (create the file if it doesn't exist):
+There is exactly one index, `docs/artifacts/post-mortem/INDEX.md`, with exactly one schema — the four-column form that `/investigate-crash` and `@.claude/rules/shared/crash-investigation.md` also write. Do not add a fifth column: a second schema makes the row-matching step below impossible.
+
+If INDEX.md does not exist, create it with the header row:
 
 ```
-| YYYY-MM-DD | {Incident Title} | {Severity} | 5 Whys | [Post Mortem](./{filename}.md) |
+| Date | Incident | Severity | Report |
+|------|----------|----------|--------|
 ```
 
-If INDEX.md is new, add a header row first:
+Then:
+
+- **Deepening a prior investigation** (the usual case — this skill runs after `/investigate-crash` or `/investigate-bug`): a row for this incident already exists and already links to the file you just replaced. Leave it in place. Update only the Severity cell if the 5 Whys changed the assessment. Do **not** append a duplicate row.
+- **Standalone run** (no prior investigation): append one new row.
 
 ```
-| Date | Incident | Severity | Method | Report |
-|------|----------|----------|--------|--------|
+| YYYY-MM-DD | {Incident Title} | {Severity} | [Post Mortem](./{filename}.md) |
 ```
 
-If updating an existing post-mortem (deepening a prior investigation), update the existing row to add "5 Whys" to the Method column rather than adding a duplicate row.
+The analysis method is recorded in the document itself (`**Method:** 5 Whys Root Cause Analysis` in the header), not in the index.
 
 ## Step 6: Create Board Tasks (MANDATORY)
 
-Every prevention action point MUST become a tracked task. Use `board.create_task()` (see `.claude/rules/board-adapter.md`) for each action:
+Every prevention action point MUST become a tracked task. Use `board.create_task()` (see `@.claude/rules/shared/board-adapter.md`) for each action:
 
-1. **Read board backend** from `.claude/settings.json` to determine the task creation method.
+1. **Read board backend** from `.claude/settings.json` (absent → `markdown`) to determine the task creation method.
 
-2. **Create one task per prevention action** with:
+2. **Create one task per prevention action** in the Backlog column, whose schema is `| Task ID | Priority | Description | Requested By |`:
    - **Task ID**: `PM-{NNN}` (sequential, from the post-mortem action point number)
-   - **Description**: The action text from the prevention table, prefixed with `[5-Whys]`
-   - **Owner**: The "Owner" from the prevention table (or @Atlas if unassigned)
-   - **Priority**: Match the priority from the table
-   - **Due date**: Per the SLA (P0=48h, P1=1wk, P2=2wks, P3=next sprint)
-   - **Labels**: `post-mortem`, `prevention`, `{category}` (e.g., `testing-gap`, `tooling-gap`)
-   - **Source**: `[Post-mortem: docs/artifacts/post-mortem/YYYY-MM-DD_{slug}.md]`
+   - **Description**: the action text from the prevention table, prefixed with `[5-Whys]` and suffixed with the source reference `[Post-mortem: docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md]`
+   - **Requested By**: the "Owner" from the prevention table (or @Atlas if unassigned)
+   - **Priority**: match the priority from the table
+   - **Due date** and **labels** (`post-mortem`, `prevention`, `{category}`): set natively on backends that support them; on the markdown backend record them via `board.add_comment()`, since the Backlog table has no column for either
 
-3. **Verify**: Count the action points in the post-mortem and confirm the same number of tasks were created.
+3. **Verify**: Count the action points in the post-mortem and confirm `board.read_column("Backlog")` returns the same number of new tasks.
 
 4. **Recurrence escalation**: If this is a recurrence of a previous incident (found in Step 4's Recurrence Check), create an additional P0 task:
    - `[5-Whys] Investigate why previous prevention actions for {prior incident} did not prevent recurrence — @Atlas`
@@ -247,6 +250,8 @@ After the post-mortem and tasks are created:
 - If coding standards need updating → route to @Sage with the specific rule change
 - Notify @Atlas to schedule a brief retro focused on the systemic root cause
 - If the incident is P0/P1 → recommend sharing the post-mortem with the full team
+
+The board edits from Step 6 ship inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…` and `docs/artifacts/post-mortem/INDEX.md`. Never open a board-only PR and never commit the board on `main`.
 
 ## When to Use This Skill
 

@@ -23,6 +23,17 @@ Designs and implements ML systems. Owns model training pipelines, inference serv
 - Model cards and responsible AI documentation
 - Bias detection and fairness metrics
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| Python training pipelines, inference services, or FastAPI endpoints | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+| A Node.js or JVM service that hosts your inference API | `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md` or `${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md` |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/backend/python/python-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints (role-specific only)
 
 1. **Production stability over novelty — proven architectures unless novel provides measurable value**

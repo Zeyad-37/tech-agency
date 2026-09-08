@@ -5,7 +5,7 @@ description: "Write a Request for Comments (RFC) for a large feature, epic, or s
 
 # RFC — Request for Comments
 
-This skill produces a structured RFC document for features or changes that are too large to implement without upfront design alignment. Per `shared-standards.md`, an RFC is required for any epic or large user story spanning multiple tasks or touching multiple modules.
+This skill produces a structured RFC document for features or changes that are too large to implement without upfront design alignment. Per `@.claude/rules/shared/shared-standards.md`, an RFC is required for any epic or large user story spanning multiple tasks or touching multiple modules.
 
 ## When to Write an RFC
 
@@ -25,22 +25,19 @@ If the feature is small and the approach is obvious, skip the RFC and go straigh
 Before writing:
 
 ```bash
-# Every artifact for a story shares its Task ID — one grep finds them all
-grep -rl "{Task-Id}" docs/artifacts/ 2>/dev/null
-
-# Read existing PRD and BRD
-cat docs/artifacts/prd/{Task-Id}-*.md 2>/dev/null
-cat docs/artifacts/brd/{Task-Id}-*.md 2>/dev/null
-
-# Check for existing ADRs that constrain the design
-ls docs/artifacts/adr/{Task-Id}-*.md 2>/dev/null
-
-# Check the board for related tasks
-cat board-context.md 2>/dev/null | grep -i "{feature-name}"
+# Docs are filed by type per the handoff protocol:
+#   docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md
+# Find everything already written for this feature.
+grep -ril "{TASK-ID}\|{feature-name}" \
+  docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ docs/artifacts/api-contract/ 2>/dev/null
 
 # Check the codebase for related modules
 find . -type d -name "{feature-name}" 2>/dev/null | head -10
 ```
+
+Read every PRD and BRD hit (intended behaviour and acceptance criteria) and every ADR hit (decisions that constrain this design — the RFC must not contradict them).
+
+Check the board for related tasks through the adapter, not by reading the file (`@.claude/rules/shared/board-adapter.md` rule 2) — read `board_backend` from `.claude/settings.json` (absent → `markdown`), then run `board.search("{feature-name}")`, falling back to `board.read_all()` if the backend has no search.
 
 Identify:
 
@@ -182,18 +179,19 @@ If no migration needed: "Greenfield implementation — no migration required."
 
 ## Step 3: Save the RFC
 
+Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`:
+
 ```bash
-# Save to the rfc artifact folder
-mkdir -p docs/artifacts/rfc
+mkdir -p docs/rfc
 ```
 
-Save to `docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md`.
+Save to `docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md` — e.g. `docs/artifacts/rfc/US-042-RFC-Shared Auth Module.md`. If no task ID exists yet, use the feature slug and note that @Atlas should assign an ID when the work is boarded.
 
-No cross-reference stub is created. The Task ID in the filename is the index — `grep -rl "{Task-Id}" docs/artifacts/` finds every artifact for this work across all types.
+There is no `docs/by-type/` cross-reference tree. The type folder *is* the index — an RFC lives in `docs/artifacts/rfc/` and nowhere else, and a second copy only creates two things to keep in sync.
 
 ## Step 4: Submit for Review
 
-The RFC requires approval before implementation begins (per `shared-standards.md`):
+The RFC requires approval before implementation begins (per `@.claude/rules/shared/shared-standards.md`):
 
 ```markdown
 ## RFC Review Request
@@ -227,9 +225,10 @@ When feedback comes in:
 After acceptance:
 
 1. Update status: `**Status:** Accepted (YYYY-MM-DD)`
-2. Create board tasks in `board-context.md` based on the implementation steps in Section 3.2
-3. Assign tasks to the agents listed in the RFC
-4. Notify @Atlas to begin coordination
+2. Create board tasks with `board.create_task()` (see `@.claude/rules/shared/board-adapter.md`), one per implementation step in Section 3.2. New tasks land in Backlog: `| Task ID | Priority | Description | Requested By |`
+3. Assign tasks to the agents listed in the RFC via `board.assign_task()`
+4. Commit the board edit on the same branch as the RFC document so both land in one PR (`@.claude/rules/shared/board-in-pr.md`) — never a board-only PR, never a commit on `main`
+5. Notify @Atlas to begin coordination
 
 ## Step 6: Post-Implementation
 

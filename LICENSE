@@ -1,0 +1,102 @@
+tech-agency — License
+=====================
+
+This repository contains two categories of material under two different sets of
+terms. Section 1 governs the author's own work. Section 2 carves out third-party
+material that is redistributed here under the Apache License, Version 2.0, and
+which Section 1 does NOT restrict.
+
+This repository is public, and it is source-available rather than open source:
+the source is readable by anyone, but Section 1 reserves all rights in the
+author's own work. If you are looking for the material you may freely use,
+modify, and redistribute, it is the fourteen vendored Agent Skill directories
+enumerated in Section 2 — those are Apache-2.0 and are not restricted by
+Section 1.
+
+
+1. Proprietary terms (the author's own work)
+--------------------------------------------
+
+Copyright (c) 2025-2026 Zeyad Gasser. All rights reserved.
+
+Except for the material listed in Section 2, all files in this repository —
+including the agent definitions, first-party skills, rules, hooks, workflows,
+documentation, and configuration — are proprietary and confidential.
+
+No license, express or implied, is granted to any person or entity to use, copy,
+modify, merge, publish, distribute, sublicense, or sell copies of this material,
+or to create derivative works from it, without the prior written permission of
+the copyright holder.
+
+Publishing this repository publicly on GitHub makes the source readable and
+permits the viewing and forking that GitHub's Terms of Service allow for public
+repositories. It does not place the material in the public domain, and it grants
+no license beyond that. Installing this repository as a Claude Code plugin, and
+running the agents, skills, and workflows it defines, is permitted. To request
+permission for anything else, open an issue at
+https://github.com/Zeyad-37/tech-agency.
+
+THIS MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THIS MATERIAL OR THE USE OR OTHER DEALINGS IN IT.
+
+
+2. Vendored third-party material (Apache License 2.0)
+------------------------------------------------------
+
+The following directories contain Agent Skills authored by third parties and
+redistributed here verbatim under the Apache License, Version 2.0. They are NOT
+covered by Section 1. Their use, modification, and redistribution are governed
+solely by the Apache License, Version 2.0, a full copy of which is included at
+`.claude/skills/LICENSE-APACHE-2.0.txt`.
+
+Copyright (c) Google LLC. Licensed under the Apache License, Version 2.0.
+Source: https://github.com/android/skills
+
+    .claude/skills/android-cli/
+    .claude/skills/android-compose-adaptive/
+    .claude/skills/android-compose-theming/
+    .claude/skills/android-edge-to-edge/
+    .claude/skills/android-navigation-3/
+    .claude/skills/android-perfetto-sql/
+    .claude/skills/android-perfetto-trace-analysis/
+    .claude/skills/android-r8-analyzer/
+    .claude/skills/android-testing-setup/
+    .claude/skills/android-xml-to-compose/
+
+Copyright (c) JetBrains s.r.o. Licensed under the Apache License, Version 2.0.
+Source: https://github.com/Kotlin/kotlin-agent-skills
+
+    .claude/skills/kotlin-backend-jpa-entity-mapping/
+    .claude/skills/kotlin-tooling-agp9-migration/
+    .claude/skills/kotlin-tooling-cocoapods-spm-migration/
+    .claude/skills/kotlin-tooling-java-to-kotlin/
+
+Per-skill provenance — the exact upstream path and the pinned upstream commit
+for each directory above — is recorded in `.claude/skills/VENDORED-SKILLS.md`.
+The `name:` frontmatter field of some vendored `SKILL.md` files was modified to
+match its local directory name; all other content, including the original
+`license:` and `metadata.author` fields, is preserved unchanged. Any further
+modification to these files must be marked as such, as required by Section 4(b)
+of the Apache License, Version 2.0.
+
+You may obtain a copy of the Apache License, Version 2.0 at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the Apache License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
+OR CONDITIONS OF ANY KIND, either express or implied. See the Apache License for
+the specific language governing permissions and limitations under that License.
+
+
+3. Precedence
+--------------
+
+Where a file falls within a directory listed in Section 2, Section 2 governs.
+Section 1 governs everything else. Nothing in Section 1 is intended to, or does,
+restrict any right granted by the Apache License, Version 2.0 in the material
+listed in Section 2.
