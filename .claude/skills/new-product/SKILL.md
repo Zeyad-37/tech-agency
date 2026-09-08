@@ -1,6 +1,6 @@
 ---
 name: new-product
-description: "Kick off a brand new product from scratch. Starts with Morgan (PRD), then chains through Diana (BRD), Sage (ADR), and sets up the board. Use when the user says 'new product', 'build me an app', 'I want to create', 'start a new project', 'kick off', or describes a product idea from scratch."
+description: "Plan a brand new product from scratch, running the full discovery chain: Morgan (PRD) → Diana (BRD) → Sage (ADR + system design) → Atlas (board setup). Use when the user says 'new product', 'build me an app', 'I want to create', 'start a new project', or describes a product idea that does not exist yet. NOT for starting the working day on an existing product — that is /kick-off — and not for adding a feature to an existing product, which is /new-feature."
 ---
 
 # New Product Kickoff
@@ -29,7 +29,7 @@ Target platforms: [platforms].
 Constraints: [any].
 ```
 
-Save the PRD to `docs/artifacts/prd/{Task-Id}-PRD-{Product-Name}.md`.
+Save the PRD to `docs/artifacts/prd/{Task-Id}-PRD-{Title}.md` per `@.claude/rules/shared/handoff-protocol.md`. If no task ID exists yet, use the product slug and note that @Atlas assigns an ID at board setup.
 
 **STOP: Present the PRD to @Zeyad for approval before continuing.**
 
@@ -43,7 +43,7 @@ Break down all features into user stories with Given/When/Then acceptance criter
 Include NFRs, data dictionary, and risk assessment.
 ```
 
-Save the BRD to `docs/artifacts/brd/{Task-Id}-BRD-{Product-Name}.md`.
+Save the BRD to `docs/artifacts/brd/{Task-Id}-BRD-{Title}.md`.
 
 **STOP: Present the BRD to @Zeyad for approval before continuing.**
 
@@ -59,8 +59,9 @@ Target platforms: [platforms].
 Produce ADRs for key technical decisions and a high-level system design.
 ```
 
-Save each ADR to `docs/artifacts/adr/{Task-Id}-ADR-{Title}.md`.
-Save the system design to `docs/artifacts/adr/{Task-Id}-ADR-System-Design.md`.
+Save each ADR to `docs/artifacts/adr/{Task-Id}-ADR-{Title}.md` and the system design to `docs/artifacts/adr/{Task-Id}-ADR-System Design.md`.
+
+There is no `docs/by-type/` cross-reference tree — the type folder *is* the index.
 
 **STOP: Present architecture docs to @Zeyad for approval before continuing.**
 
@@ -70,16 +71,20 @@ After architecture approval, invoke the `atlas-orchestrator` agent:
 
 ```
 Set up the Kanban board for {product-name}.
-Break down the BRD user stories into tasks.
+Break down the BRD user stories into tasks via board.create_task().
 Assign to agents based on the system design.
-Reference: docs/artifacts/brd/{Task-Id}-BRD-{Title}.md and docs/artifacts/adr/{Task-Id}-ADR-System-Design.md
+Reference: docs/artifacts/brd/{Task-Id}-BRD-{Title}.md and docs/artifacts/adr/{Task-Id}-ADR-System Design.md
+New tasks land in Backlog: | Task ID | Priority | Description | Requested By |
 ```
 
-This populates `board-context.md` and the team is ready to start pulling work.
+This populates the board and the team is ready to start pulling work.
+
+The board edit ships with the planning documents that produced it: commit `board-context.md` on the same branch as the PRD, BRD and ADRs, and merge them in one PR (`@.claude/rules/shared/board-in-pr.md`). Do not leave it uncommitted — the first agent to pick up a task works in a worktree cut from `origin/main` and would see neither the board tasks nor the docs.
 
 ## After Kickoff
 
 Remind the user:
 - Run `/daily-sync` regularly to track progress
 - Run `/replenish` weekly to keep the Ready column full
+- Run `/kick-off` to start each working day (sync → replenish → pick up next task)
 - Each handoff document needs approval before the next agent acts

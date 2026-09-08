@@ -1,6 +1,6 @@
 ---
 name: kick-off
-description: "Start the day's work in one shot — runs daily sync, replenishes the board if needed, then picks up the next task. Use when the user says 'kick off', 'start work', 'start the day', 'morning sync', 'begin work', 'let's go', or 'what's next'."
+description: "Start the working day on an EXISTING project in one shot — runs daily sync, replenishes the board if needed, then picks up the next Ready task. Use when the user says 'kick off', 'kick off the day', 'start work', 'start the day', 'morning sync', 'begin work', 'let's go', or 'what's next'. NOT for planning a product that does not exist yet — 'kick off a new product' or 'kick off a new app' is /new-product."
 ---
 
 # Kick Off Work
@@ -9,10 +9,13 @@ This skill chains three workflows into a single command: daily sync, conditional
 
 ## Step 1: Daily Sync (as Atlas)
 
-Read `board-context.md` and produce a compact status report:
+Read the board **through the adapter** — never `cat board-context.md` (`@.claude/rules/shared/board-adapter.md` rule 2). Check `board_backend` in `.claude/settings.json` first (absent → `markdown`), then:
+
+- `board.read_all()` — full board state for the snapshot below.
+
+On the `markdown` backend this resolves to reading `board-context.md`; on Jira/Linear/Asana it routes through MCP. The skill must not assume which.
 
 ```bash
-cat board-context.md
 git log --oneline -20
 ```
 
@@ -62,9 +65,9 @@ Report the decision:
 
 Run an abbreviated replenishment — enough to fill the Ready column without the full weekly analysis:
 
-1. Read `docs/board/backlog.md`
+1. Run `board.read_column("Backlog")`
 2. Check `docs/guides/tech-debt/backlog.md` if it exists
-3. Pull the top items into Ready using this priority:
+3. Move the top items into Ready with `board.move_task(id, "Backlog", "Ready")` using this priority:
    - P0/P1 bugs → always first
    - Items that unblock In Progress work → next
    - Highest RICE score items → fill remaining slots
@@ -83,7 +86,7 @@ Produce:
 Moved [n] items to Ready. Tech debt: [n] items ([%] of total).
 ```
 
-Save this quick-replenish report to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent), then update `board-context.md` to move selected items to Ready.
+Save this quick-replenish report to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent). The Ready column uses `| Task ID | Priority | Description | Assigned To |` — match it exactly.
 
 The report is the carrier for the board edit — same rule as `/replenish` (see `@.claude/rules/shared/board-in-pr.md`). Commit both together on one branch:
 
@@ -107,7 +110,7 @@ If you already have 2 items in "In Progress":
 
 ### 4b. Select Task
 
-From the "Ready" column, pick using this priority:
+From `board.read_column("Ready")`, pick using this priority:
 
 1. **P0/P1 bugs or incidents** — always first
 2. **Tasks explicitly assigned to you**
@@ -129,9 +132,9 @@ Before pulling:
 
 ### 4d. Pull and Context Load
 
-1. Move the task to "In Progress" in `board-context.md` with your name and today's date
-2. Read feature docs: PRD, BRD, ADR, RFC, design specs in `docs/artifacts/` (grep by Task ID)
-3. Load relevant coding standards for your platform
+1. Move the task to In Progress via `board.move_task(id, "Ready", "In Progress")` + `board.assign_task(id, "@{YourAgent}")`. The In Progress schema is `| Task ID | Agent | Description | Started | Cycle Day |` — it differs from Ready's, so write a new row rather than moving the old one. Ship this edit as the first commit on the task branch (`@.claude/rules/shared/board-in-pr.md`).
+2. Read feature docs filed by type per the handoff protocol — `docs/artifacts/prd/`, `docs/artifacts/brd/`, `docs/artifacts/adr/`, `docs/artifacts/rfc/`, `docs/artifacts/design-spec/` — matching the task ID or feature name
+3. Read the coding standard for the task's stack from `${CLAUDE_PLUGIN_ROOT}/rules/...` (see the table in `/pick-up-task` Step 5). It is not preloaded — read it explicitly
 4. Check recent git activity: `git log --oneline --since="3 days ago" -- {affected-dirs}`
 5. Check for parallel work on the same code area
 
@@ -171,10 +174,26 @@ Wait for user confirmation before writing any code.
 
 Once confirmed:
 
-1. Create feature branch from the latest `origin/main` (never from the current checkout): `git fetch origin main && git checkout -b {story-id}/{short-description} origin/main`
+1. Create a **git worktree** for the task — never `git checkout -b` in the main checkout (`@.claude/rules/shared/worktree-first.md`). Resolve the base per `worktree-first.md` § Base Branch Resolution: explicit `--base` → epic integration branch → hotfix tag → `origin/main`.
+
+   ```bash
+   MAIN_REPO="$(git rev-parse --show-toplevel)"
+
+   BASE="main"                                # or epic/{EPIC-ID}-{slug}
+   BRANCH="{story-id}/{short-description}"
+   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
+
+   git -C "$MAIN_REPO" fetch origin "$BASE"
+   git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+   cd "$WORKTREE_DIR"
+
+   pwd                          # must equal $WORKTREE_DIR — STOP if not
+   git branch --show-current    # must equal $BRANCH — STOP if not
+   ```
+
 2. Implement following coding standards and ADR decisions
 3. Write tests per the test plan
 4. Commit after each logical change: `[STORY-ID] @{YourAgent}: description`
 5. When done, run `/update-board {TASK-ID} → Review` to move the task and commit the board change on this branch
-6. Run `/create-pr` to prepare a standardized pull request with the task ID in the title and participating agents in the body (the PR will NOT be pushed until @Zeyad approves)
+6. Run `/create-pr` to open a standardized pull request with the task ID in the title and participating agents in the body. Invoking it **is** the push authorization — it verifies, pushes, and opens the PR (see `@.claude/rules/shared/shared-standards.md` § Push Policy)
 7. Create a handoff and tag the reviewer

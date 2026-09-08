@@ -1,10 +1,12 @@
 # Compose/Android Observability Reference
 
-This is the detailed observability reference with code examples for Jetpack Compose/Android. See `.claude/rules/compose-coding-standards.md` for the summary rules.
+This is the detailed observability reference with code examples for Jetpack Compose/Android. See `.claude/rules/mobile/android/compose-coding-standards.md` for the summary rules.
+
+> **Shared-code constraint.** Several samples below (repositories, ViewModels) live in KMP `commonMain`, which compiles for iOS and Wasm as well as the JVM. **No `java.*` or `System.*` in those files** — `System.currentTimeMillis()` and friends resolve only on Android/JVM. Use `kotlin.time.TimeSource` for elapsed time and `kotlinx.datetime.Clock` for wall-clock timestamps. Samples that are genuinely Android-only (`Activity`, `Bundle`, `Intent`) may use platform APIs freely.
 
 ## Structured Logging
 
-Logging in Android uses the KMP `Logger` interface. The Android `actual` implementation chooses the logging framework (Timber, Logback, SLF4J via Logback Android, or custom).
+Logging in Android uses the KMP `Logger` interface. The Android implementation of `createLogger` returns a class implementing the shared `Logger` interface, delegating to the chosen logging framework (Timber, Logback, SLF4J via Logback Android, or custom).
 
 ```kotlin
 // In any Android code or shared KMP code
@@ -59,11 +61,14 @@ Use KMP `PerformanceTrace` interface. Android `actual` delegates to the project'
 class NotesRepository(private val trace: PerformanceTrace) {
     suspend fun searchNotes(query: String): List<Note> {
         val span = trace.startTrace("search.notes")
+        // TimeSource.Monotonic, NOT System.currentTimeMillis(). Repositories
+        // live in the KMP `data` layer's commonMain, where java.lang.System
+        // does not resolve for the iOS or Wasm targets — and Monotonic is
+        // immune to wall-clock adjustments besides.
+        val started = TimeSource.Monotonic.markNow()
         try {
-            val startTime = System.currentTimeMillis()
             val results = dao.search("%$query%")
-            val duration = System.currentTimeMillis() - startTime
-            span.putMetric("duration_ms", duration)
+            span.putMetric("duration_ms", started.elapsedNow().inWholeMilliseconds)
             span.putMetric("result_count", results.size.toLong())
             return results
         } finally {

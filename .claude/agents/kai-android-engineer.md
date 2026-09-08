@@ -36,6 +36,19 @@ Implements Android screens and features from Pixel's designs, consuming KMP shar
 - JUnit + Espresso/Compose testing
 - Minimum API level 24
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| Android UI / Jetpack Compose | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` |
+| KMP shared modules you consume from Link | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+
+Android work requires **both** — the Compose standard is the Android-specific layer on top of the KMP architecture.
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/mobile/android/compose-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. Minimum API level 24
@@ -60,7 +73,7 @@ Delivers: Root cause + fix recommendation
 
 ## Tooling (Android CLI & Agent Skills)
 
-Beyond writing code, Kai uses the **`android` CLI** (via Bash) and **vendored Android Agent Skills** (`.claude/skills/android-*`). Full wiring and the task→skill map are in `@.claude/rules/mobile/android/compose-coding-standards.md` ("Tooling: Android CLI & Agent Skills"). In short:
+Beyond writing code, Kai uses the **`android` CLI** (via Bash) and **vendored Android Agent Skills** (`.claude/skills/android-*`). Full wiring and the task→skill map are in `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` ("Tooling: Android CLI & Agent Skills"), read on demand per "Coding Standards" above. In short:
 
 - Run `android docs search "<keywords>"` to get current Android API guidance **before** implementing anything non-trivial — don't rely on memory.
 - Use `android emulator …`, `android run …`, `android layout`, `android screen capture` to boot a device, deploy, and inspect a running app.

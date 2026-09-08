@@ -3,7 +3,20 @@ set -euo pipefail
 
 # =============================================================================
 # Pre-Commit Hook — Fast checks on every commit
-# Install: ./hooks/install-hooks.sh (or manually symlink to .git/hooks/)
+# Install: ./hooks/install-hooks.sh (or manually symlink into the repo's
+#          common git dir: `git rev-parse --git-common-dir`/hooks)
+#
+# Design rules for this file:
+#   - Security checks scan the *index* (staged content), never the working
+#     tree. Staging a secret and then editing it out of the file on disk must
+#     not produce a pass.
+#   - No security check is allowed to swallow a tool error. `grep` exiting >= 1
+#     means "no match"; exiting >= 2 means grep itself failed, and a gate that
+#     could not run is never reported as a pass — the commit is aborted instead.
+#   - Every extended regular expression is passed with -E. A BRE like
+#     `grep -v '^\+\+\+'` aborts on BSD grep (macOS) with
+#     "repetition-operator operand invalid", which older versions of this hook
+#     then hid behind `2>/dev/null || true`.
 # =============================================================================
 
 RED='\033[0;31m'
@@ -16,85 +29,216 @@ ERRORS=0
 echo "🔍 Running pre-commit checks..."
 
 # ---------------------------------------------------------------------------
-# 1. Commit message format: [STORY-ID] @Agent: description
-#    (This runs via commit-msg hook too, but we validate staged content here)
+# Helpers
 # ---------------------------------------------------------------------------
 
+# die <check-name> — abort the commit because a check could not run.
+# Called from the parent shell (never from inside a command substitution), so
+# the `exit` really does stop the hook.
+die() {
+    echo ""
+    echo -e "${RED}❌ FATAL: the '$1' check could not run (grep exited >= 2).${NC}" >&2
+    echo -e "${YELLOW}A security gate that cannot run is not a pass. Aborting the commit.${NC}" >&2
+    echo -e "${YELLOW}Fix the hook or the environment; do not bypass with --no-verify.${NC}" >&2
+    exit 1
+}
+
+# grep_scan <grep-args...> — run grep, printing matches on stdout.
+# Exit status: 0 = grep ran (matches may be empty), 2 = grep itself failed.
+# grep's stderr is deliberately NOT suppressed, so the real error is visible.
+# Always invoke as:  OUT=$(grep_scan ...) || die "<check name>"
+grep_scan() {
+    local out status=0
+    out=$(grep "$@") || status=$?
+    if [ "$status" -ge 2 ]; then
+        return 2
+    fi
+    printf '%s' "$out"
+    return 0
+}
+
+SECRET_SCAN_IGNORE=".secret-scan-ignore"
+
+# is_ignored <path> — true when the path is listed verbatim in
+# .secret-scan-ignore (one path per line).
+is_ignored() {
+    [ -f "$SECRET_SCAN_IGNORE" ] || return 1
+    grep -qxF -- "$1" "$SECRET_SCAN_IGNORE"
+}
+
 # ---------------------------------------------------------------------------
-# 2. No secrets or credentials in staged files
+# Staged state, read once.
+#   STAGED_FILES — newline-separated paths (added/copied/modified only)
+#   STAGED_DIFF  — the staged *content* diff, which is what the security
+#                  checks below scan. -U0 keeps only changed lines.
 # ---------------------------------------------------------------------------
-echo -n "  Checking for secrets in staged files... "
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+STAGED_DIFF=$(git diff --cached -U0 --diff-filter=ACM)
 
-SECRETS_PATTERN='(password|secret|api_key|apikey|access_token|auth_token|private_key|client_secret)\s*[:=]\s*["\x27][^"\x27]{8,}'
-STAGED_FILES_Z=$(git diff --cached --name-only -z --diff-filter=ACM 2>/dev/null || true)
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
-
-if [ -n "$STAGED_FILES_Z" ]; then
-    # Check for hardcoded secrets (case-insensitive, skip binary files with -I)
-    SECRETS_FOUND=$(echo -n "$STAGED_FILES_Z" | xargs -0 grep -ilIE "$SECRETS_PATTERN" 2>/dev/null || true)
-
-    # Filter out paths listed in .secret-scan-ignore (if the file exists)
-    if [ -n "$SECRETS_FOUND" ] && [ -f ".secret-scan-ignore" ]; then
-        FILTERED=""
-        while IFS= read -r f; do
-            if ! grep -qxF "$f" .secret-scan-ignore; then
-                FILTERED="$FILTERED$f"$'\n'
-            fi
-        done <<< "$SECRETS_FOUND"
-        SECRETS_FOUND=$(echo "$FILTERED" | sed '/^$/d')
+# Added lines of the staged diff, with the `+++ b/path` file headers removed.
+ADDED_LINES=""
+if [ -n "$STAGED_DIFF" ]; then
+    ADDED_LINES=$(grep_scan -E '^\+' <<<"$STAGED_DIFF") || die "staged diff scan"
+    if [ -n "$ADDED_LINES" ]; then
+        ADDED_LINES=$(grep_scan -vE '^\+\+\+' <<<"$ADDED_LINES") || die "staged diff scan"
     fi
-
-    if [ -n "$SECRETS_FOUND" ]; then
-        echo -e "${RED}FAILED${NC}"
-        echo -e "  ${RED}Possible secrets detected in:${NC}"
-        echo "$SECRETS_FOUND" | while read -r f; do echo "    - $f"; done
-        echo -e "  ${YELLOW}If these are false positives, add them to .secret-scan-ignore${NC}"
-        ERRORS=$((ERRORS + 1))
-    else
-        echo -e "${GREEN}OK${NC}"
-    fi
-
-    # Check for .env files being committed
-    ENV_FILES=$(echo "$STAGED_FILES" | grep -E '\.env(\.[a-z]+)?$' | grep -v '\.env\.example$' | grep -v '\.env\.template$' || true)
-    if [ -n "$ENV_FILES" ]; then
-        echo -e "  ${RED}WARNING: .env files staged for commit:${NC}"
-        echo "$ENV_FILES" | while read -r f; do echo "    - $f"; done
-        echo -e "  ${YELLOW}Remove with: git reset HEAD <file>${NC}"
-        ERRORS=$((ERRORS + 1))
-    fi
-else
-    echo -e "${GREEN}OK (no staged files)${NC}"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. No TODO/FIXME without a story ID
+# 1. No secrets or credentials in staged content
+#
+#    Two independent rules:
+#      a) assignment shape — `api_key = "<8+ chars>"`, case-insensitive
+#      b) token shape      — provider-specific credential formats, case-sensitive
+#
+#    The quote class is built by concatenation below. Writing it inline as
+#    ["\x27] does NOT mean {" '}: inside a POSIX bracket expression a backslash
+#    is literal, so that class is {" \ x 2 7} — which misses every
+#    single-quoted secret and truncates any value containing 2, 7 or x.
 # ---------------------------------------------------------------------------
-echo -n "  Checking for untracked TODOs/FIXMEs... "
+echo -n "  Checking for secrets in staged content... "
 
-if [ -n "$STAGED_FILES" ]; then
-    # Get only added/modified lines in the diff
-    UNTRACKED_TODOS=$(git diff --cached -U0 --diff-filter=ACM | grep -E '^\+.*\b(TODO|FIXME)\b' | grep -vE '\b(TODO|FIXME)\s*[\(\[]\s*[A-Z]+-[0-9]+' || true)
-    if [ -n "$UNTRACKED_TODOS" ]; then
-        echo -e "${YELLOW}WARNING${NC}"
-        echo -e "  ${YELLOW}TODOs/FIXMEs found without story IDs:${NC}"
-        echo "$UNTRACKED_TODOS" | head -5 | while read -r line; do echo "    $line"; done
-        echo -e "  ${YELLOW}Use format: TODO(STORY-123) or FIXME[US-042]${NC}"
-        # Warning only, not blocking
-    else
-        echo -e "${GREEN}OK${NC}"
+Q='["'"'"']'      # ["']  — a single or double quote
+NQ='[^"'"'"']'    # [^"'] — anything that is not a quote
+
+SECRET_ASSIGNMENT_RE="(password|passwd|secret|api_key|apikey|access_token|auth_token|refresh_token|private_key|client_secret|aws_secret_access_key)[[:space:]]*[:=][[:space:]]*${Q}${NQ}{8,}"
+
+SECRET_TOKEN_RE='(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|AKIA[0-9A-Z]{16}|sk_live_[A-Za-z0-9]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.)'
+
+SECRET_HIT_FILES=""
+
+if [ -n "$ADDED_LINES" ]; then
+    # Fast path: does any added line look like a secret at all?
+    ASSIGN_HITS=$(grep_scan -iE "$SECRET_ASSIGNMENT_RE" <<<"$ADDED_LINES") || die "secret scan"
+    TOKEN_HITS=$(grep_scan -E "$SECRET_TOKEN_RE" <<<"$ADDED_LINES") || die "secret scan"
+
+    if [ -n "$ASSIGN_HITS" ] || [ -n "$TOKEN_HITS" ]; then
+        # Slow path (rare): walk the diff to attribute each hit to a file and
+        # drop anything allow-listed in .secret-scan-ignore. The offending line
+        # is NOT echoed — printing it would splash the secret across the
+        # terminal and the shell history.
+        CUR_FILE=""
+        while IFS= read -r dline; do
+            case "$dline" in
+                '+++ b/'*) CUR_FILE="${dline#+++ b/}"; continue ;;
+                '+++ '*)   CUR_FILE=""; continue ;;
+                '+'*)      ;;
+                *)         continue ;;
+            esac
+            [ -n "$CUR_FILE" ] || continue
+            is_ignored "$CUR_FILE" && continue
+
+            RULE=""
+            if printf '%s\n' "${dline#+}" | grep -qiE "$SECRET_ASSIGNMENT_RE"; then
+                RULE="credential assignment"
+            elif printf '%s\n' "${dline#+}" | grep -qE "$SECRET_TOKEN_RE"; then
+                RULE="credential token"
+            fi
+            [ -n "$RULE" ] || continue
+
+            case "$SECRET_HIT_FILES" in
+                *"    - $CUR_FILE ($RULE)"$'\n'*) ;;
+                *) SECRET_HIT_FILES="${SECRET_HIT_FILES}    - $CUR_FILE ($RULE)"$'\n' ;;
+            esac
+        done <<<"$STAGED_DIFF"
     fi
+fi
+
+if [ -n "$SECRET_HIT_FILES" ]; then
+    echo -e "${RED}FAILED${NC}"
+    echo -e "  ${RED}Possible secrets detected in staged content:${NC}"
+    printf '%s' "$SECRET_HIT_FILES"
+    echo -e "  ${YELLOW}The matching lines are not printed here on purpose. Inspect with:${NC}"
+    echo -e "  ${YELLOW}  git diff --cached -- <file>${NC}"
+    echo -e "  ${YELLOW}Move the value to an environment variable or a secret manager.${NC}"
+    echo -e "  ${YELLOW}If this is a genuine false positive, add the path to .secret-scan-ignore${NC}"
+    ERRORS=$((ERRORS + 1))
 else
     echo -e "${GREEN}OK${NC}"
 fi
 
 # ---------------------------------------------------------------------------
-# 4. No force-unwraps (!!) in Kotlin files (KMP safety)
+# 2. Sensitive files staged by name (.env, private keys, keystores)
+#    Content scanning cannot help here: a DER-encoded .p12 or a binary keystore
+#    has no greppable "password =" line.
+# ---------------------------------------------------------------------------
+echo -n "  Checking for sensitive files... "
+
+SENSITIVE_NAME_RE='(^|/)(\.env(\.[A-Za-z0-9_-]+)?|id_rsa|id_dsa|id_ecdsa|id_ed25519)$|\.(pem|p12|jks|keystore)$'
+SENSITIVE_ALLOW_RE='(^|/)\.env\.(example|template|sample)$'
+
+SENSITIVE_FILES=""
+if [ -n "$STAGED_FILES" ]; then
+    CANDIDATES=$(grep_scan -E "$SENSITIVE_NAME_RE" <<<"$STAGED_FILES") || die "sensitive file scan"
+    if [ -n "$CANDIDATES" ]; then
+        CANDIDATES=$(grep_scan -vE "$SENSITIVE_ALLOW_RE" <<<"$CANDIDATES") || die "sensitive file scan"
+    fi
+    if [ -n "$CANDIDATES" ]; then
+        while IFS= read -r sfile; do
+            [ -n "$sfile" ] || continue
+            is_ignored "$sfile" && continue
+            SENSITIVE_FILES="${SENSITIVE_FILES}    - $sfile"$'\n'
+        done <<<"$CANDIDATES"
+    fi
+fi
+
+if [ -n "$SENSITIVE_FILES" ]; then
+    echo -e "${RED}FAILED${NC}"
+    echo -e "  ${RED}Sensitive files staged for commit:${NC}"
+    printf '%s' "$SENSITIVE_FILES"
+    echo -e "  ${YELLOW}Unstage with: git reset HEAD <file> — then add the path to .gitignore${NC}"
+    echo -e "  ${YELLOW}If this is a fixture and genuinely safe, add it to .secret-scan-ignore${NC}"
+    ERRORS=$((ERRORS + 1))
+else
+    echo -e "${GREEN}OK${NC}"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. No TODO/FIXME without a story ID (warning only)
+# ---------------------------------------------------------------------------
+echo -n "  Checking for untracked TODOs/FIXMEs... "
+
+UNTRACKED_TODOS=""
+if [ -n "$ADDED_LINES" ]; then
+    TODO_LINES=$(grep_scan -E '\b(TODO|FIXME)\b' <<<"$ADDED_LINES") || die "TODO scan"
+    if [ -n "$TODO_LINES" ]; then
+        UNTRACKED_TODOS=$(grep_scan -vE '\b(TODO|FIXME)[[:space:]]*[([][[:space:]]*[A-Za-z]+-[0-9]+' <<<"$TODO_LINES") || die "TODO scan"
+    fi
+fi
+
+if [ -n "$UNTRACKED_TODOS" ]; then
+    echo -e "${YELLOW}WARNING${NC}"
+    echo -e "  ${YELLOW}TODOs/FIXMEs found without story IDs:${NC}"
+    echo "$UNTRACKED_TODOS" | head -5 | while read -r line; do echo "    $line"; done
+    echo -e "  ${YELLOW}Use format: TODO(STORY-123) or FIXME[US-042]${NC}"
+    # Warning only, not blocking
+else
+    echo -e "${GREEN}OK${NC}"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. No force-unwraps (!!) in Kotlin files (KMP safety) — blocking
 # ---------------------------------------------------------------------------
 echo -n "  Checking for force-unwraps in Kotlin... "
 
-KOTLIN_FILES=$(echo "$STAGED_FILES" | grep -E '\.kt$' || true)
+KOTLIN_FILES=""
+if [ -n "$STAGED_FILES" ]; then
+    KOTLIN_FILES=$(grep_scan -E '\.kt$' <<<"$STAGED_FILES") || die "Kotlin file list"
+fi
+
 if [ -n "$KOTLIN_FILES" ]; then
-    FORCE_UNWRAPS=$(git diff --cached -U0 --diff-filter=ACM -- '*.kt' | grep -E '^\+.*!!' | grep -v '^\+\+\+' | grep -v '// safe:' || true)
+    KT_DIFF=$(git diff --cached -U0 --diff-filter=ACM -- '*.kt')
+    FORCE_UNWRAPS=""
+    if [ -n "$KT_DIFF" ]; then
+        FORCE_UNWRAPS=$(grep_scan -E '^\+.*!!' <<<"$KT_DIFF") || die "Kotlin force-unwrap"
+        if [ -n "$FORCE_UNWRAPS" ]; then
+            FORCE_UNWRAPS=$(grep_scan -vE '^\+\+\+' <<<"$FORCE_UNWRAPS") || die "Kotlin force-unwrap"
+        fi
+        if [ -n "$FORCE_UNWRAPS" ]; then
+            FORCE_UNWRAPS=$(grep_scan -vE '// safe:' <<<"$FORCE_UNWRAPS") || die "Kotlin force-unwrap"
+        fi
+    fi
+
     if [ -n "$FORCE_UNWRAPS" ]; then
         echo -e "${RED}FAILED${NC}"
         echo -e "  ${RED}Force-unwraps (!!) found in Kotlin code:${NC}"
@@ -110,19 +254,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. No force-unwraps (!) in Swift files
+# 5. No force-unwraps (!) in Swift files (warning only — too many false
+#    positives for a hard block)
 # ---------------------------------------------------------------------------
 echo -n "  Checking for force-unwraps in Swift... "
 
-SWIFT_FILES=$(echo "$STAGED_FILES" | grep -E '\.swift$' || true)
+SWIFT_FILES=""
+if [ -n "$STAGED_FILES" ]; then
+    SWIFT_FILES=$(grep_scan -E '\.swift$' <<<"$STAGED_FILES") || die "Swift file list"
+fi
+
 if [ -n "$SWIFT_FILES" ]; then
-    # Match lines with ! force unwrap patterns, excluding common safe patterns
-    SWIFT_FORCE=$(git diff --cached -U0 --diff-filter=ACM -- '*.swift' | grep -E '^\+' | grep -v '^\+\+\+' | grep -E '\w+!' | grep -v '// safe:' | grep -v '@IBOutlet' | grep -v '@IBAction' | grep -v 'import ' | grep -v '!=' | grep -v '!/=' || true)
+    SWIFT_DIFF=$(git diff --cached -U0 --diff-filter=ACM -- '*.swift')
+    SWIFT_FORCE=""
+    if [ -n "$SWIFT_DIFF" ]; then
+        SWIFT_FORCE=$(grep_scan -E '^\+' <<<"$SWIFT_DIFF") || die "Swift force-unwrap"
+        for excl in '^\+\+\+' '// safe:' '@IBOutlet' '@IBAction' '^\+[[:space:]]*import ' '!=' '!/='; do
+            [ -n "$SWIFT_FORCE" ] || break
+            SWIFT_FORCE=$(grep_scan -vE "$excl" <<<"$SWIFT_FORCE") || die "Swift force-unwrap"
+        done
+        if [ -n "$SWIFT_FORCE" ]; then
+            SWIFT_FORCE=$(grep_scan -E '[A-Za-z0-9_)]!' <<<"$SWIFT_FORCE") || die "Swift force-unwrap"
+        fi
+    fi
+
     if [ -n "$SWIFT_FORCE" ]; then
         echo -e "${YELLOW}WARNING${NC}"
         echo -e "  ${YELLOW}Possible force-unwraps found in Swift code (review manually):${NC}"
         echo "$SWIFT_FORCE" | head -3 | while read -r line; do echo "    $line"; done
-        # Warning only — Swift ! detection has too many false positives for a hard block
     else
         echo -e "${GREEN}OK${NC}"
     fi
@@ -140,7 +299,7 @@ LINTERS_RAN=false
 # Kotlin (detekt)
 if [ -n "$KOTLIN_FILES" ] && [ -f "gradlew" ]; then
     LINTERS_RAN=true
-    if ! ./gradlew detekt --daemon -q 2>/dev/null; then
+    if ! ./gradlew detekt --daemon -q </dev/null; then
         echo -e "${RED}FAILED${NC}"
         echo -e "  ${RED}Detekt lint check failed. Run: ./gradlew detekt${NC}"
         ERRORS=$((ERRORS + 1))
@@ -150,48 +309,50 @@ if [ -n "$KOTLIN_FILES" ] && [ -f "gradlew" ]; then
 fi
 
 # TypeScript/JavaScript (eslint)
-if echo "$STAGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
-    TS_FILES=$(echo "$STAGED_FILES" | grep -E '\.(ts|tsx|js|jsx)$' || true)
-    if [ -n "$TS_FILES" ]; then
-        LINTERS_RAN=true
-        if command -v npx &>/dev/null && [ -f "node_modules/.bin/eslint" ]; then
-            if ! echo "$TS_FILES" | xargs npx eslint --quiet 2>/dev/null; then
-                echo -e "${RED}FAILED${NC}"
-                echo -e "  ${RED}ESLint check failed. Run: npx eslint --fix${NC}"
-                ERRORS=$((ERRORS + 1))
-            else
-                echo -e "${GREEN}OK (TypeScript/JavaScript)${NC}"
-            fi
+TS_FILES=""
+if [ -n "$STAGED_FILES" ]; then
+    TS_FILES=$(grep_scan -E '\.(ts|tsx|js|jsx)$' <<<"$STAGED_FILES") || die "TS file list"
+fi
+if [ -n "$TS_FILES" ] && [ -f "package.json" ]; then
+    LINTERS_RAN=true
+    if [ -x "node_modules/.bin/eslint" ]; then
+        if ! echo "$TS_FILES" | xargs node_modules/.bin/eslint --quiet </dev/null; then
+            echo -e "${RED}FAILED${NC}"
+            echo -e "  ${RED}ESLint check failed. Run: npx eslint --fix${NC}"
+            ERRORS=$((ERRORS + 1))
         else
-            echo -e "${YELLOW}SKIPPED (eslint not installed)${NC}"
+            echo -e "${GREEN}OK (TypeScript/JavaScript)${NC}"
         fi
+    else
+        echo -e "${YELLOW}SKIPPED (eslint not installed)${NC}"
     fi
 fi
 
 # Python (ruff)
-if echo "$STAGED_FILES" | grep -qE '\.py$'; then
-    PY_FILES=$(echo "$STAGED_FILES" | grep -E '\.py$' || true)
-    if [ -n "$PY_FILES" ]; then
-        LINTERS_RAN=true
-        if command -v ruff &>/dev/null; then
-            if ! echo "$PY_FILES" | xargs ruff check --quiet 2>/dev/null; then
-                echo -e "${RED}FAILED${NC}"
-                echo -e "  ${RED}Ruff lint check failed. Run: ruff check --fix${NC}"
-                ERRORS=$((ERRORS + 1))
-            else
-                echo -e "${GREEN}OK (Python)${NC}"
-            fi
+PY_FILES=""
+if [ -n "$STAGED_FILES" ]; then
+    PY_FILES=$(grep_scan -E '\.py$' <<<"$STAGED_FILES") || die "Python file list"
+fi
+if [ -n "$PY_FILES" ]; then
+    LINTERS_RAN=true
+    if command -v ruff >/dev/null 2>&1; then
+        if ! echo "$PY_FILES" | xargs ruff check --quiet </dev/null; then
+            echo -e "${RED}FAILED${NC}"
+            echo -e "  ${RED}Ruff lint check failed. Run: ruff check --fix${NC}"
+            ERRORS=$((ERRORS + 1))
         else
-            echo -e "${YELLOW}SKIPPED (ruff not installed)${NC}"
+            echo -e "${GREEN}OK (Python)${NC}"
         fi
+    else
+        echo -e "${YELLOW}SKIPPED (ruff not installed)${NC}"
     fi
 fi
 
 # Swift (swiftlint)
 if [ -n "$SWIFT_FILES" ]; then
     LINTERS_RAN=true
-    if command -v swiftlint &>/dev/null; then
-        if ! swiftlint lint --quiet 2>/dev/null; then
+    if command -v swiftlint >/dev/null 2>&1; then
+        if ! swiftlint lint --quiet </dev/null; then
             echo -e "${RED}FAILED${NC}"
             echo -e "  ${RED}SwiftLint check failed. Run: swiftlint${NC}"
             ERRORS=$((ERRORS + 1))
@@ -215,19 +376,19 @@ echo -n "  Checking for large files... "
 LARGE_FILES=""
 if [ -n "$STAGED_FILES" ]; then
     while IFS= read -r file; do
-        if [ -f "$file" ]; then
-            SIZE=$(wc -c < "$file" 2>/dev/null || echo 0)
-            if [ "$SIZE" -gt 5242880 ]; then
-                LARGE_FILES="$LARGE_FILES\n    - $file ($(( SIZE / 1048576 ))MB)"
-            fi
+        [ -n "$file" ] || continue
+        # Measure the staged blob, not the working-tree file: the two can differ.
+        SIZE=$(git cat-file -s ":$file" 2>/dev/null || echo 0)
+        if [ "$SIZE" -gt 5242880 ]; then
+            LARGE_FILES="${LARGE_FILES}    - $file ($(( SIZE / 1048576 ))MB)"$'\n'
         fi
-    done <<< "$STAGED_FILES"
+    done <<<"$STAGED_FILES"
 fi
 
 if [ -n "$LARGE_FILES" ]; then
     echo -e "${RED}FAILED${NC}"
     echo -e "  ${RED}Large files (>5MB) staged:${NC}"
-    echo -e "$LARGE_FILES"
+    printf '%s' "$LARGE_FILES"
     echo -e "  ${YELLOW}Consider using Git LFS or excluding these files.${NC}"
     ERRORS=$((ERRORS + 1))
 else
@@ -239,12 +400,28 @@ fi
 #    Runs only when all checks above passed AND the commit is on `main`.
 #    Increments the patch segment of ./VERSION and stages it, so the bump
 #    rides along in the same commit. To bump minor/major instead, edit VERSION
-#    by hand and stage it — the idempotency guard below leaves it untouched.
+#    by hand and stage it — the first guard below leaves it untouched.
+#
+#    IDEMPOTENCE ACROSS AMENDS
+#    `git commit --amend` re-runs this hook against a HEAD that already
+#    contains the bump, so a naive version bumps twice (three times for two
+#    amends, and so on). Two guards prevent that:
+#
+#      a) VERSION already staged  -> leave it alone. Covers a manual bump and
+#         any amend where VERSION is part of the staged change.
+#      b) The index is identical to HEAD -> this cannot be an ordinary commit,
+#         because git refuses to create an empty commit without --allow-empty.
+#         It is an amend (the common "fix the message" case), so skip.
+#
+#    Residual gap: `git commit --amend` that *also* stages new content is
+#    indistinguishable from an ordinary commit using git state alone, and will
+#    bump. That is a harmless over-count of one patch level, and is corrected
+#    by editing VERSION by hand.
 #
 #    NOTE: this is a client-side hook. It fires on *local* commits made while
 #    on main. PR merges performed on the GitHub server (squash/merge button or
-#    `gh pr merge`) do NOT run local hooks, so those won't bump — use a CI
-#    workflow if you need server-side merges bumped too.
+#    `gh pr merge`) do NOT run local hooks — that path is covered server-side
+#    by .github/workflows/release-on-main.yml.
 # ---------------------------------------------------------------------------
 if [ $ERRORS -eq 0 ]; then
     BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
@@ -252,11 +429,20 @@ if [ $ERRORS -eq 0 ]; then
         echo -n "  Bumping version (main)... "
         VERSION_FILE="VERSION"
 
+        IS_AMEND=false
+        if git rev-parse --verify -q HEAD >/dev/null 2>&1; then
+            if git diff --cached --quiet HEAD 2>/dev/null; then
+                IS_AMEND=true
+            fi
+        fi
+
         if git diff --cached --name-only | grep -qx "$VERSION_FILE"; then
             # VERSION is already staged — either an intentional manual bump, or
             # a prior commit attempt that a later hook aborted. Don't bump again
             # (prevents double-bumps across retried commits).
             echo -e "${YELLOW}already staged — leaving as-is${NC}"
+        elif $IS_AMEND; then
+            echo -e "${YELLOW}amend detected — leaving as-is${NC}"
         else
             CURRENT=$(tr -d ' \t\r\n' < "$VERSION_FILE" 2>/dev/null || echo "")
             if ! echo "$CURRENT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -270,6 +456,49 @@ if [ $ERRORS -eq 0 ]; then
             printf '%s\n' "$NEW" > "$VERSION_FILE"
             git add "$VERSION_FILE"
             echo -e "${GREEN}$CURRENT → $NEW${NC}"
+        fi
+
+        # -------------------------------------------------------------------
+        # Keep the plugin manifest in lockstep with VERSION.
+        #
+        # `.claude/.claude-plugin/plugin.json` is the version the plugin system
+        # actually reads (the marketplace entry's source is `./.claude` and
+        # carries no version of its own). VERSION alone is inert. Historically
+        # only VERSION was bumped, so `claude plugin update` reported
+        # "already up to date" forever.
+        #
+        # `.github/workflows/release-on-main.yml` now FAILS the release when the
+        # two disagree, so syncing here is not cosmetic: skipping it would make
+        # every local commit on main produce a drift the release gate rejects.
+        #
+        # This runs on every main-branch path — after a bump AND after a manual
+        # VERSION stage — because a hand-edited VERSION needs the manifest moved
+        # just as much as a generated one does.
+        # -------------------------------------------------------------------
+        MANIFEST_FILE=".claude/.claude-plugin/plugin.json"
+        if [ -f "$VERSION_FILE" ] && [ -f "$MANIFEST_FILE" ]; then
+            echo -n "  Syncing plugin manifest version... "
+            TARGET=$(tr -d ' \t\r\n' < "$VERSION_FILE" 2>/dev/null || echo "")
+            if ! echo "$TARGET" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo -e "${RED}FAILED${NC}"
+                echo -e "  ${RED}VERSION is not valid semver ('$TARGET') — refusing to sync the manifest.${NC}"
+                ERRORS=$((ERRORS + 1))
+            elif ! command -v jq >/dev/null 2>&1; then
+                echo -e "${RED}FAILED${NC}"
+                echo -e "  ${RED}jq is required to keep $MANIFEST_FILE in sync with VERSION, and is not installed.${NC}"
+                echo -e "  ${YELLOW}Install jq (brew install jq), or set the version in both files by hand.${NC}"
+                ERRORS=$((ERRORS + 1))
+            else
+                MANIFEST_VERSION=$(jq -r '.version // ""' "$MANIFEST_FILE")
+                if [ "$MANIFEST_VERSION" = "$TARGET" ]; then
+                    echo -e "${GREEN}already $TARGET${NC}"
+                else
+                    jq --arg v "$TARGET" '.version = $v' "$MANIFEST_FILE" > "$MANIFEST_FILE.tmp" \
+                        && mv "$MANIFEST_FILE.tmp" "$MANIFEST_FILE"
+                    git add "$MANIFEST_FILE"
+                    echo -e "${GREEN}$MANIFEST_VERSION → $TARGET${NC}"
+                fi
+            fi
         fi
     fi
 fi

@@ -1,5 +1,8 @@
 # Ktor Server Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md`, falling back to `.claude/rules/backend/kotlin/ktor-server-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Link. All Ktor server code MUST follow these standards. For shared KMP code (domain models, DTOs, validation, use cases), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here too.
 
 ## Why Ktor over Spring
@@ -204,6 +207,7 @@ fun Application.configureRouting() {
 // features/notes/routes/NotesRoutes.kt
 fun Route.notesRoutes(notesService: NotesService) {
     route("/notes") {
+        // Public read.
         get {
             val cursor = call.request.queryParameters["cursor"]
             val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
@@ -211,31 +215,40 @@ fun Route.notesRoutes(notesService: NotesService) {
             call.respond(ApiResponse.success(result))
         }
 
-        post {
-            val request = call.receive<CreateNoteRequest>()
-            val errors = request.validate() // shared validation from commonMain
-            if (errors.isNotEmpty()) {
-                throw ValidationException(errors)
-            }
-            val note = notesService.createNote(request)
-            call.respond(HttpStatusCode.Created, ApiResponse.success(note))
-        }
-
+        // EVERY mutating route lives inside authenticate — a note has an
+        // author, so there is no such thing as an anonymous write.
         authenticate("jwt") {
+            post {
+                val principal = call.requirePrincipal()
+                val request = call.receive<CreateNoteRequest>()
+                val errors = request.validate() // shared validation from commonMain
+                if (errors.isNotEmpty()) {
+                    throw ValidationException(errors)
+                }
+                val note = notesService.createNote(request, principal.userId)
+                call.respond(HttpStatusCode.Created, ApiResponse.success(note))
+            }
+
             delete("/{id}") {
                 val id = call.parameters["id"] ?: throw BadRequestException("Missing id")
-                val principal = call.principal<AuthPrincipal>()!!
+                val principal = call.requirePrincipal()
                 notesService.deleteNote(id, principal.userId)
                 call.respond(ApiResponse.success(Unit))
             }
         }
     }
 }
+
+// core/auth/AuthPrincipal.kt — one helper, so no route ever writes `!!`.
+fun ApplicationCall.requirePrincipal(): AuthPrincipal =
+    principal<AuthPrincipal>() ?: throw AppError.Unauthorized()
 ```
 
 Rules:
 - `fun Route.xxxRoutes(service)` — services injected via parameter, not looked up inside routes.
-- Route-level `authenticate("jwt") { }` blocks for protected endpoints.
+- Route-level `authenticate("jwt") { }` blocks for protected endpoints. **Group the mutating verbs (`post`, `put`, `patch`, `delete`) inside one `authenticate` block rather than annotating them one at a time** — a route added later then inherits authentication by position instead of relying on the author remembering.
+- Any row with an owner column (`author_id`, `user_id`) is written from `principal.userId`, never from a client-supplied field in the request body. A client that can name its own `authorId` can forge authorship.
+- Never `call.principal<T>()!!` — the `!!` is blocked by the pre-commit hook and turns a misconfigured route into a 500 instead of a 401. Use `requirePrincipal()` above.
 - Use shared `CreateNoteRequest.validate()` from `commonMain`.
 - Always respond with `ApiResponse.success(data)` or throw — let StatusPages handle errors.
 - Path parameters: `call.parameters["id"]`. Query parameters: `call.request.queryParameters["key"]`.
@@ -332,7 +345,7 @@ class NotesRepository {
             it[content] = request.content
             it[this.authorId] = authorId
         }
-        getById(id.value)!!
+        checkNotNull(getById(id.value)) { "Note ${id.value} vanished between insert and read" }
     }
 
     private suspend fun <T> dbQuery(block: suspend () -> T): T =
@@ -388,11 +401,15 @@ class JwtConfig(config: ApplicationConfig) {
     private val audience = config.property("jwt.audience").getString()
     val realm = config.property("jwt.realm").getString()
 
-    fun generateToken(userId: UUID): String = JWT.create()
+    /**
+     * [expiresIn] is a parameter, not a hardcoded constant, so tests can mint a
+     * deliberately expired token (`(-1).hours`) without a second code path.
+     */
+    fun generateToken(userId: UUID, expiresIn: Duration = 1.hours): String = JWT.create()
         .withAudience(audience)
         .withIssuer(issuer)
         .withClaim("userId", userId.toString())
-        .withExpiresAt(Date(System.currentTimeMillis() + 3_600_000)) // 1 hour
+        .withExpiresAt(Date.from(Instant.now().plus(expiresIn.toJavaDuration())))
         .sign(Algorithm.HMAC256(secret))
 
     fun configureVerifier(): JWTVerifier = JWT.require(Algorithm.HMAC256(secret))
@@ -569,8 +586,12 @@ class NotesServiceTest {
 class NotesRepositoryDbTest {
 
     companion object {
+        // @JvmStatic is REQUIRED. Without it the JUnit 5 Testcontainers
+        // extension never discovers the field, the container is never started,
+        // and `postgres.jdbcUrl` throws in @BeforeAll.
         @Container
-        val postgres = PostgreSQLContainer("postgres:16-alpine")
+        @JvmStatic
+        val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
 
         @BeforeAll @JvmStatic
         fun setup() {
@@ -586,7 +607,7 @@ class NotesRepositoryDbTest {
         val retrieved = repo.getById(created.id)
 
         assertNotNull(retrieved)
-        assertEquals("DB Test", retrieved!!.title)
+        assertEquals("DB Test", retrieved.title) // smart-cast from assertNotNull
     }
 }
 ```
@@ -612,7 +633,8 @@ class AuthLifecycleE2ETest {
             contentType(ContentType.Application.Json)
             setBody("""{"email":"e2e@test.com","password":"Secure123!"}""")
         }
-        val token = login.body<ApiResponse<AuthTokenResponse>>().data!!.accessToken
+        // assertNotNull returns the unwrapped value — no `!!` anywhere, tests included.
+        val token = assertNotNull(login.body<ApiResponse<AuthTokenResponse>>().data).accessToken
 
         // Create note (authenticated)
         val create = client.post("/api/v1/notes") {
@@ -621,7 +643,7 @@ class AuthLifecycleE2ETest {
             setBody("""{"title":"E2E Note","content":"Automated test"}""")
         }
         assertEquals(HttpStatusCode.Created, create.status)
-        val noteId = create.body<ApiResponse<NoteResponse>>().data!!.id
+        val noteId = assertNotNull(create.body<ApiResponse<NoteResponse>>().data).id
 
         // Delete note (authenticated)
         val delete = client.delete("/api/v1/notes/$noteId") { bearerAuth(token) }
@@ -673,7 +695,10 @@ class SecurityTest {
     @Test
     fun `expired JWT is rejected`() = testApplication {
         application { module() }
-        val expired = JwtConfig.generateToken(testUserId, expiresIn = (-1).hours)
+        // JwtConfig is a Koin-managed instance, not an object — resolve it the
+        // same way the rest of the app does.
+        val jwtConfig by inject<JwtConfig>()
+        val expired = jwtConfig.generateToken(testUserId, expiresIn = (-1).hours)
         val response = client.get("/api/v1/users/me") { bearerAuth(expired) }
         assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
@@ -784,17 +809,23 @@ fun Application.configureHealthChecks() {
             val checks = health["checks"] as MutableMap<String, Any>
 
             try {
-                transaction {
-                    exec("SELECT 1")
+                // newSuspendedTransaction, NOT transaction: a blocking
+                // `transaction {}` in a route parks an event-loop thread, so a
+                // stalled database starves the server that is trying to report
+                // the stall. withTimeout bounds the check per the rule above.
+                withTimeout(2.seconds) {
+                    newSuspendedTransaction(Dispatchers.IO) { exec("SELECT 1") }
                 }
                 checks["database"] = "ok"
             } catch (e: Exception) {
-                (health["status"] as String).also { health["status"] = "not_ready" }
+                health["status"] = "not_ready"
                 checks["database"] = "failed: ${e.message}"
             }
 
             try {
-                val response = httpClient.get("https://external-api.example.com/health")
+                val response = withTimeout(2.seconds) {
+                    httpClient.get("https://external-api.example.com/health")
+                }
                 if (response.status.isSuccess()) {
                     checks["external-api"] = "ok"
                 } else {
@@ -846,17 +877,26 @@ fun main() {
     }.start(wait = true)
 }
 
-// Graceful shutdown is handled by Ktor/Netty automatically.
-// Add shutdown hooks for cleanup:
-environment.monitor.subscribe(ApplicationStopping) {
-    // Close database pool, flush logs
-    DatabaseFactory.close()
+fun Application.module() {
+    configureSerialization()
+    configureAuthentication()
+    // ... the rest of the plugin configuration
+
+    // Graceful shutdown is handled by Ktor/Netty automatically; this hook is
+    // only for our own cleanup. It MUST live inside Application.module():
+    // `monitor` is a member of Application, and Kotlin allows only
+    // declarations — not statements — at file scope.
+    // Ktor 3 note: `Application.monitor`, not the removed `environment.monitor`.
+    monitor.subscribe(ApplicationStopping) {
+        // Close database pool, flush logs
+        DatabaseFactory.close()
+    }
 }
 ```
 
 - `embeddedServer` with Netty engine.
 - Health check: `GET /health` returning `{"status": "ok"}`.
-- Graceful shutdown handled by Ktor. Subscribe to `ApplicationStopping` for cleanup.
+- Graceful shutdown handled by Ktor. Subscribe to `ApplicationStopping` **inside `Application.module()`** for cleanup.
 - Validate config at startup — fail fast on missing required values.
 
 ## Tooling: Kotlin Agent Skills

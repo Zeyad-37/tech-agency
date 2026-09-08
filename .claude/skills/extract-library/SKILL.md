@@ -5,18 +5,18 @@ description: "Extract a module from an app into a standalone, published KMP libr
 
 # Extract a Module into a Standalone Library
 
-Proven end to end by `pagecurl-cmp` (vendored Steady module → `io.github.zeyad-37:pagecurl-cmp` on Maven Central, 2026-08). Owner: @Link for KMP libraries. Every step below was needed at least once; skipping the gotchas costs hours.
+Proven end to end by [`pagecurl-cmp`](https://github.com/Zeyad-37/pagecurl-cmp) (a module vendored inside a private production app → `io.github.zeyad-37:pagecurl-cmp` on Maven Central, 2026-08). Owner: @Link for KMP libraries. Every step below was needed at least once; skipping the gotchas costs hours.
 
 ## Phase 0 — Scope the seam
 
 Before any code moves, establish with the user:
 
-- **What exactly is library-worthy?** The reusable engine, not the app's integration layer. (pagecurl: the pager/gesture/draw code went; Steady's `DateCurl` date-mapping stayed in the app. For a journal editor: the document model + editor engine go; the app's persistence and screens stay.)
+- **What exactly is library-worthy?** The reusable engine, not the app's integration layer. (pagecurl: the pager/gesture/draw code went into the library; the originating app's date-mapping wrapper around it stayed behind. For a journal editor: the document model + editor engine go; the app's persistence and screens stay.)
 - **Where are the platform seams?** Count the `expect`/`actual`s the extraction needs. If the module is `commonMain`-clean except for a few functions, the extraction is cheap — read the source before believing any "not multiplatform-compatible" claim.
 - **Who consumes what?** List the app modules that will swap to the artifact, and which app-side tests pin the library's behavioral contract (these become the consumer regression gate after the swap).
 - **License**: app code being open-sourced → owner's choice. A fork of third-party code → comply with the upstream license (Apache-2.0 derivatives may be MIT-relicensed if the upstream LICENSE + NOTICE are preserved; credit the original author prominently).
 
-If the module isn't cleanly separable yet, vendor it first as an in-repo `:libs:<name>` module with its own package and iterate there — promote to a repo once stable (this is the pagecurl path: vendor → harden in production → extract).
+If the module isn't cleanly separable yet, vendor it first as an in-repo `:libs:<name>` module with its own package and iterate there — promote to a repo once stable. That vendor → harden in production → extract sequence is the path pagecurl-cmp took, and it is the recommended default: extracting before the seam has been proven under real usage costs more than it saves.
 
 ## Phase 1 — Standalone repo
 

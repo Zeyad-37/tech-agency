@@ -1,6 +1,10 @@
 # Commands Reference
 
-These are slash commands (skills) available in every project that uses the tech agency template. They automate the most common multi-step workflows so you don't have to type out full prompts.
+These are the **34 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
+
+The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 48 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
+
+> Installing the plugin is not the whole setup. Run `/setup-repo` once per project to bootstrap the shared policy rules, the board, the git hooks, and `.claude/settings.json`. See `../setup-guide.md`.
 
 ## Daily Operations
 
@@ -71,6 +75,20 @@ Feature kickoff that adapts to scope. Small features go straight to the engineer
 - "add social sharing to the habit tracker"
 - "new feature: push notifications"
 - "I want to add dark mode"
+
+---
+
+### `/write-prd`
+
+Dispatches Morgan to produce a standalone, industry-standard PRD — problem framing, personas, RICE-scored features, an explicit MVP boundary, measurable success metrics, risks, and launch criteria. Unlike `/new-product`, it does **not** chain into BRD → ADR → board setup: it produces one approved PRD and stops.
+
+**When to use:** you want a PRD without committing to the full planning chain — a new feature on an existing product, a product idea that needs definition first, or backfilling a PRD for work already in flight.
+
+**Example triggers:**
+- "write a PRD for offline mode"
+- "draft product requirements for the referral program"
+- "create a PRD"
+- "product spec for X"
 
 ---
 
@@ -212,6 +230,20 @@ Falls back to manual screenshot instructions when automated tools aren't configu
 - "take before/after screenshots"
 - "generate visual diff"
 - "screenshot this UI change"
+
+---
+
+### `/lint-changed`
+
+Runs detekt on **only the files the current branch changed**, and diffs the SARIF output against the base branch so the report contains only the violations this branch introduced. A workaround for repos where full-repo detekt does not return clean — hundreds of pre-existing violations and no committed baseline — which otherwise drowns a real finding in noise.
+
+**When to use:** the project's `./gradlew detekt` is red on `main`, and you need to know whether *your* branch made things worse.
+
+**Example triggers:**
+- "lint changed"
+- "detekt changed files"
+- "lint diff"
+- "check my changes for lint issues"
 
 ---
 
@@ -493,6 +525,8 @@ Sets up a repository with the full Tech Agency configuration. Works for both new
 
 **For existing projects:** Audits the current setup against the full Tech Agency configuration, reports what's present and what's missing, then gap-fills only the missing components (rules, skills, hooks, CI workflows, docs) without overwriting anything already in place.
 
+It also writes the `extraKnownMarketplaces` and `enabledPlugins` entries into `.claude/settings.json`, which is how the plugin reaches **cloud** Claude Code sessions — those have no `/plugin` command, so committed settings are the only lever. See `../setup-guide.md` § Cloud sessions for the caveat that a first-time install may still be needed.
+
 **When to use:** Setting up a brand new project, or onboarding an existing codebase onto the Tech Agency framework.
 
 **Example triggers:**
@@ -520,6 +554,21 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 
 ---
 
+### `/sync-rule`
+
+Mirrors edits to `.claude/rules/` between a consumer project and the canonical tech-agency repo, in either direction. The tech-agency repo owns the rule files; `/setup-repo` copies the shared policy rules into each consumer project, and a consumer may edit its copy in place when something project-specific comes up. Without explicit syncing the two drift, and the next `/setup-repo` or plugin update silently reintroduces the old text.
+
+**When to use:** immediately after editing any file under `.claude/rules/` in either repo.
+
+**Example triggers:**
+- "sync rule"
+- "mirror rule"
+- "sync to tech-agency"
+- "sync from tech-agency"
+- "apply rule change to both repos"
+
+---
+
 ## Quick Reference
 
 | Command | What it does | How often |
@@ -529,6 +578,7 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/retro` | Retrospective with cycle time analysis | Per feature / monthly |
 | `/new-product` | Full kickoff: PRD → BRD → ADR → Board | Per product |
 | `/new-feature` | Feature kickoff, adapts to scope | Per feature |
+| `/write-prd` | Standalone PRD from Morgan — no chain into BRD/ADR/board | Per feature / idea |
 | `/release` | Full release checklist and deploy | Per release |
 | `/hotfix` | Emergency fix pipeline | As needed |
 | `/investigate-crash` | Crash triage and post-mortem | As needed |
@@ -538,6 +588,7 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/kick-off` | Daily sync + replenish + pick up task | Daily |
 | `/code-review` | Structured code review with verdict | Per PR |
 | `/capture-screenshots` | Before/after screenshots for UI changes | Per UI PR |
+| `/lint-changed` | Detekt on changed files only, SARIF-diffed against base | Per PR on a noisy repo |
 | `/health-check` | Project health audit with action items | Weekly / pre-release |
 | `/onboard-agent` | Fast-track agent onto a feature | As needed |
 | `/dependency-upgrade` | Audit, upgrade, and verify dependencies | Monthly / as needed |
@@ -553,5 +604,8 @@ The skill enumerates every memory file, evaluates each for truth/usefulness/spec
 | `/ship-pr` | Ready branch → PR → review-and-address → merge; `--auto-merge` flag | Per ready branch |
 | `/review-and-address` | Existing PR → `/code-review` → `/address-feedback`; `--auto-merge` flag | Per PR close-out |
 | `/address-feedback` | Resolve all PR comments + checks; `--auto-merge` flag | Per PR review cycle |
-| `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project |
+| `/setup-repo` | Set up repo with Tech Agency (new or existing) | Per project — **required after install** |
+| `/sync-rule` | Mirror `.claude/rules/` edits between consumer and tech-agency | After any rule edit |
 | `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
+
+All 34 first-party commands are listed above.

@@ -1,5 +1,8 @@
 # Node.js / Fastify Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md`, falling back to `.claude/rules/backend/nodejs/node-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Flux. All Node.js backend code MUST follow these standards.
 
 ## Project Structure
@@ -458,37 +461,90 @@ this.logger.error({ err, jobId }, 'Job processing failed');
 - **Sanitization**: Strip sensitive fields (password, token, ssn) from log context automatically.
 - **Environment-specific levels**: production=info, staging=debug, development=trace.
 - **Child loggers**: Use per-service or per-module child loggers for filtering and context binding.
-- Request logging: Fastify auto-logs requests via CallLogging plugin. Log body sanitized for PII.
+- **Request logging**: Fastify's built-in Pino logger auto-logs every request and response once `logger` is configured on the app — there is no separate plugin to install. Redaction is configured on the same logger, and a `serializers.req` hook keeps request bodies and sensitive headers out of the log:
+
+```typescript
+// app.ts
+const app = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL ?? 'info',
+    // Pino redacts these paths before anything is written.
+    redact: {
+      paths: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.body.password',
+        'req.body.token',
+        'res.headers["set-cookie"]',
+      ],
+      censor: '[REDACTED]',
+    },
+    serializers: {
+      // Log the shape of the request, never its body.
+      req: (request) => ({
+        method: request.method,
+        url: request.url,
+        routeOptions: request.routeOptions?.url,
+        requestId: request.id,
+      }),
+      res: (reply) => ({ statusCode: reply.statusCode }),
+    },
+  },
+});
+```
 
 ### Distributed Tracing
 
 - Auto-instrument via your tracing library's Node.js SDK (e.g., OpenTelemetry SDK). Initialize before all other imports in the entry point.
 - Propagate trace context via W3C `traceparent` header — Fastify middleware should extract incoming trace and create child spans.
-- Custom spans: wrap database queries (Prisma middleware), external HTTP calls, queue operations (BullMQ).
+- Custom spans: wrap database queries (a Prisma client extension), external HTTP calls, queue operations (BullMQ).
 - Span attributes: include `http.method`, `http.route`, `http.status_code`, `db.system`, `db.statement` (sanitized).
-- Example: Prisma middleware creating a span per query:
+- Example: a Prisma **client extension** adding a span per query. `prisma.$use` middleware is deprecated and removed in Prisma 6 — use `$extends`, which also returns a new client rather than mutating the original, so export the extended instance:
 
 ```typescript
-// Wrap Prisma queries in spans
-prisma.$use(async (params, next) => {
-  const tracer = trace.getTracer('prisma');
-  const span = tracer.startSpan(`db.${params.action}`, {
-    attributes: {
-      'db.system': 'postgresql',
-      'db.statement': params.args,
+// lib/prisma.ts
+import { PrismaClient } from '@prisma/client';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('prisma');
+
+export const prisma = new PrismaClient().$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        return tracer.startActiveSpan(
+          `db.${model}.${operation}`,
+          {
+            attributes: {
+              'db.system': 'postgresql',
+              'db.operation': operation,
+              'db.sql.table': model,
+              // Never put `args` in an attribute — it carries user data and PII.
+            },
+          },
+          async (span) => {
+            try {
+              return await query(args);
+            } catch (error) {
+              // recordException takes an Exception, not `unknown` — narrow first.
+              const err = error instanceof Error ? error : new Error(String(error));
+              span.recordException(err);
+              span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+              throw error;
+            } finally {
+              span.end();
+            }
+          },
+        );
+      },
     },
-  });
-  try {
-    const result = await next(params);
-    span.end();
-    return result;
-  } catch (e) {
-    span.recordException(e);
-    span.end();
-    throw e;
-  }
+  },
 });
+
+export type ExtendedPrismaClient = typeof prisma;
 ```
+
+Repositories take `ExtendedPrismaClient`, not `PrismaClient` — `$extends` returns a structurally different type.
 
 ### Metrics
 

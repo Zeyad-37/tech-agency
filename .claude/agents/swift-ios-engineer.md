@@ -35,6 +35,19 @@ Implements iOS screens and features from Pixel's designs, consuming KMP shared m
 - Follow Apple Human Interface Guidelines (HIG)
 - Minimum iOS deployment target documented per project
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| iOS UI / SwiftUI | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md` |
+| KMP shared modules you consume from Link | `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md` |
+
+iOS work requires **both** — the SwiftUI standard is the iOS-specific layer on top of the KMP architecture.
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`, e.g. `.claude/rules/mobile/ios/swiftui-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. No force unwraps — use optional binding, guard let

@@ -1,15 +1,51 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Auto-pushes by default; pass --no-push to stop after the pre-push verification gate (used by parent skills like /ship-it that manage their own approval flow). Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Invoking this skill IS the push authorization for the branch. Auto-pushes by default; pass --no-push to run the pre-push verification gate and stop, when a human wants to inspect before pushing by hand. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
 ---
 
 # Create PR — Standardized Pull Request Creation
 
 This skill creates a pull request with a consistent, structured format that includes the task ID in the title, lists the authoring and participating agents, and provides a summary, test plan, and review checklist. It ensures every PR in the agency follows the same template regardless of which agent or skill initiates it.
 
-**Default: auto-push.** Invoking `/create-pr` without flags is the explicit authorization to commit, run pre-push verification, push the branch, and open the PR — no additional confirmation needed. Pass `--no-push` to stop after the verification gate (Step 4b) so a parent skill (e.g. `/ship-it`) can handle push and `gh pr create` with its own approval flow. The verification gate runs in both modes — `--no-push` defers push, not safety.
+**Push authorization.** Per `@.claude/rules/shared/shared-standards.md`, **invoking `/create-pr` (or `/ship-pr`) IS the push authorization for that branch** — no separate "may I push?" prompt is needed or wanted here. Outside these skills, never run a bare `git push`. Never push to `main`. The gate that a human passes is the decision to invoke the skill; `/ship-pr` collects that decision once, at its Step 2, and then runs `/create-pr` on the default auto-push path.
 
-**Base branch:** Pass `--base <branch>` when the PR should merge into something other than `main` — typically an epic integration branch (`epic/{EPIC-ID}-{slug}`) for branches dispatched off an epic. Without the flag, Pre-flight 0 resolves the base automatically.
+**Default: auto-push.** Invoking `/create-pr` without flags commits, runs pre-push verification, pushes the branch, and opens the PR. Pass `--no-push` to stop after the verification gate (Step 4b) — this exists for a **human** who wants the gate run and the PR body prepared but intends to push by hand. **No agency skill passes `--no-push`**: `/ship-pr` Step 2 deliberately uses the default auto-push path, and `/ship-it` reaches `/create-pr` only through `/ship-pr`. The verification gate runs in both modes — `--no-push` defers push, not safety.
+
+**Base branch:** Pass `--base <branch>` when the PR should merge into something other than the repo default — typically an epic integration branch (`epic/{EPIC-ID}-{slug}`) for branches dispatched off an epic. Without the flag, Pre-flight 0 resolves the base automatically. The flag is parsed in Pre-flight 0 below — it is not decorative.
+
+## Pre-flight −1: Parse Arguments
+
+Parse the invocation's flags **before** anything else. `$BASE_FLAG` and `$NO_PUSH` are read throughout the rest of this skill and must be assigned here.
+
+```bash
+BASE_FLAG=""
+NO_PUSH="no"
+
+# "$@" is the argument string the skill was invoked with, e.g.
+#   /create-pr --base epic/US-100-checkout
+#   /create-pr --base=epic/US-100-checkout --no-push
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)
+      # Guard BEFORE `shift 2`: with only `--base` left, `shift 2` fails and
+      # shifts nothing, so an unguarded loop spins forever on the same arg.
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        echo "❌ --base requires a branch name (got none). Aborting."; exit 1
+      fi
+      BASE_FLAG="$2"; shift 2 ;;
+    --base=*)
+      BASE_FLAG="${1#--base=}"
+      [ -n "$BASE_FLAG" ] || { echo "❌ --base= requires a branch name. Aborting."; exit 1; }
+      shift ;;
+    --no-push) NO_PUSH="yes"; shift ;;
+    *)         shift ;;
+  esac
+done
+
+echo "Args: base=${BASE_FLAG:-<auto>}  no-push=${NO_PUSH}"
+```
+
+Both spellings (`--base X` and `--base=X`) are accepted. If `--base` is passed with no value, the loop **stops and reports** the malformed invocation rather than silently falling back to the default branch — and, critically, it checks `$#` before `shift 2`, because a bare trailing `--base` otherwise makes `shift 2` fail without shifting and the `while` loop never terminates.
 
 **Auto-screenshots:** If the branch contains UI changes, `/create-pr` automatically runs `/capture-screenshots` to generate before/after visual evidence and embeds the comparison table in the PR. This is mandatory and non-skippable for UI PRs — the only fallback is a manual screenshot request when screenshot tooling is not configured for the affected platform (see Step 3b).
 
@@ -25,23 +61,40 @@ Other skills (`/pick-up-task`, `/kick-off`, `/tech-task`, `/dispatch`) invoke th
 
 ## Pre-flight 0: Resolve the Base Branch
 
-The base branch is where this PR merges into AND what the branch is rebased onto. It is `main` for most work, but a branch that was cut from an epic integration branch must PR back into that integration branch. Resolve `BASE` in this order:
+The base branch is where this PR merges into AND what the branch is rebased onto. It is the repo's default branch for most work, but a branch that was cut from an epic integration branch must PR back into that integration branch. Resolve `BASE` in this order:
 
-1. **`--base <branch>` flag** — passed by the caller (dispatched agents receive it from `/dispatch` / `/dispatch-task`, which record the base per task). Use it verbatim.
-2. **Auto-detect an epic base** — if any `origin/epic/*` branch exists, pick the candidate (`main` + every `origin/epic/*`) whose merge-base with `HEAD` is the most recent commit. If an epic branch wins, confirm with @Zeyad before proceeding: "This branch appears to be cut from `epic/US-100-checkout` — target it instead of `main`?"
-3. **Default** — `main`.
+1. **`--base <branch>` flag** — parsed in Pre-flight −1 into `$BASE_FLAG` (dispatched agents receive it from `/dispatch` / `/dispatch-task`, which record the base per task). Use it verbatim, after verifying it exists on the remote.
+2. **Auto-detect an epic base** — if any `origin/epic/*` branch exists, pick the candidate (the default branch + every `origin/epic/*`) whose merge-base with `HEAD` is the most recent commit. If an epic branch wins, **stop and ask @Zeyad** (see the gate below) before proceeding.
+3. **Repo default branch** — `git remote show origin`'s `HEAD branch`, not a hardcoded `main`.
+4. **Fallback** — `main`, only if the remote's default cannot be read.
 
-(The hotfix step from `worktree-first.md`'s resolution order is intentionally absent here: hotfix PRs are opened and merged by the `/hotfix` process, which owns its own release-branch + `main` merge flow — they don't go through `/create-pr`'s base detection.)
+(The hotfix step from `@.claude/rules/shared/worktree-first.md`'s resolution order is intentionally absent here: hotfix PRs are opened and merged by the `/hotfix` process, which owns its own release-branch + default-branch merge flow — they don't go through `/create-pr`'s base detection.)
 
 ```bash
-BASE="${BASE_FLAG:-main}"
-if [ -z "$BASE_FLAG" ] && git ls-remote --heads origin 'epic/*' | grep -q .; then
-  # Compare merge-base recency of main vs each epic/* branch
-  git fetch origin main 'refs/heads/epic/*:refs/remotes/origin/epic/*'
+# --- 3/4: repo default branch (never hardcode `main`) ---
+DEFAULT_BASE=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
+[ -n "$DEFAULT_BASE" ] || DEFAULT_BASE=main
+
+BASE=""
+EPIC_CANDIDATE=""
+
+# --- 1: explicit flag wins, but must exist on the remote ---
+if [ -n "$BASE_FLAG" ]; then
+  if git ls-remote --exit-code --heads origin "$BASE_FLAG" >/dev/null 2>&1; then
+    BASE="$BASE_FLAG"
+  else
+    echo "❌ --base '$BASE_FLAG' does not exist on origin. Aborting."
+    exit 1
+  fi
+fi
+
+# --- 2: auto-detect an epic base (only when no flag was given) ---
+if [ -z "$BASE" ] && git ls-remote --heads origin 'epic/*' | grep -q .; then
+  git fetch origin "$DEFAULT_BASE" 'refs/heads/epic/*:refs/remotes/origin/epic/*'
   # git merge-base prints nothing when there is no common ancestor — guard each
   # result so an empty value never reaches the integer comparison.
-  BEST=main; BEST_TIME=0
-  mb=$(git merge-base HEAD origin/main 2>/dev/null) && [ -n "$mb" ] && BEST_TIME=$(git log -1 --format=%ct "$mb")
+  BEST="$DEFAULT_BASE"; BEST_TIME=0
+  mb=$(git merge-base HEAD "origin/$DEFAULT_BASE" 2>/dev/null) && [ -n "$mb" ] && BEST_TIME=$(git log -1 --format=%ct "$mb")
   while read -r ref; do
     b="${ref#refs/remotes/origin/}"
     mb=$(git merge-base HEAD "origin/$b" 2>/dev/null) || continue
@@ -49,12 +102,30 @@ if [ -z "$BASE_FLAG" ] && git ls-remote --heads origin 'epic/*' | grep -q .; the
     t=$(git log -1 --format=%ct "$mb")
     [ "$t" -gt "$BEST_TIME" ] && { BEST="$b"; BEST_TIME="$t"; }
   done < <(git for-each-ref --format='%(refname)' 'refs/remotes/origin/epic/*')
-  BASE="$BEST"   # if not main, confirm with @Zeyad before continuing
+  [ "$BEST" != "$DEFAULT_BASE" ] && EPIC_CANDIDATE="$BEST"
 fi
-echo "PR base: $BASE"
+
+[ -n "$BASE" ] || BASE="${EPIC_CANDIDATE:-$DEFAULT_BASE}"
+echo "PR base: $BASE  (default=$DEFAULT_BASE, epic-candidate=${EPIC_CANDIDATE:-none})"
 ```
 
-`BASE` is used everywhere below — the rebase target, `gh pr create --base`, and the PR body. Never hardcode `main` past this point.
+### Epic-base confirmation gate (a real stop, not a comment)
+
+**If `EPIC_CANDIDATE` is non-empty** — i.e. the base was auto-detected as an epic integration branch rather than passed explicitly — **stop here and ask @Zeyad before doing anything else.** Do not rebase, do not push, do not open the PR while waiting.
+
+```
+This branch's most recent common ancestor is `{EPIC_CANDIDATE}`, not `{DEFAULT_BASE}`.
+
+  Target `{EPIC_CANDIDATE}` for this PR instead of `{DEFAULT_BASE}`?  (y / n)
+
+  y → PR merges into the epic integration branch (the epic later merges to
+      `{DEFAULT_BASE}` in one reviewed PR).
+  n → PR targets `{DEFAULT_BASE}`.
+```
+
+Wait for an explicit answer. On `n`, set `BASE="$DEFAULT_BASE"` and continue. There is **no** silent default here — auto-detection proposes, the human decides. (When `--base` was passed explicitly, the human already decided: no gate, proceed.)
+
+`BASE` is used everywhere below — the rebase target, `gh pr create --base`, the PR body, and every diff range in Steps 1, 3b and 4b. **Never hardcode `main` past this point**, and never compute a diff against anything but `origin/$BASE`.
 
 ## Pre-flight: Rebase onto the Base if Behind
 
@@ -100,6 +171,49 @@ git rebase "origin/$BASE"
   ```
   Do NOT proceed until the rebase is clean.
 
+## Pre-flight 0b: The Canonical UI-Change Detection
+
+**This is the single definition of "does this branch contain UI changes" for the whole ship path.** `/capture-screenshots` and `/code-review` both reference *this* block by name rather than restating a regex of their own. Three different regexes in three files is how a path ends up matching one site and not another — putting `/create-pr` into a state its own Step 3b forbids, with no defined resolution.
+
+```bash
+# --- CANONICAL UI DETECTION (create-pr Pre-flight 0b) ---
+# A changed file is a UI change when its extension is a UI-bearing one AND its
+# path names a UI concern AND it is not one of the non-visual siblings that
+# happen to share a word ("ViewModel" contains "View", "NotesContract" contains
+# nothing visual).
+UI_EXT_RE='\.(kt|kts|swift|tsx|jsx|vue|css|scss)$'
+UI_NAME_RE='([Ss]creen|[Cc]ontent|Composable|Preview|Theme|Typography|Spacing|Colors?\.|[Dd]esign[Ss]ystem|View\.(swift|kt)|/[Uu][Ii]/|/[Cc]omponents?/|/[Vv]iews?/|/[Ss]tyles?/|\.(css|scss)$|page\.(tsx|jsx)|layout\.(tsx|jsx))'
+UI_EXCLUDE_RE='(ViewModel|Contract|InputHandler|Repository|UseCase|Mapper|Dto|Api|Service)\.(kt|kts|swift|ts|tsx)$'
+
+detect_ui_changes() {
+  git diff --name-only "origin/$BASE"..HEAD \
+    | grep -E "$UI_EXT_RE" \
+    | grep -E "$UI_NAME_RE" \
+    | grep -vE "$UI_EXCLUDE_RE"
+}
+
+UI_CHANGES=$(detect_ui_changes)
+```
+
+Verified behaviour — these are the cases the regex is tuned against:
+
+| Path | Detected as UI? |
+|---|---|
+| `features/notes/.../ui/NotesListScreen.kt` | yes |
+| `features/notes/.../ui/NotesListContent.kt` | yes |
+| `designsystem/.../components/PrimaryButton.kt` | yes |
+| `iosApp/Features/Notes/Views/NotesListView.swift` | yes |
+| `src/app/users/page.tsx`, `src/app/(dash)/layout.tsx` | yes |
+| `src/components/ui/Button/Button.tsx` | yes |
+| `src/styles/tokens.css` | yes |
+| `features/notes/.../viewmodel/NotesListViewModel.kt` | **no** |
+| `features/notes/.../viewmodel/NotesListContract.kt` | **no** |
+| `server/.../NotesRepository.kt`, `NotesService.kt` | **no** |
+| `docs/artifacts/design-spec/US-1-Design Spec-Screen.md` | **no** (not a UI extension) |
+| `README.md`, `build.gradle.kts` | **no** |
+
+`$UI_CHANGES` computed here is the value Step 3b acts on and Step 4b's Gate 3 reuses. Do **not** recompute it with a different pattern anywhere in this skill.
+
 ## Step 1: Gather PR Context
 
 Collect the following from the current branch and task context:
@@ -110,7 +224,14 @@ Collect the following from the current branch and task context:
 - **Primary author**: The agent who did the majority of the work (from commit history: `git log --format='%s' "origin/$BASE"..HEAD`)
 - **Participating agents**: All agents who contributed commits on this branch (extract unique `@AgentName` from commit messages)
 - **Task description**: From the board or the branch name's description slug
-- **Related docs**: Check `docs/artifacts/` (grep by Task ID) for PRD, BRD, ADR, RFC references
+- **Related docs**: Search the canonical doc folders for artifacts matching this task ID. Per `@.claude/rules/shared/handoff-protocol.md`, every handoff document lives at `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` — the doc type is the *folder*, not a per-feature folder:
+
+  ```bash
+  # Canonical layout: docs/artifacts/prd/US-042-PRD-User Authentication.md
+  ls docs/{prd,brd,adr,rfc,design-spec,api-contract}/ 2>/dev/null | grep -F "$TASK_ID"
+  ```
+
+  There is no `docs/{feature-name}/` directory — do not look for one.
 
 ```bash
 # Gather context
@@ -173,7 +294,7 @@ Use this template exactly:
 
 ## Related Docs
 
-- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/artifacts/prd/{Task-Id}-PRD-{Title}.md`}
+- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/artifacts/adr/US-042-ADR-JWT Strategy.md`}
 - {Or "N/A — no related feature docs" for tech tasks}
 
 ## Visual Changes
@@ -202,7 +323,7 @@ Use this template exactly:
 
 ## Review Checklist
 
-- [ ] Code follows coding standards (`@.claude/rules/{platform}-coding-standards.md`)
+- [ ] Code follows the coding standard for the changed language (`${CLAUDE_PLUGIN_ROOT}/rules/{mobile/android/compose|mobile/ios/swiftui|mobile/shared/kmp|backend/kotlin/ktor-server|backend/nodejs/node|backend/python/python|backend/jvm/jvm|web/react}-coding-standards.md`)
 - [ ] All 4 states handled (loading, success, empty, error) — if UI change
 - [ ] Accessibility requirements met — if UI change
 - [ ] Visual evidence provided (before/after screenshots) — if UI change
@@ -220,19 +341,14 @@ Use this template exactly:
 
 ## Step 3b: Check for UI Changes and Capture Visual Evidence (Mandatory)
 
-Before presenting the PR, check if the branch contains UI changes that need visual evidence:
-
-```bash
-# Detect UI-related file changes
-UI_CHANGES=$(git diff --name-only "origin/$BASE"..HEAD | grep -iE '(Screen|Content|Component|View|Composable|Preview|page\.tsx|page\.jsx|layout\.tsx|designsystem|DesignSystem|Theme|Color|Typography|Spacing)' | head -5)
-```
+Use `$UI_CHANGES` as computed by **Pre-flight 0b (the canonical UI-change detection)**. Do not re-derive it with a different pattern.
 
 **If `UI_CHANGES` is empty** — no UI changes. Omit the Visual Changes section entirely and proceed to Step 4.
 
 **If `UI_CHANGES` is non-empty** — before/after screenshots are mandatory. Do NOT prompt the user to opt out and do NOT proceed without visual evidence:
 
 1. If `.screenshots/before/` and `.screenshots/after/` already exist with images for the affected screens, reuse them — include the **Visual Changes** section in the PR body (see template above) and proceed to Step 4.
-2. Otherwise, automatically invoke `/capture-screenshots` to generate the before/after comparison. This runs the full per-platform capture flow (Paparazzi / swift-snapshot-testing / Playwright) on the base branch (`$BASE`) and the feature branch, and produces the comparison table.
+2. Otherwise, automatically invoke `/capture-screenshots --base "$BASE"` to generate the before/after comparison. This runs the full per-platform capture flow (Paparazzi / swift-snapshot-testing / Playwright) against `origin/$BASE` and the feature branch, and produces the comparison table. **Always pass `--base "$BASE"`** — without it the capture would diff against the wrong branch on an epic-based PR.
 
 ```
 UI changes detected in this PR:
@@ -241,12 +357,20 @@ UI changes detected in this PR:
 Capturing before/after screenshots automatically (required for UI changes)…
 ```
 
+`/capture-screenshots` is invoked **automatically and non-skippably** here. It never asks the user whether to run — that decision was made by this step. It returns one of three outcomes, and each has a defined resolution:
+
+| `/capture-screenshots` outcome | What `/create-pr` does |
+|---|---|
+| `SCREENSHOTS_CAPTURED` | Embed the returned comparison table as the **Visual Changes** section. Proceed to Step 4. |
+| `SCREENSHOTS_TOOLING_MISSING` (tooling not configured for an affected platform) | Fall back to the manual-evidence note below. The PR is opened, but the gap is explicit and review-blocking. |
+| `SCREENSHOTS_NO_UI_DETECTED` (capture found nothing to shoot) | **Detection disagreement — do not silently proceed.** Both sides now run the same canonical regex, so this means the changed UI files have no capturable target (e.g. a token-only `.css` edit, or a screen with no Paparazzi/snapshot test). Treat it as tooling-missing: emit the manual-evidence note naming the specific files from `$UI_CHANGES` that could not be captured. |
+
 After `/capture-screenshots` completes:
 
 - Include the generated **Visual Changes** comparison table in the PR body.
 - Ensure the screenshots are part of the PR. By default, commit them on this branch in Step 4 (`git add .screenshots/`) so the table renders on GitHub. If the project's convention is to keep `.screenshots/` out of git (PR-comment upload), follow the capture-screenshots skill's Option B and post the table as a PR comment after Step 5 instead.
 
-**Only fall back to a manual screenshot request if automated capture is impossible** — i.e., `/capture-screenshots` reports the required tooling is not configured for an affected platform. In that case, follow the capture-screenshots skill's Step 4 (manual request) and add this note to the Visual Changes section so the gap is explicit and review-blocking:
+**Only fall back to a manual screenshot request if automated capture is impossible** — i.e. `/capture-screenshots` returned `SCREENSHOTS_TOOLING_MISSING` or `SCREENSHOTS_NO_UI_DETECTED`. In that case, follow the capture-screenshots skill's Step 4 (manual request) and add this note to the Visual Changes section so the gap is explicit and review-blocking:
 
 ```markdown
 ## Visual Changes
@@ -288,8 +412,8 @@ HAS_ANDROID_APP="no"
 [ -d "androidApp" ] && HAS_ANDROID_APP="yes"
 [ -d "app" ] && HAS_ANDROID_APP="yes"
 
-# Re-detect UI changes (same heuristic Step 3b uses)
-UI_CHANGES_PRESENT=$(git diff --name-only "origin/$BASE"..HEAD | grep -iE '(Screen|Content|Component|Composable|page\.tsx|page\.jsx)' | head -1)
+# Reuse the canonical detection from Pre-flight 0b — do NOT restate a regex here.
+UI_CHANGES_PRESENT=$(printf '%s' "$UI_CHANGES" | head -1)
 
 # --- Gate 1: KMP/iOS compile gate ---
 # Catches link errors, missing `actual` declarations, and KMP cross-target type
@@ -339,19 +463,24 @@ If a gate fails, the push is aborted. Do not bypass.
 
 ## Step 5: Push and Create the PR
 
-**If `--no-push` was passed: stop here.** All commits, the verification gate, and the prepared PR title/body remain in conversation context. Emit a handoff report so the parent skill (e.g. `/ship-it`) can push and `gh pr create` once it has explicit user approval:
+**If `NO_PUSH` is `yes`: stop here.** This is the manual path — a human asked for the gate to run and the PR body to be prepared, and intends to push by hand. **No agency skill takes this path**; `/ship-pr` Step 2 deliberately invokes `/create-pr` on the default auto-push path, and `/ship-it` reaches `/create-pr` only through `/ship-pr`. There is no downstream skill waiting to complete the handoff, so report the exact commands the human runs next:
 
 ```
-✅ PR prepared locally (--no-push):
+✅ PR prepared locally (--no-push) — nothing has been pushed.
   Branch: {branch}
-  Title: [{TASK-ID}] {short description}
-  Body:  <ready for `gh pr create --body`>
+  Base:   {BASE}
+  Title:  [{TASK-ID}] {short description}
+  Body:   <prepared below / ready for `gh pr create --body-file`>
   Verification gate: passed
 
-Next: parent skill handles `git push -u origin {branch}` + `gh pr create` on approval.
+To push and open the PR yourself:
+  git push -u origin {branch}
+  gh pr create --base {BASE} --title "[{TASK-ID}] {short description}" --body-file <file>
+
+Or re-run `/create-pr` without --no-push to do both automatically.
 ```
 
-Skip Steps 5–7. Do NOT run the worktree sweep (Step 6) — defer it to the parent skill or the next auto-push invocation.
+Print the prepared body so the human can paste or redirect it to a file. Then skip Steps 5b–7. Do **not** run the Copilot request (Step 5b — there is no PR yet) and do **not** run the worktree sweep (Step 6) — the sweep belongs to a run that actually opened a PR.
 
 Otherwise (auto-push, the default), proceed:
 
@@ -380,7 +509,7 @@ gh pr create \
 
 ## Related Docs
 
-- `docs/artifacts/{doc-type}/{Task-Id}-*.md`
+- `docs/{doc-type}/{TASK-ID}-{Doc Type}-{Title}.md`
 
 ## Visual Changes
 
@@ -412,7 +541,7 @@ EOF
 
 ## Step 5b: Request a Copilot Review (Mandatory, Non-Blocking)
 
-This repo's settings do **not** auto-request a Copilot review on new PRs, so `/create-pr` requests it explicitly via the GitHub API immediately after the PR is created. Skip this step entirely when `--no-push` was passed (no PR exists yet) — the parent skill owns the request in that path.
+This repo's settings do **not** auto-request a Copilot review on new PRs, so `/create-pr` requests it explicitly via the GitHub API immediately after the PR is created. Skip this step entirely when `--no-push` was passed — no PR exists yet, so there is nothing to request a review on. The human who pushes manually requests Copilot themselves (or re-runs `/create-pr` on the default path).
 
 ```bash
 # Resolve owner/repo and the PR number just created
@@ -518,10 +647,16 @@ When multiple agents contributed to a branch (common with `/dispatch` or shared 
 ## Integration with Other Skills
 
 This skill is automatically invoked by:
+- `/ship-pr` — Step 2, on the **default auto-push path** (never with `--no-push`); reached from `/ship-it` too
 - `/pick-up-task` — after task completion, board update, and test verification
 - `/kick-off` — after the task work is complete
 - `/tech-task` — after implementation and board update
 - `/dispatch` — after each dispatched agent finishes in their worktree
+
+Every one of these callers uses the default auto-push path. `--no-push` is a human-only escape hatch; nothing downstream consumes its handoff.
+
+This skill invokes:
+- `/capture-screenshots --base "$BASE"` — Step 3b, automatically and non-skippably, whenever Pre-flight 0b detects UI changes
 
 Agents can also invoke it directly at any time by saying "create PR" or "open a pull request".
 

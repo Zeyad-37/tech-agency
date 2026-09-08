@@ -1,5 +1,23 @@
 # Shared Standards — All Agents
 
+## Where the Rules Live
+
+This file is one of the **shared policy rules** — they are copied into every consumer project's
+`.claude/rules/shared/` by `/setup-repo` and auto-load every session, so they are always already in
+your context.
+
+The **language coding standards** are not. They stay in the plugin and must be **read on demand**:
+before writing code in a stack, read that stack's standard. The full model — which files are in
+which set, the exact reference form for each, and the resolution snippet — is in
+`@.claude/rules/shared/rules-delivery.md`. Read it before referencing any rule path.
+
+The nested layout is canonical everywhere. Never emit a flat `.claude/rules/<name>.md` path.
+
+In a cloud session the shared rules still auto-load — they are committed project files — but a
+coding standard may be unreachable if the plugin is declared without being installed. If a standard
+will not resolve, stop and report it rather than writing the code without it
+(`@.claude/rules/shared/rules-delivery.md` §5).
+
 ## Communication Protocol
 
 - Use `@AgentName` mentions in handoffs
@@ -31,15 +49,19 @@ Five categories of UI decision (RFC T-013):
 | **d** | Mutually-exclusive sub-state ("which of N things is currently active?") | Single sealed field on State (`dialog: ActiveDialog?`), not N parallel Booleans |
 | **e** | Pure UI-local ephemeral state (scroll, focus, animation frame) | Platform-native ephemeral state (`remember`/`@State`/`useState`); do not promote to ViewModel |
 
-Each platform enforces this via its own static analysis: Kotlin/Compose uses Konsist + custom Detekt rules (see `compose-coding-standards.md` and `kmp-coding-standards.md`). SwiftUI and React adopt equivalent enforcement when their teams reach this RFC. The principle is platform-agnostic; the enforcement plumbing is platform-specific.
+Each platform enforces this via its own static analysis: Kotlin/Compose uses Konsist + custom Detekt rules (see `${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md` and `${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md`; fall back to `.claude/rules/…` when `CLAUDE_PLUGIN_ROOT` is unset — see `@.claude/rules/shared/rules-delivery.md`). SwiftUI and React adopt equivalent enforcement when their teams reach this RFC. The principle is platform-agnostic; the enforcement plumbing is platform-specific.
 
 ## Git Commit Policy
 
 - Commit after every logical change — do not batch unrelated changes
-- Commit message format: `[STORY-ID] @AgentName: Short description of what changed and why` (e.g., `[US-042] @Kai: Add email validation to registration flow`)
-- The agent name tag (`@AgentName`) MUST appear after the story ID so that every commit is traceable to the agent that authored it
-- The story ID and name must come from the user story being implemented
+- Commit message format: `[ID] @AgentName: Short description of what changed and why`
+  - `[ID]` is required. It is one or more letters, optionally followed by `-` and a number: `[US-042]`, `[T-015]`, `[BUG-017]`, `[TECH]`, `[tech]`
+  - `@AgentName:` is **optional but strongly preferred** — include it whenever an agent authored the commit, so the change is traceable to its author. Omit it only for mechanical commits with no single agent author (automated version bumps, merge/revert commits)
+  - The description must be at least 3 characters and say what changed and why
+- Valid examples: `[US-042] @Kai: Add email validation to registration flow`, `[T-015] @Claude: Resolve dispatch base branch dynamically`, `[TECH] @Claude: Auto-bump VERSION to 0.1.12`, `[tech] Widen commit-msg regex`
+- The ID must come from the task being implemented — the user story, tech task, or bug ID on the board
 - If a change spans multiple stories, create separate commits per story
+- The `commit-msg` hook enforces exactly this shape. See `@.claude/rules/shared/git-hooks.md` for the hook's canonical regex and its exemptions (merge, initial, revert commits)
 
 ## Security Baseline
 
@@ -49,12 +71,33 @@ Each platform enforces this via its own static analysis: Kotlin/Compose uses Kon
 - HTTPS only; TLS 1.2+ minimum
 - Authentication: JWT (RS256) with refresh token rotation, OAuth2 for third-party, API keys stored hashed
 
-## Sandboxed Execution (Mandatory)
+## Sandboxed Execution (Project Setup — Verify Before Relying On It)
 
-- All agent work runs inside the OS sandbox configured in `.claude/settings.json` (`sandbox.enabled: true`, `failIfUnavailable: true`). This is enforced for every agent and every spawned subagent — they inherit the session's sandbox.
-- Inside the sandbox, Bash writes are confined to the worktree (cwd) + the allowlisted tool-cache paths, and network is restricted to the allowlisted registries/hosts. Sandboxed commands auto-run without extra permission prompts.
+The OS sandbox is a **project-level setup step, not an ambient guarantee.** It is configured in the
+**consumer project's** `.claude/settings.json`, which `/setup-repo` writes at bootstrap. A
+`settings.json` shipped inside the plugin does **not** configure a sandbox for an installing user —
+Claude Code reads only a narrow set of keys from a plugin's settings file, and `sandbox` is not one
+of them.
+
+**Never assume you are sandboxed.** Verify, then act accordingly:
+
+```bash
+# Is a sandbox configured for THIS project?
+test -f .claude/settings.json && grep -q '"sandbox"' .claude/settings.json \
+  && echo "sandbox configured" || echo "NO sandbox configured for this project"
+```
+
+- If it reports **no sandbox**: you are running unsandboxed. Treat every Bash command as capable of
+  writing anywhere the user can write. Stay inside your worktree by discipline rather than by
+  enforcement, and tell @Zeyad that `/setup-repo` has not yet written the sandbox block.
+- If it reports **sandbox configured**: the settings below apply.
+
+When a sandbox is configured (`sandbox.enabled: true`, `failIfUnavailable: true`):
+
+- Every agent and every spawned subagent inherits the session's sandbox.
+- Bash writes are confined to the worktree (cwd) + the allowlisted tool-cache paths, and network is restricted to the allowlisted registries/hosts. Sandboxed commands auto-run without extra permission prompts.
 - When a build legitimately needs a host or write path that is blocked, **extend** `sandbox.network.allowedDomains` / `sandbox.filesystem.allowWrite` in a PR — do not disable the sandbox and do not reach for `dangerouslyDisableSandbox` as a workaround.
-- VCS network operations (`git push/fetch/pull`, `gh`) are intentionally excluded from the sandbox so SSH/auth work; they remain gated by the normal push policy (never push unless @Zeyad says so).
+- VCS network operations (`git push/fetch/pull`, `gh`) are intentionally excluded from the sandbox so SSH/auth work; they remain gated by the push policy in "Branch Strategy" below.
 - Linux/WSL2 runners require `bubblewrap` + `socat`; macOS uses built-in Seatbelt. With `failIfUnavailable: true`, Claude Code refuses to run unsandboxed if those deps are missing.
 
 ## Observability Baseline
@@ -80,10 +123,23 @@ Standard error response envelope:
   "error": {
     "code": "VALIDATION_FAILED",
     "message": "User-friendly message",
-    "details": [{ "field": "email", "message": "Invalid format" }]
+    "details": { "email": "Invalid format", "name": "Name too short" }
   }
 }
 ```
+
+`details` is a **keyed object**, not an array: field name → message. For non-field errors, use any
+descriptive key. It is optional — omit it or send `{}` when there is nothing to itemize.
+
+Three of the four backend standards already type it exactly this way — Node as
+`Record<string, unknown>`, Python as `dict`, JVM as `Map<String, Any>` — and the React client
+standard parses it as `Record<string, unknown>`. A frontend written against this baseline works
+against all three unchanged. The Ktor/KMP shared envelope is the exception: its `ApiError` currently
+carries only `code` and `message` and has no `details` field at all. When a Ktor service needs to
+itemize an error, add `details` to the shared `ApiError` as a serializable string-keyed map — do not
+invent a different shape for it.
+
+Never emit `details` as an array of `{field, message}` objects.
 
 Standard success response envelope:
 ```json
@@ -131,9 +187,29 @@ Standard success response envelope:
   - Hotfixes: `hotfix/{version}/{short-description}` (e.g., `hotfix/v1.2.1/fix-login-crash`)
   - Releases: `release/{version}` (e.g., `release/v1.3.0`)
 - One branch per user story. If a story is split across agents, use the same branch
-- **Never push to remote unless @Zeyad explicitly tells you to.** Agents commit locally but do not run `git push`. When @Zeyad says "push", "push it", or "go ahead and push", then push and create the PR
 - Merge to `main` only after: code review passed, Shield security review passed (if applicable), Apex QA sign-off received
 - Delete the branch after merge
+
+### Push Policy
+
+**Invoking `/create-pr` or `/ship-pr` IS the push authorization for that branch.** No separate
+confirmation is required. Those skills own the full sequence — commit, run the pre-push verification
+gate, push the branch, open the PR — and the act of invoking them is the explicit instruction to do
+it. `/ship-it` and `/dispatch` authorize the same thing transitively, because they invoke
+`/create-pr` on your behalf.
+
+**Outside those skills, never run a bare `git push`.** Commit locally on your task branch and let
+the skill push. If you believe a branch needs pushing and no skill is running, ask @Zeyad rather
+than pushing.
+
+**Never push to `main`, under any circumstance.** Not with `--force`, not to "fix" a bad merge, not
+as a shortcut. `main` changes only through a merged PR. The `pre-push` hook blocks direct pushes to
+`main`; that hook is a backstop, not permission to try.
+
+This is what `@.claude/rules/shared/agent-preamble.md` step 7 means when it routes every finished
+task through `/create-pr`. If you want to prepare a PR without pushing — for example a parent skill
+managing its own approval gate — pass `/create-pr --no-push`, which stops at the pre-push
+verification gate.
 
 ## Worktree-First Workflow (Mandatory)
 

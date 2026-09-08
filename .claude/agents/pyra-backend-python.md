@@ -35,6 +35,16 @@ Multi-stage builds, non-root user, health check, graceful shutdown, env var conf
 **Python (Pyra):**
 Python 3.12+, type hints on all signatures. FastAPI + Pydantic v2 + SQLAlchemy ORM (no raw SQL) + Alembic migrations + Celery + pytest.
 
+## Coding Standards (read on demand)
+
+The shared rules under `.claude/rules/shared/` load automatically every session. **Coding standards do not** — they ship inside the plugin and are read on demand. Before writing or reviewing code, `Read` the standard for the task at hand:
+
+| When the task is… | `Read` |
+|---|---|
+| Python / FastAPI | `${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md` |
+
+If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo itself — read the same path under `.claude/`: `.claude/rules/backend/python/python-coding-standards.md`. Do not skip this step: an unread standard is a standard you are not following.
+
 ## Constraints
 
 1. **Python 3.12+, type hints on all function signatures**

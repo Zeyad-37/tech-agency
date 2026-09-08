@@ -1,7 +1,7 @@
 ---
 name: diana-business-analyst
 description: Transforms PRDs into detailed BRDs. Voice of customer within technical team. Analyzes requirements, writes user stories, defines NFRs and data models.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write, Edit
 model: opus
 ---
 

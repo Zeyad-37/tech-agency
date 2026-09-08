@@ -1,5 +1,8 @@
 # SwiftUI / iOS Coding Standards
 
+> **How to read this file.** This standard is **not preloaded** into the session — read it on demand when your task is in this stack.
+> Path: `${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md`, falling back to `.claude/rules/mobile/ios/swiftui-coding-standards.md` when `CLAUDE_PLUGIN_ROOT` is unset.
+
 Owner: Swift. All iOS code MUST follow these standards. For shared KMP architecture (MVI pattern, Clean Architecture layers, use cases, repositories, data models, Konsist enforcement), see @.claude/rules/mobile/shared/kmp-coding-standards.md — those rules apply here.
 
 **Reading Guide**: iOS development requires reading BOTH documents:
@@ -142,15 +145,20 @@ final class UserListViewModel: ObservableObject { ... }
 - `public` only for framework/package APIs.
 
 ```swift
+@MainActor
 final class UserListViewModel: ObservableObject {
-    @Published private(set) var users: [User] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var error: AppError?
+    // One `State` enum, not parallel `users` / `isLoading` / `error`
+    // properties — see "ViewModel Pattern" below. Three properties admit
+    // combinations that cannot happen (loading AND errored) and leave the
+    // view to pick a winner.
+    @Published private(set) var state: State = .loading
+    @Published var showError = false
 
     private let userService: UserServiceProtocol
 
-    init(userService: UserServiceProtocol) {
+    init(userService: UserServiceProtocol, initialState: State = .loading) {
         self.userService = userService
+        self.state = initialState
     }
 }
 ```
@@ -168,33 +176,44 @@ struct UserListScreen: View {
     }
 
     var body: some View {
-        content
-            .navigationTitle("Users")
-            .task { await viewModel.loadUsers() }
-            .refreshable { await viewModel.refresh() }
-            .alert(
-                "Error",
-                isPresented: $viewModel.showError,
-                presenting: viewModel.error
-            ) { _ in
-                Button("Retry") { Task { await viewModel.loadUsers() } }
-                Button("Cancel", role: .cancel) { }
-            } message: { error in
-                Text(error.localizedDescription)
-            }
+        UserListContent(
+            state: viewModel.state,
+            onRetry: { Task { await viewModel.loadUsers() } }
+        )
+        .navigationTitle("Users")
+        .task { await viewModel.loadUsers() }
+        .refreshable { await viewModel.refresh() }
+        .alert(
+            "Error",
+            isPresented: $viewModel.showError,
+            presenting: viewModel.error
+        ) { _ in
+            Button("Retry") { Task { await viewModel.loadUsers() } }
+            Button("Cancel", role: .cancel) { }
+        } message: { error in
+            Text(error.localizedDescription)
+        }
     }
+}
 
-    @ViewBuilder
-    private var content: some View {
-        switch viewModel.state {
+/// Stateless content. Takes a plain `State` value, not the ViewModel, so a
+/// snapshot or accessibility test can construct any of the four states
+/// directly — with no service to mock and no `@Published` setter to reach past.
+/// This must be a real `internal` type, not a `private var content: some View`
+/// on the screen: a computed property is unreachable from a test target even
+/// under `@testable import`.
+struct UserListContent: View {
+    let state: UserListViewModel.State
+    let onRetry: () -> Void
+
+    var body: some View {
+        switch state {
         case .loading:
             ProgressView()
         case .empty:
             ContentUnavailableView("No Users", systemImage: "person.3")
         case .error(let error):
-            ErrorStateView(error: error) {
-                Task { await viewModel.loadUsers() }
-            }
+            ErrorStateView(error: error, retryAction: onRetry)
         case .loaded(let users):
             List(users) { user in
                 UserRowView(user: user)
@@ -205,7 +224,9 @@ struct UserListScreen: View {
 ```
 
 Rules:
-- Extract subviews with `@ViewBuilder` private computed properties for readability.
+- **Every screen splits into a stateful `{Feature}Screen` and a stateless `{Feature}Content`.** Content takes the `State` value plus callbacks; it never sees the ViewModel. This is what makes the four states snapshot-testable.
+- `Content` is a real `struct` at file scope, not a `private var content: some View`. A private computed property cannot be constructed from a test target, and `@testable import` does not change that — it raises `internal` to visible, not `private`.
+- `@ViewBuilder` private computed properties are still fine for splitting up long bodies *within* a view; they are just not a substitute for the Content type.
 - Prefer `@StateObject` for owned ViewModels, `@ObservedObject` for injected ones.
 - Use `.task {}` for async work on appear (auto-cancelled on disappear).
 - Use `.refreshable {}` for pull-to-refresh.
@@ -247,8 +268,13 @@ final class UserListViewModel: ObservableObject {
     private let userService: UserServiceProtocol
     private var loadTask: Task<Void, Never>?
 
-    init(userService: UserServiceProtocol) {
+    /// `initialState` is the test seam. `state` is `private(set)`, so a test
+    /// cannot assign to it — not even under `@testable import`, which lifts
+    /// `internal` but leaves a private setter private. Seed the state through
+    /// the initializer instead of widening the setter for the tests' benefit.
+    init(userService: UserServiceProtocol, initialState: State = .loading) {
         self.userService = userService
+        self.state = initialState
     }
 
     func loadUsers() async {
@@ -286,7 +312,7 @@ final class UserListViewModel: ObservableObject {
 Rules:
 - `@MainActor` on all ViewModels — UI state updates must be on main thread.
 - Use a `State` enum for screen state — never multiple booleans (`isLoading`, `hasError`, `isEmpty`).
-- `@Published private(set)` — views observe but never mutate directly.
+- `@Published private(set)` — views observe but never mutate directly. Never relax it to `internal` so a test can assign; add an `initialState` initializer parameter instead.
 - Cancel in-flight tasks when starting new ones (`loadTask?.cancel()`).
 - Dependencies injected via `init` for testability.
 

@@ -9,6 +9,7 @@
       "git push *",
       "git fetch *",
       "git pull *",
+      "git worktree *",
       "gh *"
     ],
     "filesystem": {
@@ -65,33 +66,13 @@
   "enabledPlugins": {
     "kotlin-agent-skills@Kotlin": true
   },
-  "agentModelRouting": {
-    "atlas-orchestrator": "opus",
-    "sage-solutions-architect": "opus",
-    "shield-security-engineer": "opus",
-    "diana-business-analyst": "sonnet",
-    "morgan-product-owner": "sonnet",
-    "pixel-ui-ux-designer": "sonnet",
-    "nova-frontend-web": "sonnet",
-    "swift-ios-engineer": "sonnet",
-    "kai-android-engineer": "sonnet",
-    "link-kmp-engineer": "sonnet",
-    "flux-backend-node": "sonnet",
-    "pyra-backend-python": "sonnet",
-    "forge-backend-jvm": "sonnet",
-    "neuron-ai-ml-engineer": "sonnet",
-    "pipeline-data-engineer": "sonnet",
-    "sentinel-devops-sre": "sonnet",
-    "apex-qa-engineer": "sonnet",
-    "scroll-technical-writer": "haiku",
-    "echo-support-engineer": "haiku"
-  },
   "permissions": {
     "allow": [
       "Read",
       "Glob",
       "Grep",
       "Bash(git push*)",
+      "Bash(git worktree*)",
       "Bash(gh pr create*)",
       "Bash(gh pr edit*)",
       "Bash(android *)",

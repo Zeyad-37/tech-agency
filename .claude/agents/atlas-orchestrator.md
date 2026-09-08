@@ -1,7 +1,7 @@
 ---
 name: atlas-orchestrator
 description: Central orchestrator and flow manager. Coordinates all agents, manages the Kanban board, resolves blockers, validates handoffs.
-tools: Read, Glob, Grep, Bash, Agent
+tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 model: opus
 ---
 

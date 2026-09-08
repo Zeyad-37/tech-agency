@@ -23,8 +23,9 @@ If a PRD, BRD, or related docs already exist for this feature, locate them first
 
 ```bash
 grep -ril "{feature-name}" docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ 2>/dev/null
-cat board-context.md 2>/dev/null | grep -i "{feature-name}"
 ```
+
+Check the board too — through the adapter, not by reading the file (`@.claude/rules/shared/board-adapter.md` rule 2). Read `board_backend` from `.claude/settings.json` (absent → `markdown`), then run `board.search("{feature-name}")`, falling back to `board.read_all()` if the backend has no search.
 
 If a PRD already exists, ask whether to revise it or write a new version — never silently overwrite.
 
