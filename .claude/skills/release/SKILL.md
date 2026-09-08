@@ -89,5 +89,17 @@ Tag release after successful production deploy: git tag v[X.Y.Z]
 - Scroll updates public documentation
 - Echo prepares support for new features
 - Save release record to `docs/releases/v[X.Y.Z].md`
-- If a marketing-agency shared context exists for this product (directory containing `releases.md` + `config.md`, e.g. a `*-shared-context` sibling of the repo), append a row to its `releases.md`: date, version, user-facing summary, size (patch/minor/major/tier-1), Consumed = no — this feeds marketing-agency's `launch-from-release`
+- **Release feed for downstream consumers (conditional — skip silently when absent).** Some products keep a *shared context directory* that downstream tooling reads to turn a shipped release into launch work. It is identified by shape, not by name: a directory containing both `releases.md` and `config.md`, typically a `*-shared-context` sibling of this repo. If — and only if — such a directory exists, append one row to its `releases.md`:
+
+  | Column | Value |
+  |---|---|
+  | Date | release date |
+  | Version | `vX.Y.Z` |
+  | Summary | the user-facing summary from the release notes |
+  | Size | `patch` / `minor` / `major` / `tier-1` |
+  | Consumed | `no` |
+
+  This is a plain file append into a directory that already exists outside this repo. It installs nothing, requires no plugin, and creates nothing when the directory is absent — in that case do not create it, do not mention it, and move on.
+
+  The reader of this feed is whatever downstream tooling the product has configured; the `marketing-agency` plugin's `launch-from-release` is one such reader. That plugin is **not** part of tech-agency: it lives in its own repository, ships from its own marketplace, and is installed separately. Nothing here installs it, and its absence is the normal case — the shared-context directory is the entire contract between the two.
 - Update `board-context.md` — clear Done column, note the release. This is a board edit, so it rides with the release record above rather than landing on `main` on its own (see `@.claude/rules/shared/board-in-pr.md`): commit `board-context.md` on the **same branch** as `docs/releases/v[X.Y.Z].md` and open one PR carrying both. Do not commit the Done-column clear directly on `main` as a post-merge cleanup step.

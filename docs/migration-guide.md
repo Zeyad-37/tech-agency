@@ -36,7 +36,7 @@ safe on a mature codebase. It bootstraps:
 - `.claude/rules/shared/` — the 11 shared policy rules, which auto-load every session
 - `board-context.md` — the Kanban board
 - `hooks/` — the git hook scripts
-- `.claude/settings.json` — sandbox, permissions, board backend (model tier is set per agent in each agent's own `model:` frontmatter, not here)
+- `.claude/settings.json` — sandbox, permissions, board backend, plus the `extraKnownMarketplaces` / `enabledPlugins` entries that make the plugin reachable from **cloud** Claude Code sessions (model tier is set per agent in each agent's own `model:` frontmatter, not here). Cloud sessions have no `/plugin` command; see `setup-guide.md` § Cloud sessions
 - `.claude/hooks.json` — session hooks
 - `docs/` artifact folders
 

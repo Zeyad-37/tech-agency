@@ -14,8 +14,6 @@ Tech Agency simulates a complete engineering organization inside Claude Code. Ea
 
 The system is designed around Kotlin Multiplatform (KMP) projects but supports the full stack: Android (Compose), iOS (SwiftUI), Web (React/Next.js), and multiple backend frameworks (Ktor, Spring Boot, Fastify, FastAPI).
 
-This repo also publishes a second plugin from the same marketplace — see [Sibling plugin: marketing-agency](#sibling-plugin-marketing-agency).
-
 ---
 
 ## What Ships vs. What You Bootstrap
@@ -30,7 +28,7 @@ This is the single most important thing to understand before installing. **Insta
 | 11 shared policy rules | Ship in the plugin, but must be **copied into your project** | `/setup-repo` copies them to your `.claude/rules/shared/`, where they auto-load every session |
 | `board-context.md` Kanban board | **No** | `/setup-repo` creates it from a template |
 | Git hooks (`hooks/`) | **No** | `/setup-repo` writes them into your repo; you then run `./hooks/install-hooks.sh` once to symlink them into `.git/hooks/` |
-| `.claude/settings.json` (sandbox, permissions, board backend, model routing) | **No** | `/setup-repo` writes it into your project. The plugin's own `settings.json` does **not** configure your sandbox — Claude Code reads only a narrow set of keys from a plugin's settings file |
+| `.claude/settings.json` (sandbox, permissions, board backend, model routing, plus the marketplace/plugin declaration for [cloud sessions](#use-in-cloud-sessions)) | **No** | `/setup-repo` writes it into your project. The plugin's own `settings.json` does **not** configure your sandbox — Claude Code reads only a narrow set of keys from a plugin's settings file |
 | `docs/` scaffolding (`docs/prd/`, `docs/adr/`, `docs/post-mortem/`, …) | **No** | Created on demand by `/setup-repo` and by the agents that file artifacts |
 
 > **`/setup-repo` is a required post-install step, not an optional one.** Until you run it, your project has agents and skills but no board, no git hooks, no sandbox, and none of the shared policy rules in context. Agents will reference rules your session has never loaded.
@@ -265,7 +263,7 @@ The nested directory layout above is canonical in the plugin and in every consum
 ```
 tech-agency/
 ├── .claude-plugin/
-│   └── marketplace.json         # Marketplace manifest — publishes both plugins below
+│   └── marketplace.json         # Marketplace manifest — publishes the plugin below
 ├── .claude/                     # ← the tech-agency plugin itself (marketplace source)
 │   ├── agents/                  # 19 agent definition files
 │   ├── rules/
@@ -278,7 +276,6 @@ tech-agency/
 │   │   └── LICENSE-APACHE-2.0.txt
 │   ├── hooks.json               # Session hooks
 │   └── settings.json            # This repo's own config — NOT applied to installing users
-├── marketing-agency/            # ← the marketing-agency plugin (second marketplace source)
 ├── docs/
 │   ├── setup-guide.md           # Install + /setup-repo walkthrough
 │   ├── migration-guide.md       # Incremental adoption for existing projects
@@ -296,6 +293,8 @@ tech-agency/
 ## Installation
 
 Tech Agency is distributed as a Claude Code plugin from this GitHub repo. Installing at user scope makes it available in every project on the machine.
+
+These steps are for the **terminal**. For cloud Claude Code sessions — which have no `/plugin` command — see [Use in cloud sessions](#use-in-cloud-sessions).
 
 ### 1. Register the marketplace and install (once per machine)
 
@@ -362,17 +361,82 @@ claude plugin update tech-agency --scope user
 
 ---
 
-## Sibling plugin: marketing-agency
+## Use in Cloud Sessions
 
-This repo's marketplace publishes a **second plugin**, `marketing-agency`, from the `marketing-agency/` directory. It is a proactive, self-improving marketing system designed to complement tech-agency: it runs funnel audits, proposes experiments, hands engineering work back to tech-agency, turns releases into launch content, and teaches the marketing craft as it works (mentor mode).
+The steps above are terminal-only. **Cloud Claude Code sessions have no `/plugin` command** — the docs are explicit that commands which only run in the terminal interface, such as `/plugin` or `/resume`, aren't available there. To change what a cloud session loads you use environment variables or settings files committed to the repository. This section is how you get the agency into a cloud session.
 
-Install it from the same marketplace:
+This repo is **public**, so the marketplace clone needs no credentials. (A private marketplace would need a git credential helper or a token URL rewrite configured in the cloud environment — public avoids that entirely.)
 
-```bash
-claude plugin install marketing-agency@tech-agency --scope user
+### 1. Declare the marketplace and plugin in the repo (the primary answer)
+
+In every repo where you want the agency, commit this to `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "tech-agency": { "source": { "source": "github", "repo": "Zeyad-37/tech-agency" } }
+  },
+  "enabledPlugins": { "tech-agency@tech-agency": true }
+}
 ```
 
-The two are independent — you can install either alone. Installed together, `marketing-agency`'s `/handoff-tech` and `/launch-from-release` skills bridge into the tech-agency board and release flow.
+`/setup-repo` writes both keys for you, merging them into whatever `.claude/settings.json` already has. Once a team member trusts the repository folder, Claude Code adds the marketplace without a further prompt — that part is automatic.
+
+### 2. The caveat — read this before you rely on step 1
+
+Declaring an external-source plugin in project settings **registers the marketplace but does not by itself install the plugin.** As of Claude Code v2.1.195, a plugin that only the project's `.claude/settings.json` enables, and that comes from an external source such as a GitHub repository, does not load until the team member installs it. Until then Claude Code reports the plugin as not installed and prints the `claude plugin install` command to run.
+
+So step 1 is necessary but not always sufficient. On a machine or cloud environment that has never installed tech-agency, expect the first session to report it missing. The two supported ways to close that gap are below — pick one if you need the agency present unattended.
+
+### 3a. Cloud environment setup script
+
+In claude.ai → **cloud environments**, add to the environment's setup script:
+
+```bash
+claude plugin install tech-agency@tech-agency --scope user
+```
+
+`--scope user` installs it for the environment's user rather than a single project, so every cloud session provisioned from that environment starts with it. This is the documented way to close the gap in step 2: the setup script runs before your sessions do, so the plugin is already installed by the time one starts. It composes with step 1: the repo settings still declare the marketplace and express intent.
+
+### 3b. Seed directory (containers and CI)
+
+For images you build yourself, pre-populate a plugins directory at build time and point Claude Code at it as a read-only seed:
+
+```dockerfile
+# Build time — install normally, then snapshot ~/.claude/plugins as the seed
+RUN claude plugin marketplace add Zeyad-37/tech-agency \
+ && claude plugin install tech-agency@tech-agency \
+ && cp -R "$HOME/.claude/plugins" /opt/claude-seed \
+ && chmod -R a-w /opt/claude-seed
+
+# Run time — read from it
+ENV CLAUDE_CODE_PLUGIN_SEED_DIR=/opt/claude-seed
+```
+
+The seed is a copy of `~/.claude/plugins` and must keep that layout (`known_marketplaces.json`, `marketplaces/<name>/`, `cache/<marketplace>/<plugin>/<version>/`) — which is why the recipe above populates it by installing normally and copying the result, rather than by hand-assembling directories. At run time it is read-only and needs no network. It composes with step 1: when `extraKnownMarketplaces` or `enabledPlugins` declare a marketplace that already exists in the seed, Claude Code uses the seed copy instead of cloning.
+
+### 4. The zero-machinery fallback
+
+`.claude/skills/*/SKILL.md`, `.claude/agents/*.md` and `.claude/rules/**/*.md` committed directly in a repo are loaded as ordinary project config — no plugin, no marketplace, no auth, no install step. The cloud docs confirm it: subagents defined in your repo's `.claude/agents/` are picked up automatically. This always works, including in cloud sessions.
+
+The cost is a copy per repo that drifts from upstream. `/setup-repo` already uses exactly this mechanism for the 11 shared policy rules, and `/sync-rule` exists to reconcile the drift. Vendoring the agents and skills the same way is the escape hatch when you cannot run an install step at all.
+
+### Which mechanism to use
+
+| Mechanism | Works in cloud | Needs auth | Unattended | Drifts |
+|---|---|---|---|---|
+| Repo `.claude/settings.json` (§1) | Yes — registers the marketplace | No (repo is public) | Only if the plugin is already installed | No |
+| Cloud environment setup script (§3a) | Yes | No | Yes | No |
+| Seed directory (§3b) | Yes | No (network-free at run time) | Yes | Only at image rebuild |
+| Vendored `.claude/` (§4) | Yes | No | Yes | Yes — per-repo copy |
+
+The practical recommendation: commit §1 in every repo, and add §3a to your cloud environment once. §3b is for self-built container images; §4 is the fallback when neither is available.
+
+---
+
+## Companion marketing plugin
+
+A companion **marketing-agency** plugin lives in its own separate private repository and installs from its own marketplace; see that repo for its install instructions. It is not published from this marketplace.
 
 ---
 
@@ -425,4 +489,4 @@ Git hooks enforce the commit message format `[ID] @Agent: description` — where
 
 ## License
 
-Private — All rights reserved. Vendored skills under `.claude/skills/` are Apache-2.0; see [`.claude/skills/VENDORED-SKILLS.md`](.claude/skills/VENDORED-SKILLS.md).
+Source-available, all rights reserved — the repository is public so the marketplace can be cloned, but the author's own work carries no usage grant. Vendored skills under `.claude/skills/` are Apache-2.0 and are explicitly carved out. Full terms: [`LICENSE`](LICENSE); provenance for the vendored skills: [`.claude/skills/VENDORED-SKILLS.md`](.claude/skills/VENDORED-SKILLS.md).

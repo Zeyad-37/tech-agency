@@ -108,7 +108,8 @@ Practical consequences:
   `rules/mobile/android/compose-coding-standards.md`, each resolved per §2.
 - `/code-review` reviewing code in a stack must read that stack's standard before judging it against
   it. A review that cites a standard it did not read is not a review.
-- If you cannot resolve the standard, that is a blocker to report, not a step to skip.
+- If you cannot resolve the standard, that is a blocker to report, not a step to skip. This is most
+  likely in a cloud session, where the plugin may be declared but not installed — see §5.
 
 ---
 
@@ -130,7 +131,54 @@ actually needs it.
 
 ---
 
-## 5. Quick reference
+## 5. Cloud sessions — the shared rules survive, the standards may not
+
+Cloud Claude Code sessions have no `/plugin` command and no interactive install step. That splits the
+two delivery mechanisms cleanly apart, and you need to know which half you are standing on.
+
+**The eleven shared rules work unchanged, with no plugin machinery at all.** Once `/setup-repo` has
+copied them in and that commit has landed, they are ordinary committed files in the project at
+`.claude/rules/shared/*.md`, and Claude Code auto-loads `.claude/rules/**/*.md` recursively as
+project configuration — the same way it loads `CLAUDE.md`, `.claude/agents/*.md`, and
+`.claude/skills/*/SKILL.md`. Nothing has to be installed for them to apply. This is the load-bearing
+reason the split model is cloud-safe: the policy that governs *how* an agent works is in the repo,
+not in the plugin. (The copy is the precondition, and it is a one-time terminal step: a repo that has
+never run `/setup-repo` has no shared rules to load in cloud either.)
+
+**The eight coding standards resolve through `${CLAUDE_PLUGIN_ROOT}` only if the plugin is actually
+installed in that environment.** A repo can *declare* the plugin in its `.claude/settings.json`
+(`extraKnownMarketplaces` + `enabledPlugins`), and that is the documented way to express the intent,
+but declaring is not installing: as of Claude Code v2.1.195 a plugin from an external source such as
+a GitHub repository does not load until it has been installed, and Claude Code reports it as not
+installed. In that state `CLAUDE_PLUGIN_ROOT` is unset — and the §2 fallback of
+`.claude/rules/<path>.md` also misses, because `/setup-repo` deliberately does **not** copy the
+standards into the consumer project.
+
+So in a cloud session the standards can be genuinely absent. The rule for that case:
+
+> **If you cannot resolve your stack's coding standard, say so before writing code — do not proceed
+> without it.** Report it as a blocker, name the standard you could not read, and stop. A silently
+> missing standard is the exact failure this whole delivery model exists to prevent: code written
+> from generic knowledge, passing review, and violating this project's architecture in ways nobody
+> notices for months.
+
+What to tell the user when you hit it — the two supported ways to close the gap, both documented in
+the plugin README:
+
+- **Install the plugin in that environment** — a cloud environment setup script (configured under
+  cloud environments on claude.ai) running
+  `claude plugin install tech-agency@tech-agency --scope user`.
+- **Seed the plugin cache** — point `CLAUDE_CODE_PLUGIN_SEED_DIR` at a pre-populated read-only copy
+  of `~/.claude/plugins`. This composes with the settings declaration: when
+  `extraKnownMarketplaces` / `enabledPlugins` name a marketplace that already exists in the seed,
+  Claude Code uses the seed copy instead of cloning, so no network or git auth is needed.
+
+Both routes end with `CLAUDE_PLUGIN_ROOT` set and §2 resolving normally. Until one of them is in
+place, treat the standards as unavailable rather than optional.
+
+---
+
+## 6. Quick reference
 
 | You want… | Do this |
 |---|---|
@@ -138,3 +186,4 @@ actually needs it.
 | A coding standard for the stack you are about to write | Resolve per §2, then `Read` it |
 | To reference a standard in a skill or agent file | Write `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md`, and note the `.claude/rules/<path>.md` fallback |
 | To reference any rule at all | Use the nested path. Never `.claude/rules/<name>.md` |
+| A standard that will not resolve (often a cloud session) | Stop and report it as a blocker — see §5. Never write the code anyway |

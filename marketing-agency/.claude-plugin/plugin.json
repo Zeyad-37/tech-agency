@@ -1,8 +1,0 @@
-{
-  "name": "marketing-agency",
-  "description": "Proactive, self-improving marketing system that complements tech-agency. Runs funnel audits, proposes experiments, hands engineering work to tech-agency, turns releases into launch content, and teaches the marketing craft as it works (mentor mode).",
-  "version": "0.1.0",
-  "author": {
-    "name": "Zeyad"
-  }
-}
