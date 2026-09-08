@@ -25,8 +25,10 @@ name: Release on main
 #     create the release for the new version, targeting the bump commit.
 #   - Runs triggered by the bot's own bump push no-op (see the job-level `if`).
 #
-# Not in scope: marketing-agency/.claude-plugin/plugin.json. It is a separate plugin
-# with an independent version and lifecycle, and is deliberately never bumped here.
+# Scope: this repo publishes exactly one plugin, `tech-agency`, whose manifest is
+# `.claude/.claude-plugin/plugin.json` (the marketplace entry's source is `./.claude`).
+# The companion `marketing-agency` plugin lives in its own repository and versions
+# independently; nothing here touches it.
 #
 # This complements the client-side pre-commit hook (which bumps VERSION on
 # local commits to main but cannot fire on GitHub-side merges): whichever path

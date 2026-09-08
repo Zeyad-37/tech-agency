@@ -6,6 +6,13 @@ terms. Section 1 governs the author's own work. Section 2 carves out third-party
 material that is redistributed here under the Apache License, Version 2.0, and
 which Section 1 does NOT restrict.
 
+This repository is public, and it is source-available rather than open source:
+the source is readable by anyone, but Section 1 reserves all rights in the
+author's own work. If you are looking for the material you may freely use,
+modify, and redistribute, it is the fourteen vendored Agent Skill directories
+enumerated in Section 2 — those are Apache-2.0 and are not restricted by
+Section 1.
+
 
 1. Proprietary terms (the author's own work)
 --------------------------------------------
@@ -20,6 +27,14 @@ No license, express or implied, is granted to any person or entity to use, copy,
 modify, merge, publish, distribute, sublicense, or sell copies of this material,
 or to create derivative works from it, without the prior written permission of
 the copyright holder.
+
+Publishing this repository publicly on GitHub makes the source readable and
+permits the viewing and forking that GitHub's Terms of Service allow for public
+repositories. It does not place the material in the public domain, and it grants
+no license beyond that. Installing this repository as a Claude Code plugin, and
+running the agents, skills, and workflows it defines, is permitted. To request
+permission for anything else, open an issue at
+https://github.com/Zeyad-37/tech-agency.
 
 THIS MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS

@@ -182,8 +182,11 @@ per-session tax paid on every task the plugin performs, in every project, regard
 2. **Should `/setup-repo` copy skills at all?** An installed plugin already exposes them as
    `/tech-agency:<skill>`. Copying may only make sense for vendored-repo (non-plugin) use. T-025 is
    asked to make the call explicitly rather than leave it ambiguous.
-3. **`marketing-agency` version lockstep.** T-019 leaves it on its own `0.1.0` line rather than
-   dragging it to `1.2.0`. If the two plugins should version together, that is a follow-up.
+3. ~~**`marketing-agency` version lockstep.**~~ **Resolved in T-026** — `marketing-agency` moved to
+   its own repository (`Zeyad-37/marketing-agency`, private) with its own marketplace, so the two
+   plugins version independently by construction. Clean break: tech-agency's marketplace no longer
+   lists it, and existing installs migrate by uninstalling `marketing-agency@tech-agency` and adding
+   the new marketplace.
 4. **Retiring `tech-agency-autoupdate.sh`.** Once T-019 lands, `claude plugin update` works normally.
    The local script should be removed from the author's machine — it is not in the repo, so no code
    change tracks this.
@@ -197,7 +200,16 @@ per-session tax paid on every task the plugin performs, in every project, regard
 | Stories | 7 |
 | Findings addressed | 9 P0, 13 P1, plus the P2 cleanup set |
 | Files touched | ~100 |
-| Out of scope | The 14 vendored `android-*`/`kotlin-*` skills; `marketing-agency/**` beyond manifest validation |
+| Out of scope | The 14 vendored `android-*`/`kotlin-*` skills |
+
+### T-026 — added after the original seven
+
+A later story extended the epic: `marketing-agency` was extracted to its own private repository, and
+the plugin was made available at repo level so a cloud Claude Code session picks it up (`/setup-repo`
+writes `extraKnownMarketplaces` + `enabledPlugins` into the consumer project, with the setup-script
+and seed-directory routes documented for environments where a first-time install is still needed).
+The repo was also made public-ready: personal contact addresses removed from the manifests, and
+references to a private product repo genericized.
 
 Risk is concentrated in T-020 (shell scripts that must actually run) and T-025 (`/setup-repo`, which
 no one can have run successfully since the `{project-template}` placeholder was introduced). Both
