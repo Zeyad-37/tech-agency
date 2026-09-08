@@ -20,6 +20,7 @@ Keep rows to one line. Review notes and walkthroughs belong in the linked artifa
 
 | Task ID | Agent | Description | Reviewer | Waiting Since |
 |---------|-------|-------------|----------|---------------|
+| T-016.9 | @Claude | mirror.sh: refuse a silent downgrade before writing anything | @Zeyad | 2026-09-08 |
 | T-016.8 | @Claude | Reconcile T-016 with the merged T-018 plugin audit | @Zeyad | 2026-09-08 |
 | T-004 | @Claude | Auto-create GitHub release on push/merge to main | @Zeyad | 2026-06-10 |
 | T-014 | @Claude | Board updates ship inside the PR carrying the change (no board-only PRs) | @Zeyad | 2026-08-13 |
