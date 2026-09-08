@@ -121,7 +121,9 @@ printf '%s\n' "$CHANGED_RULES" | grep -v '^$' | while read -r f; do
 done
 ```
 
-A `[NEW]` result is worth pausing on: adding a twelfth shared rule changes what `/setup-repo` copies, so `/setup-repo`'s `SHARED_RULES` list must be updated in the same change. Say so rather than silently creating the file.
+A `[NEW]` result is worth pausing on, but it needs **no** edit to `/setup-repo`. That skill enumerates `rules/shared/*.md` by glob rather than from a hardcoded list precisely so a rule added here is copied into the next project set up, with no second change. (Earlier versions of this skill told you to update a `SHARED_RULES` list in `/setup-repo`; that list no longer exists — do not go looking for it.)
+
+What a `[NEW]` result *does* warrant: confirm with the user that the file really is a new canonical shared rule rather than a project-local one that belongs only in the consumer, and check whether it should join `/setup-repo`'s **core-set gate** — the named list of rules whose absence means the payload is incomplete. Rules outside that gate arrive through the glob and are healthy surplus, not a gap.
 
 ## Step 4: Genericize before mirroring (consumer → tech-agency only)
 
@@ -131,7 +133,8 @@ When syncing FROM a consumer repo TO tech-agency, scan the changed lines for pro
 
 | Pattern | Action in tech-agency |
 |---|---|
-| Project name in code identifiers (e.g. `AgendaEntry`, `RoutinePM`, `SteadyButton`) | Replace with the doc's running-example domain (Notes/NotesList where used elsewhere) or `<Placeholder>` |
+| Project name in code identifiers (e.g. `AgendaEntry`, `RoutinePM`, or any type carrying the app's own name as a prefix) | Replace with the doc's running-example domain (Notes/NotesList where used elsewhere) or `<Placeholder>` |
+| The consumer app's or company's name anywhere in prose, paths, URLs, or examples | Replace with "the consumer", "a private production repo", or the running-example domain. Tech-agency is a **public** repo — a private consumer's name must not travel upstream in a sync |
 | Hardcoded module paths (e.g. `core/sharedUI/components/...`, `features/agenda/...`) | Replace with `<design-system-module>/...`, `features/<feature>/...` |
 | Commit hashes (e.g. `commit 6033a076`) | Strip — meaningless outside the source repo |
 | Date stamps tied to a specific rollout (e.g. `rule rollout (2026-05-14)`) | Strip or genericize to "during initial rollout" |
@@ -182,7 +185,7 @@ When tech-agency is the source of a canonical update being propagated to a consu
 3. For each changed file, the destination is the **same relative path**: `.claude/rules/${REL}` where `REL` is everything after `rules/` (e.g. `shared/board-in-pr.md`). No flattening, no basename lookup.
 4. Apply the diff. **No genericization needed in this direction** — the tech-agency content is already generic.
 5. The consumer may want to add back project-specific subsections it had stripped before (e.g., its own "Pilot examples"). Surface this to the user, don't decide unilaterally.
-6. If the change added a new shared rule, also add it to `/setup-repo`'s `SHARED_RULES` list — otherwise the next project set up will not receive it.
+6. If the change added a new shared rule, nothing further is needed for `/setup-repo` to ship it — that skill globs `rules/shared/*.md`. Consider only whether the rule belongs in `/setup-repo`'s core-set gate (the named list whose absence signals an incomplete payload).
 
 ## What NOT to Sync
 

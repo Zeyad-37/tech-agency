@@ -199,5 +199,5 @@ After that, `./gradlew detekt` returns clean on `main`, new violations naturally
 
 ## Related Memories
 
-- Consumer-specific memory documenting the broken detekt config (e.g., `project_detekt_no_baseline_failing` in Steady).
+- Consumer-specific memory documenting the broken detekt config (e.g., a `project_detekt_no_baseline_failing` key in the consumer repo that needs this workaround).
 - `feedback_promote_repeated_workflows_to_tech_agency` — the meta-rule that spawned this skill.

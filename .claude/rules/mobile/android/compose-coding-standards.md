@@ -206,13 +206,13 @@ private fun SettingsContent(
     state: SettingsState,
     process: (SettingsInput) -> Unit,
 ) {
-    SteadyToggleRow(
+    AppToggleRow(
         checked = state.isAppLockEnabled,
         // Inputs are action-nouns nested in the feature's sealed Input type —
         // `SettingsInput.ToggleAppLock`, not a top-level `ToggleAppLockInput`.
         onCheckedChange = { process(SettingsInput.ToggleAppLock) },
     )
-    SteadyTimePickerRow(
+    AppTimePickerRow(
         time = state.notificationTime,
         onClick = { process(SettingsInput.ShowTimePicker) },
     )

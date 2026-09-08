@@ -20,6 +20,8 @@ name: Validate
 #      (${CLAUDE_PLUGIN_ROOT}/... forms resolve against .claude/...).
 #   g. Advertised agent/skill/rule counts in README.md and the manifests match
 #      what the repo actually contains.
+#   h. No personal contact address is present anywhere in the tracked tree —
+#      this repository is public.
 
 on:
   pull_request:
@@ -185,7 +187,7 @@ jobs:
           count=0
           names_file="$RUNNER_TEMP/skill-names.txt"
           : > "$names_file"
-          for dir in .claude/skills/*/ marketing-agency/skills/*/; do
+          for dir in .claude/skills/*/; do
             [ -d "$dir" ] || continue
             dir="${dir%/}"
             base="$(basename "$dir")"
@@ -373,3 +375,55 @@ jobs:
             exit 1
           fi
           echo "All advertised counts match."
+
+      - name: (h) No personal contact addresses in the public tree
+        run: |
+          set -uo pipefail
+          # This repository is public. A real contact address committed into a
+          # manifest, rule, agent, doc, README, or LICENSE is a privacy leak that
+          # is trivial to reintroduce and easy to miss in review — so it fails the
+          # build here instead of being discovered after publication.
+          #
+          # The scan covers every tracked text file in the repository, not a
+          # subset of directories: README.md and LICENSE sit at the repository
+          # root and are the two files a reader is most likely to look in for a
+          # contact address, so a path-scoped check would miss the likeliest leak.
+          #
+          # Documentation *about* email must not trip this check. Validator
+          # samples (`z.string().email()`, `@field:Email`) contain no address at
+          # all and never match the pattern; test fixtures use the reserved
+          # domains below. Every other address is treated as a real one.
+          #
+          # Reserved for documentation and testing: example.com/.org/.net and
+          # the .test / .example / .invalid / .localhost TLDs (RFC 2606), plus
+          # test.com, which this repo's existing backend fixtures already use.
+          is_reserved_domain() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              example.com|example.org|example.net) return 0 ;;
+              *.example.com|*.example.org|*.example.net) return 0 ;;
+              test.com|*.test.com) return 0 ;;
+              localhost|*.test|*.example|*.invalid|*.localhost) return 0 ;;
+            esac
+            return 1
+          }
+
+          hits=0
+          checked=0
+          while IFS= read -r hit; do
+            [ -n "$hit" ] || continue
+            file="${hit%%:*}"
+            addr="${hit##*:}"
+            domain="${addr##*@}"
+            checked=$((checked + 1))
+            if is_reserved_domain "$domain"; then
+              continue
+            fi
+            echo "::error file=$file::Personal contact address '$addr' found in $file. This repository is public — remove it and let contact route through the GitHub repository instead. If this is documentation, use a reserved domain such as user@example.com."
+            hits=$((hits + 1))
+          done < <(git grep -nIoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' -- . || true)
+
+          echo "Checked $checked address-shaped token(s) across the tracked tree; $hits disallowed."
+          if [ "$hits" -ne 0 ]; then
+            echo "::error::$hits personal contact address(es) found in a public path. See the errors above."
+            exit 1
+          fi
