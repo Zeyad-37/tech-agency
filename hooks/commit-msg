@@ -3,8 +3,24 @@ set -euo pipefail
 
 # =============================================================================
 # Commit-Msg Hook — Validates commit message format
-# Format: [STORY-ID] @AgentName: Short description
-# Example: [US-042] @Kai: Add email validation to registration flow
+#
+# Format: [TAG] @AgentName: Short description
+#   TAG        — letters, optionally followed by -<number>.
+#                Both forms are in active use: [US-042], [T-015], [BUG-017],
+#                and bare [TECH] (what the release automation emits).
+#   @AgentName — OPTIONAL. Present on agent-authored commits, absent on
+#                tooling-authored ones.
+#   description — at least 3 characters.
+#
+# Canonical regex (keep in sync with hooks/pre-push and
+# .claude/rules/shared/git-hooks.md):
+#   ^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}
+#
+# Examples that pass:
+#   [US-042] @Kai: Add email validation to registration flow
+#   [T-015]  @Claude: Dynamic base-branch resolution
+#   [TECH]   @Claude: Auto-bump VERSION to 0.1.12
+#   [tech]   Tidy up the pre-push hook
 # =============================================================================
 
 RED='\033[0;31m'
@@ -15,38 +31,39 @@ NC='\033[0m'
 COMMIT_MSG_FILE="$1"
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
-# Skip merge commits
-if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
-    exit 0
-fi
+# Only the SUBJECT (first line) is validated, and only the subject is tested
+# against the skip rules below. Matching the skip patterns against the whole
+# message lets a body line such as "Merge notes: see PR #12" bypass validation
+# entirely.
+SUBJECT=$(printf '%s\n' "$COMMIT_MSG" | head -1)
 
-# Skip initial/scaffold commits
-if echo "$COMMIT_MSG" | grep -qE '^Initial '; then
-    exit 0
-fi
+# Skip merge, initial/scaffold, and revert commits — git generates these
+# subjects itself and they cannot carry a task tag.
+case "$SUBJECT" in
+    Merge\ *|Initial\ *|Revert\ *) exit 0 ;;
+esac
 
-# Skip revert commits
-if echo "$COMMIT_MSG" | grep -qE '^Revert '; then
-    exit 0
-fi
+COMMIT_SUBJECT_RE='^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}'
 
-# Validate format: [STORY-ID] @Agent: description
-# STORY-ID: one or more uppercase letters, a dash, one or more digits (e.g., US-042, T-001, BUG-123)
-# Agent: @ followed by one or more word characters
-# Description: at least 3 characters
-if ! echo "$COMMIT_MSG" | head -1 | grep -qE '^\[[A-Z]+-[0-9]+\]\s+@[A-Za-z]+:\s+.{3,}'; then
+if ! printf '%s\n' "$SUBJECT" | grep -qE "$COMMIT_SUBJECT_RE"; then
     echo ""
     echo -e "${RED}❌ Commit message format is invalid.${NC}"
     echo ""
-    echo -e "  ${YELLOW}Expected format:${NC} [STORY-ID] @AgentName: Short description"
-    echo -e "  ${YELLOW}Example:${NC}         [US-042] @Kai: Add email validation to registration flow"
+    echo -e "  ${YELLOW}Expected format:${NC} [TAG] @AgentName: Short description"
+    echo -e "  ${YELLOW}                 ${NC} (the @AgentName part is optional)"
     echo ""
-    echo -e "  Your message:  ${RED}$COMMIT_MSG${NC}"
+    echo -e "  ${YELLOW}Examples:${NC} [US-042] @Kai: Add email validation to registration flow"
+    echo -e "            [T-015] @Claude: Dynamic base-branch resolution"
+    echo -e "            [TECH] @Claude: Auto-bump VERSION to 0.1.12"
+    echo -e "            [tech] Tidy up the pre-push hook"
+    echo ""
+    echo -e "  Your subject line:  ${RED}$SUBJECT${NC}"
     echo ""
     echo -e "  Rules:"
-    echo -e "    - Story ID: uppercase letters + dash + number (e.g., US-042, T-001, BUG-123)"
-    echo -e "    - Agent name: must start with @ (e.g., @Kai, @Swift, @Link)"
-    echo -e "    - Description: at least 3 characters, describes what changed and why"
+    echo -e "    - Tag: letters in square brackets, optionally + dash + number"
+    echo -e "           (US-042, T-001, BUG-123, TECH, tech)"
+    echo -e "    - Agent name: optional; when present it is @Name followed by a colon"
+    echo -e "    - Description: at least 3 characters, says what changed and why"
     echo ""
     exit 1
 fi

@@ -1,7 +1,7 @@
 ---
 name: pixel-ui-ux-designer
 description: Owns design system, component specifications, visual/interaction design. Translates architecture into user experiences. Accessibility-first, platform-aware.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write, Edit
 model: opus
 ---
 

@@ -142,7 +142,17 @@ RULES:
 3. Do NOT cd to any other directory (especially not the main repo)
 4. Do NOT read or modify files outside this worktree
 5. FIRST COMMIT: run `/update-board [TASK-ID] → In Progress` and commit it on this branch — every board transition ships inside this task's PR, never separately (see .claude/rules/shared/board-in-pr.md)
-6. Follow all coding standards from .claude/rules/
+6. Read the coding standard for this task's stack before writing code. It is NOT preloaded — it lives in the plugin and is read on demand:
+     ${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md    (Android / Compose)
+     ${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md        (iOS / SwiftUI)
+     ${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md         (KMP shared)
+     ${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md (Ktor)
+     ${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md                 (React / Next.js)
+     ${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md       (Node / Fastify)
+     ${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md     (Python / FastAPI)
+     ${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md           (JVM / Spring Boot)
+   If CLAUDE_PLUGIN_ROOT is unset, read the same path under .claude/rules/.
+   The shared rules in .claude/rules/shared/ are already loaded — do not re-read them.
 7. Commit with the standard format: [STORY-ID] @AgentName: description
 8. When done: commit all changes, run `/update-board [TASK-ID] → Review` (committed on this branch), then `/create-pr --base [BASE]` to prepare the PR summary, and report back
 ```
@@ -178,7 +188,8 @@ git commit -m "[STORY-ID] @AgentName: Update board — {TASK-ID} → Review"
 #    - Task ID in the title: [{TASK-ID}] {description}
 #    - Authoring agent and any participating agents in the body
 #    - Summary, test plan, and review checklist
-#    NOTE: The PR will NOT be pushed until @Zeyad approves
+#    NOTE: Invoking /create-pr IS the push authorization — it pushes the branch
+#          and opens the PR. See shared-standards.md § Push Policy.
 ```
 
 ## Step 5: Clean Up the Worktree (Automatic)

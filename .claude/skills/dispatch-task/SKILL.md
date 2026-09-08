@@ -10,7 +10,9 @@ This skill is a meta-skill that orchestrates two phases:
 1. **Phase 1 (Planning)**: Runs the appropriate planning chain (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) sequentially in the main working directory. Produces docs (RFC/BRD/ADR/triage report), creates board tasks, and identifies which agents will implement what. **Stops and waits for @Zeyad approval before continuing.**
 2. **Phase 2 (Dispatch)**: Once approved, creates a git worktree per implementation task and hands off to each agent in parallel — same mechanics as `/dispatch`.
 
-> **CRITICAL — Phase boundary:** Never create worktrees during Phase 1. Never run planning agents inside worktrees during Phase 1. Planning is sequential, in the main repo. Implementation is parallel, in worktrees. The boundary is the explicit user approval step.
+> **CRITICAL — Phase boundary:** Never create implementation worktrees during Phase 1. Planning is sequential; implementation is parallel. The boundary is the explicit user approval step.
+>
+> **CRITICAL — Phase 1 artifacts must be committed and pushed before Phase 2 cuts anything.** Phase 2 creates each worktree from `origin/$BASE`. A doc that exists only as an uncommitted file in the planning directory is not on `origin/$BASE`, so it is not in any worktree — and every dispatched agent's prompt would reference an RFC, BRD, ADR or triage report it cannot open. The same applies to the board tasks Phase 1 creates: an agent told to run `/update-board T-042 → In Progress` against a board that has no `T-042` row has nothing to move. Phase 1 therefore ends by committing its artifacts on a branch and landing them on `$BASE` (Step 5 below). This is the same failure `/replenish` warns about — a planning-only board edit that no branch carries is discarded when the planning worktree is removed.
 
 ## Invocation
 
@@ -40,15 +42,36 @@ If type cannot be determined with confidence, ask the user before proceeding.
 - If `--type` is missing, infer from the description per the rules above.
 - If still ambiguous, ask the user.
 
+### Step 1b: Create the planning worktree
+
+Phase 1 writes files — docs and the board — so worktree-first applies to it too (`@.claude/rules/shared/worktree-first.md`). Planning gets **one** worktree; implementation gets one per task in Phase 2.
+
+```bash
+MAIN_REPO="$(git rev-parse --show-toplevel)"
+
+BASE="main"                                  # or the epic integration branch, per --base / resolution order
+PLAN_BRANCH="{TASK-ID}/plan-{slug}"          # e.g. US-100/plan-checkout, or triage/{slug} before an ID exists
+PLAN_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${PLAN_BRANCH//\//-}"
+
+git -C "$MAIN_REPO" fetch origin "$BASE"
+git -C "$MAIN_REPO" worktree add -b "$PLAN_BRANCH" "$PLAN_DIR" "origin/$BASE"
+cd "$PLAN_DIR"
+
+pwd                          # must equal $PLAN_DIR — STOP if not
+git branch --show-current    # must equal $PLAN_BRANCH — STOP if not
+```
+
+All of Phase 1 runs in `$PLAN_DIR`.
+
 ### Step 2: Read board context
 
-- Check `.claude/settings.json` for `board_backend` (per `.claude/rules/board-adapter.md`).
+- Check `.claude/settings.json` for `board_backend` (per `@.claude/rules/shared/board-adapter.md`).
 - Run `board.read_all()` to get the current board state.
 - Identify any related tasks already on the board so planning can reference or extend them rather than duplicate.
 
 ### Step 3: Run the planning chain for the detected type
 
-> Throughout Phase 1, all artifacts (RFC, BRD, ADR, triage report, bug report, post-mortem) are saved to the standardized paths under `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` per `.claude/rules/handoff-protocol.md`. Every handoff doc requires explicit @Zeyad approval before the next step in the chain.
+> Throughout Phase 1, all artifacts (RFC, BRD, ADR, triage report, bug report, post-mortem) are saved to the standardized paths under `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` per `@.claude/rules/shared/handoff-protocol.md`. Every handoff doc requires explicit @Zeyad approval before the next step in the chain.
 
 #### If type = `new-feature`
 
@@ -104,7 +127,7 @@ Then route by size:
   git log --oneline -20
   ```
 
-- Identify the culprit commit per `.claude/rules/crash-investigation.md` and explain the connection between the code change and the crash signature.
+- Identify the culprit commit per `@.claude/rules/shared/crash-investigation.md` and explain the connection between the code change and the crash signature.
 - Output: a triage report including culprit commit, rollback command (`git revert <hash>`), targeted fix recommendation, and severity (P0: >5% sessions, P1: 1–5%, P2: <1%) per the crash-investigation rules. Plan board tasks for every Prevention Action Point.
 
 ### Step 4: Present the plan and STOP
@@ -146,36 +169,85 @@ Approve this plan to proceed with implementation? (yes / adjust / cancel)
 
 **Do not proceed to Phase 2 until the user explicitly approves.** If a required upstream doc (RFC/BRD/ADR) has not been approved by @Zeyad, do not show the approval prompt — block and report what's still pending.
 
+### Step 5: Land the Phase 1 artifacts (blocking gate before Phase 2)
+
+Run this the moment the user approves, and **before** creating a single implementation worktree. Phase 2 cuts every worktree from `origin/$BASE`; anything not on `origin/$BASE` at that moment is invisible to every dispatched agent.
+
+```bash
+cd "$PLAN_DIR"
+
+# The docs and the board edit are one change — they commit together.
+git add docs/ board-context.md
+git commit -m "[{TASK-ID}] @Atlas: Plan {description} — docs + board tasks"
+
+# Land it on the base branch that Phase 2 will branch from.
+git push -u origin "$PLAN_BRANCH"
+/create-pr --base "$BASE"
+```
+
+Then **wait for that PR to merge into `$BASE`** before continuing. Verify it actually landed — do not take the merge on trust:
+
+```bash
+git -C "$MAIN_REPO" fetch origin "$BASE"
+
+# One Phase 1 doc path per line. Fill this in from the plan's "Docs produced" table.
+PHASE1_DOCS='docs/rfc/US-100-RFC-Checkout.md
+docs/brd/US-100-BRD-Checkout.md'
+
+# Every Phase 1 doc must be present on the base branch.
+printf '%s\n' "$PHASE1_DOCS" | grep -v '^$' | while read -r doc; do
+    if git -C "$MAIN_REPO" cat-file -e "origin/${BASE}:${doc}" 2>/dev/null; then
+        echo "[OK]   on origin/$BASE: $doc"
+    else
+        echo "[FAIL] NOT on origin/$BASE: $doc — do NOT dispatch"
+    fi
+done
+
+# Every Phase 1 board task must be present too (expect one hit per dispatched task).
+git -C "$MAIN_REPO" show "origin/${BASE}:board-context.md" | grep -c "{TASK-ID}"
+```
+
+If any check fails, stop. Dispatching now produces agents whose prompts point at files that do not exist in their worktrees.
+
+Working inside an epic (`$BASE` is `epic/{EPIC-ID}-{slug}`) is the same flow — the plan PR targets the integration branch, and the story worktrees are cut from it afterwards.
+
+Once verified, remove the planning worktree so it cannot be confused with an implementation one:
+
+```bash
+cd "$MAIN_REPO"
+git worktree remove "$PLAN_DIR"
+```
+
 ---
 
 ## Phase 2 — Dispatch (Worktrees, Parallel)
 
-This phase mirrors `.claude/skills/dispatch/SKILL.md` mechanics. Run only after Phase 1 approval.
+This phase mirrors `.claude/skills/dispatch/SKILL.md` mechanics. Run only after Phase 1 approval **and** after Step 5's verification passes.
 
 ### Step 1: Create all worktrees from the main repo
 
 Create every worktree sequentially from the main working directory before handing off to any agent. Use the base branch that was resolved and approved in the Phase 1 plan (default `main`; an epic integration branch when the work belongs to an epic; a release tag for hotfixes).
 
 ```bash
-MAIN_REPO="$(pwd)"
-
-# Ensure main is current
-git checkout main
-git pull --rebase
+MAIN_REPO="$(git rev-parse --show-toplevel)"
 
 # For each implementation task identified in Phase 1:
 BRANCH="{STORY-ID}/{short-description}"   # use board task ID
 BASE="{main | epic/{EPIC-ID}-{slug}}"     # from the approved Phase 1 plan
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 # Always branch from the resolved base on the remote — never from the current checkout.
-git fetch origin "$BASE"
-git worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
-# Hotfix exception: git worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
+# origin/$BASE already carries the Phase 1 docs and board tasks (Phase 1 Step 5),
+# so every worktree created here contains them.
+git -C "$MAIN_REPO" fetch origin "$BASE"
+git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+# Hotfix exception: git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
+
+# Gradle/Android projects: carry the gitignored host config into the worktree.
+[ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 
 # Repeat per task...
 
-git checkout main
-git worktree list   # verify
+git -C "$MAIN_REPO" worktree list   # verify
 ```
 
 If a worktree path or branch already exists, warn the user and skip that worktree. Do not destroy existing work.
@@ -230,7 +302,17 @@ Rules:
 1. ALL file reads, writes, and git operations happen in {WORKTREE_ABSOLUTE_PATH} only.
 2. Do NOT cd to any other directory (especially not the main repo or another worktree).
 3. FIRST COMMIT: run /update-board {STORY-ID} → In Progress and commit it on this branch — every board transition for this task ships inside this task's PR, never separately (.claude/rules/shared/board-in-pr.md). If you get blocked, /update-board {STORY-ID} → Blocked also commits here.
-4. Follow the coding standards in .claude/rules/ for the relevant stack.
+4. Read the coding standard for this task's stack before writing code. It is NOT preloaded — it lives in the plugin and is read on demand:
+   ${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md   (Android / Compose)
+   ${CLAUDE_PLUGIN_ROOT}/rules/mobile/ios/swiftui-coding-standards.md       (iOS / SwiftUI)
+   ${CLAUDE_PLUGIN_ROOT}/rules/mobile/shared/kmp-coding-standards.md        (KMP shared)
+   ${CLAUDE_PLUGIN_ROOT}/rules/backend/kotlin/ktor-server-coding-standards.md (Ktor)
+   ${CLAUDE_PLUGIN_ROOT}/rules/web/react-coding-standards.md                (React / Next.js)
+   ${CLAUDE_PLUGIN_ROOT}/rules/backend/nodejs/node-coding-standards.md      (Node / Fastify)
+   ${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md    (Python / FastAPI)
+   ${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md          (JVM / Spring Boot)
+   If CLAUDE_PLUGIN_ROOT is unset, read the same path under .claude/rules/.
+   The shared rules in .claude/rules/shared/ are already loaded — do not re-read them.
 5. Commit format: [{STORY-ID}] @{AgentName}: short description
 6. When done: write tests, verify they pass, commit, run /update-board {STORY-ID} → Review (committed on this branch), then run /create-pr --base {BASE}.
 ```
@@ -242,8 +324,8 @@ Spawn all agents in a single message with multiple tool calls — do not wait fo
 Inside its worktree, every dispatched agent must:
 
 1. Verify location: `pwd && git branch --show-current`.
-2. Run `/update-board {STORY-ID} → In Progress` and commit it as the **first commit** on the branch — board transitions ship inside the task's own PR, never as a board-only PR or a commit on `main` (`.claude/rules/shared/board-in-pr.md`).
-3. Implement the task and write tests on the same branch (per `.claude/rules/agent-preamble.md` and the relevant coding standards).
+2. Run `/update-board {STORY-ID} → In Progress` and commit it as the **first commit** on the branch — board transitions ship inside the task's own PR, never as a board-only PR or a commit on `main` (`@.claude/rules/shared/board-in-pr.md`).
+3. Implement the task and write tests on the same branch (per `@.claude/rules/shared/agent-preamble.md` and the on-demand coding standard for the task's stack).
 4. Run the project's quality gates (e.g., `./gradlew detekt`, the relevant test command). Do not raise a PR with failing checks.
 5. Stage and commit with the standard format: `[{STORY-ID}] @{AgentName}: description`.
 6. Run `/update-board {STORY-ID} → Review` and commit the board change on the branch so it merges with the code.

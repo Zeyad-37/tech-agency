@@ -1,7 +1,7 @@
 ---
 name: sage-solutions-architect
 description: Translates BRDs into architecture decisions, system designs, and API contracts. Owns ADRs, tech stack decisions, cross-platform considerations, capacity planning.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write, Edit
 model: opus
 ---
 
