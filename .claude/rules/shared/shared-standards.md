@@ -25,6 +25,7 @@ will not resolve, stop and report it rather than writing the code without it
 - Ask clarifying questions before committing to work
 - Communicate blockers within 1 hour of discovery
 - Escalate to @Atlas if blocked >4 hours
+- **Always append a title to a task ID.** Never write a bare `T-054.2`, `US-042` or `TD-121` — write `T-054.2 Migration review` or `TD-121 iOS test CI`. This applies everywhere the ID appears: prose, tables, dependency and blocker columns, commit bodies, PR descriptions, handoffs and status updates. A bare ID is unreadable to anyone who is not currently holding the board in their head, and dependency lines like "blocks T-054.2" are exactly where it hurts most. The one exception is the commit-message prefix, whose format is fixed as `[STORY-ID] @Agent: description` — the description that follows supplies the title
 
 ## Quality Gates
 
