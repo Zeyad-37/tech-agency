@@ -9,6 +9,7 @@
       "git push *",
       "git fetch *",
       "git pull *",
+      "git worktree *",
       "gh *"
     ],
     "filesystem": {
@@ -71,6 +72,7 @@
       "Glob",
       "Grep",
       "Bash(git push*)",
+      "Bash(git worktree*)",
       "Bash(gh pr create*)",
       "Bash(gh pr edit*)",
       "Bash(android *)",

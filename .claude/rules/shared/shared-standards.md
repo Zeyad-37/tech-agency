@@ -13,6 +13,11 @@ which set, the exact reference form for each, and the resolution snippet — is 
 
 The nested layout is canonical everywhere. Never emit a flat `.claude/rules/<name>.md` path.
 
+In a cloud session the shared rules still auto-load — they are committed project files — but a
+coding standard may be unreachable if the plugin is declared without being installed. If a standard
+will not resolve, stop and report it rather than writing the code without it
+(`@.claude/rules/shared/rules-delivery.md` §5).
+
 ## Communication Protocol
 
 - Use `@AgentName` mentions in handoffs

@@ -525,6 +525,8 @@ Sets up a repository with the full Tech Agency configuration. Works for both new
 
 **For existing projects:** Audits the current setup against the full Tech Agency configuration, reports what's present and what's missing, then gap-fills only the missing components (rules, skills, hooks, CI workflows, docs) without overwriting anything already in place.
 
+It also writes the `extraKnownMarketplaces` and `enabledPlugins` entries into `.claude/settings.json`, which is how the plugin reaches **cloud** Claude Code sessions — those have no `/plugin` command, so committed settings are the only lever. See `../setup-guide.md` § Cloud sessions for the caveat that a first-time install may still be needed.
+
 **When to use:** Setting up a brand new project, or onboarding an existing codebase onto the Tech Agency framework.
 
 **Example triggers:**

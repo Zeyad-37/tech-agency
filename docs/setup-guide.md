@@ -20,12 +20,9 @@ claude plugin install tech-agency@tech-agency --scope user
 The marketplace and the plugin share the name `tech-agency`, hence `tech-agency@tech-agency`.
 `--scope user` makes the agents and skills available in every project on the machine.
 
-This repo's marketplace also publishes a sibling plugin, `marketing-agency`. Install it only if you
-want it:
-
-```bash
-claude plugin install marketing-agency@tech-agency --scope user
-```
+These are **terminal** commands. Cloud Claude Code sessions have no `/plugin` command and cannot run
+this step interactively — see [Cloud sessions](#cloud-sessions) below for how the plugin reaches
+them.
 
 ### What you now have
 
@@ -62,7 +59,8 @@ have. After it runs, your project looks like this:
 your-project/
 ├── board-context.md                # Kanban board state
 ├── .claude/
-│   ├── settings.json               # Sandbox, permissions, board backend
+│   ├── settings.json               # Sandbox, permissions, board backend,
+│   │                               # + marketplace/plugin declaration for cloud sessions
 │   ├── hooks.json                  # Session hooks
 │   └── rules/
 │       └── shared/                 # The 11 shared policy rules — auto-load every session
@@ -139,6 +137,50 @@ Then in Claude Code:
 
 It should read your new board and report status. `/kick-off` starts the working loop (sync →
 replenish → pick up a task).
+
+---
+
+## Cloud sessions
+
+Cloud Claude Code sessions have **no `/plugin` command** — commands that only run in the terminal
+interface, such as `/plugin` or `/resume`, aren't available there. Settings files committed to the
+repository and environment variables are the only levers.
+
+**Step 2 already did most of the work.** `/setup-repo` writes these keys into your project's
+`.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "tech-agency": { "source": { "source": "github", "repo": "Zeyad-37/tech-agency" } }
+  },
+  "enabledPlugins": { "tech-agency@tech-agency": true }
+}
+```
+
+Once the repository folder is trusted, Claude Code adds the marketplace with no further prompt. The
+tech-agency repo is public, so the clone needs no credentials.
+
+**The caveat:** as of Claude Code v2.1.195, declaring an external-source plugin in project settings
+registers the marketplace but does not by itself install the plugin. Claude Code reports it as not
+installed and prints the `claude plugin install` command to run. On an environment that has never
+installed tech-agency, expect that on the first session.
+
+To close the gap unattended, either:
+
+- add `claude plugin install tech-agency@tech-agency --scope user` to your cloud environment's setup
+  script (claude.ai → cloud environments), or
+- build a read-only seed directory into your container image and set
+  `CLAUDE_CODE_PLUGIN_SEED_DIR` at run time.
+
+Both compose with the settings above. The full walkthrough, including the seed-directory build
+commands and a comparison table, is in the README under
+[Use in cloud sessions](../README.md#use-in-cloud-sessions).
+
+If you cannot run an install step at all, the zero-machinery fallback is to commit agents, skills
+and rules directly under your repo's `.claude/` — those are loaded as project config with no plugin
+and no auth. That is exactly the mechanism `/setup-repo` uses for the 11 shared policy rules, and
+`/sync-rule` reconciles the drift that a per-repo copy accumulates.
 
 ---
 

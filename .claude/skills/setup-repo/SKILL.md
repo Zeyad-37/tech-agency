@@ -1,6 +1,6 @@
 ---
 name: setup-repo
-description: "Set up a repository with the Tech Agency configuration — works for both new and existing projects. Detects what's already in place and only sets up the missing parts. Use when the user says 'setup repo', 'new repo', 'scaffold project', 'create a new project', 'initialize repo', 'bootstrap repo', 'add agency to project', 'integrate agency', or describes wanting to configure a codebase with the Tech Agency system."
+description: "Set up a repository with the Tech Agency configuration — works for both new and existing projects. Detects what's already in place and only sets up the missing parts, and declares the plugin in the project's .claude/settings.json so it is available in cloud Claude Code sessions (which have no /plugin command). Use when the user says 'setup repo', 'new repo', 'scaffold project', 'create a new project', 'initialize repo', 'bootstrap repo', 'add agency to project', 'integrate agency', 'make the plugin available in cloud sessions', or describes wanting to configure a codebase with the Tech Agency system."
 ---
 
 # Setup Repository
@@ -198,6 +198,16 @@ if [ -f .claude/settings.json ]; then
         '(.sandbox.filesystem.allowWrite // []) | index($wt)' .claude/settings.json >/dev/null 2>&1 \
         && echo "[✓] worktree write path ../${REPO}-worktrees allowed" \
         || echo "[✗] worktree write path ../${REPO}-worktrees NOT allowed — worktree-first is blocked"
+    # Cloud-session availability: the plugin must be declared in committed
+    # settings, because cloud sessions have no /plugin command (see Step 6i).
+    jq -e '.extraKnownMarketplaces["tech-agency"].source.repo == "Zeyad-37/tech-agency"' \
+        .claude/settings.json >/dev/null 2>&1 \
+        && echo "[✓] tech-agency marketplace declared (cloud sessions)" \
+        || echo "[✗] tech-agency marketplace NOT declared — plugin unavailable in cloud sessions"
+    jq -e '.enabledPlugins["tech-agency@tech-agency"] == true' \
+        .claude/settings.json >/dev/null 2>&1 \
+        && echo "[✓] tech-agency@tech-agency enabled (cloud sessions)" \
+        || echo "[✗] tech-agency@tech-agency NOT enabled — plugin unavailable in cloud sessions"
 fi
 
 # 8. Hooks
@@ -630,6 +640,137 @@ Notes:
 - If a project's builds need extra hosts or write paths, extend `sandbox.network.allowedDomains`
   / `sandbox.filesystem.allowWrite` rather than disabling the sandbox.
 
+### 6i. Declare the Plugin for Cloud Sessions (runs unconditionally)
+
+This is the step that makes the agency available in a **cloud** Claude Code session, not just on the developer's laptop.
+
+Cloud sessions have **no `/plugin` command** — commands that only run in the terminal interface, such as `/plugin` or `/resume`, are not available there. The documented way to change what a cloud session loads is to *commit settings files to the repository* (or set environment variables). For plugins specifically, that means declaring the marketplace and the enabled plugin in the project's own `.claude/settings.json`, which is exactly what this step writes:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "tech-agency": { "source": { "source": "github", "repo": "Zeyad-37/tech-agency" } }
+  },
+  "enabledPlugins": { "tech-agency@tech-agency": true }
+}
+```
+
+Once a team member trusts the repository folder, Claude Code adds the declared marketplace without a further prompt — this is the supported "team marketplace" path, and it works for any teammate who clones the repo, not only the person who ran this skill.
+
+The merge below is **additive and idempotent**: it preserves every other top-level key, every other marketplace, and every other enabled plugin, and a second run makes no change at all. It refuses to write when the file is not valid JSON, or when either key holds something other than an object — silently rewriting a settings file the user hand-edited is worse than stopping.
+
+```bash
+SETTINGS=".claude/settings.json"
+mkdir -p .claude
+
+if [ ! -f "$SETTINGS" ]; then
+    printf '{}\n' > "$SETTINGS"
+    echo "Created $SETTINGS (did not exist)"
+fi
+
+# Never overwrite a file we cannot parse — a malformed settings.json is the
+# user's edit in progress, not ours to discard.
+if ! jq -e . "$SETTINGS" >/dev/null 2>&1; then
+    echo "[✗] $SETTINGS is not valid JSON — refusing to touch it."
+    echo "    Fix the syntax by hand, then re-run. Nothing was written."
+    exit 1
+fi
+
+# Guard the two keys we merge into: a string or array there would make the
+# assignment below fail mid-write.
+BAD="$(jq -r '
+  if type != "object" then "<root>"
+  else
+    [ (if has("extraKnownMarketplaces") and (.extraKnownMarketplaces != null)
+          and (.extraKnownMarketplaces | type) != "object"
+        then "extraKnownMarketplaces" else empty end),
+      (if has("enabledPlugins") and (.enabledPlugins != null)
+          and (.enabledPlugins | type) != "object"
+        then "enabledPlugins" else empty end) ] | join(", ")
+  end' "$SETTINGS")"
+
+if [ -n "$BAD" ]; then
+    echo "[✗] $SETTINGS has a non-object where an object is required: ${BAD}"
+    echo "    Refusing to merge. Fix it by hand, then re-run. Nothing was written."
+    exit 1
+fi
+
+# Additive merge: `(existing // {}) + {new}` keeps every sibling entry and
+# overwrites only our own key, so re-running is a no-op.
+jq '
+  .extraKnownMarketplaces = ((.extraKnownMarketplaces // {}) + {
+      "tech-agency": { "source": { "source": "github", "repo": "Zeyad-37/tech-agency" } }
+  })
+| .enabledPlugins = ((.enabledPlugins // {}) + {
+      "tech-agency@tech-agency": true
+  })
+' "$SETTINGS" > "${SETTINGS}.tmp" || {
+    rm -f "${SETTINGS}.tmp"
+    echo "[✗] jq merge failed — $SETTINGS left untouched."
+    exit 1
+}
+
+# Only move the temp file into place when something actually changed, so a
+# re-run leaves the file byte-identical instead of churning its mtime.
+if cmp -s "$SETTINGS" "${SETTINGS}.tmp"; then
+    rm -f "${SETTINGS}.tmp"
+    echo "[=] tech-agency already declared in $SETTINGS — no change"
+else
+    mv "${SETTINGS}.tmp" "$SETTINGS"
+    echo "[+] Declared tech-agency marketplace + plugin in $SETTINGS"
+fi
+
+# Verify — do not report success without checking.
+jq -e '
+  (.extraKnownMarketplaces["tech-agency"].source.repo == "Zeyad-37/tech-agency")
+  and (.enabledPlugins["tech-agency@tech-agency"] == true)
+' "$SETTINGS" >/dev/null \
+  && echo "[✓] cloud-session plugin declaration verified" \
+  || echo "[✗] declaration missing after merge — inspect $SETTINGS by hand"
+```
+
+Note on formatting: the first run rewrites the file through `jq`, so a hand-formatted `settings.json` gets normalized to jq's two-space output once. Every run after that is byte-stable, which is what the `cmp` guard above checks.
+
+#### Tell the user the honest caveat
+
+Do **not** report this step as "the plugin now loads everywhere." Include this in the final report, verbatim in substance:
+
+> Declaring the plugin in `.claude/settings.json` registers the marketplace and records the intent to enable the plugin. As of Claude Code v2.1.195, adding a marketplace this way does **not** by itself install a plugin that comes from an external source such as a GitHub repository. Until someone installs it, Claude Code reports the plugin as not installed and prints the install command to run:
+>
+> ```bash
+> claude plugin install tech-agency@tech-agency
+> ```
+
+Two supported ways to close that first-install gap without a human typing that command in a cloud session — pick one and tell the user which applies to them:
+
+1. **Cloud environment setup script** (claude.ai → cloud environments). Add the install to the environment's setup script so every cloud session starts with the plugin present:
+
+   ```bash
+   claude plugin install tech-agency@tech-agency --scope user
+   ```
+
+2. **Plugin seed directory.** Point `CLAUDE_CODE_PLUGIN_SEED_DIR` at a pre-populated, read-only copy of `~/.claude/plugins` — mirroring `known_marketplaces.json`, `marketplaces/<name>/`, and `cache/<marketplace>/<plugin>/<version>/`. It needs no network access, and it composes with the settings written above: when `extraKnownMarketplaces` or `enabledPlugins` declares a marketplace that already exists in the seed, Claude Code uses the seed copy instead of cloning.
+
+Because `Zeyad-37/tech-agency` is a **public** repository, the marketplace clone needs no git credentials in the cloud environment. A private marketplace repo would additionally require a credential helper or a token URL rewrite configured in that environment.
+
+The README's cloud-availability section is the fuller write-up — point the user at it rather than re-deriving the options here.
+
+#### The zero-plugin fallback
+
+If a project cannot use the plugin machinery at all (no install step available, no seed directory), Claude Code still auto-loads these straight out of the repo with no plugin involved:
+
+- `.claude/skills/*/SKILL.md`
+- `.claude/agents/*.md` — subagents defined in a repo's `.claude/agents/` are picked up automatically in cloud sessions
+- `.claude/rules/**/*.md` (recursive)
+- `CLAUDE.md`
+- `.claude/settings.json`
+
+That is the case `--vendor-skills` (Step 6c) exists for: vendoring the skills into the repo makes them load with zero auth and zero plugin machinery, at the cost of duplicating files that then drift from the plugin. Offer it only when the install paths above are genuinely unavailable.
+
+Be precise about what that flag covers: `--vendor-skills` copies **skills only**, and this skill has no agent-vendoring step at all. A project that also needs the 19-agent roster resident with no plugin installed must copy `${PLUGIN_ROOT}/agents/*.md` into `.claude/agents/` itself, as a deliberate separate act, and then owns keeping those copies in sync with the plugin. Say that plainly rather than implying `--vendor-skills` already handled it.
+
+Note that the plugin's **`rules/` directory is not one of the directories a plugin loads** — that is why the agency reads its coding standards on demand from `${CLAUDE_PLUGIN_ROOT}/rules/…` (Step 6b) rather than expecting them to auto-load. Vendoring copies rules into `.claude/rules/`, where the *project* rule loader picks them up; that is a different mechanism, not the plugin loader.
+
 ## Step 7: Install Git Hooks (Gap-Filling)
 
 ```bash
@@ -1025,6 +1166,7 @@ Created:
 - [x] Project structure per coding standards
 - [x] .claude/rules/shared/ — {n} shared rules (auto-load every session)
 - [x] .claude/settings.json — sandbox normalized to ../{project-name}-worktrees
+- [x] .claude/settings.json — tech-agency marketplace + plugin declared (cloud sessions)
 - [x] CLAUDE.md with roster and workflow
 - [x] GitHub Actions: PR quality gates
 - [x] GitHub Actions: Verify main
@@ -1050,6 +1192,18 @@ Where things live:
   auto-loading all eight standards would cost ~65k context tokens per session,
   most of it for stacks you do not use.
 - Skills ({n from the audit}) — served by the plugin as /tech-agency:<name>. Nothing was copied.
+
+Cloud sessions:
+- .claude/settings.json now declares the tech-agency marketplace and enables
+  tech-agency@tech-agency. Commit it — that declaration is the only lever a cloud
+  session has, because /plugin does not exist there.
+- First install may still be needed: as of Claude Code v2.1.195, declaring an
+  external-source plugin registers the marketplace but does not install the plugin.
+  Until it is installed, Claude Code reports it as not installed and prints:
+      claude plugin install tech-agency@tech-agency
+  Close that gap with a cloud environment setup script (running the command above
+  with --scope user) or a CLAUDE_CODE_PLUGIN_SEED_DIR seed. See the README's
+  cloud-availability section.
 ```
 
 ### For Existing Projects:
@@ -1077,6 +1231,18 @@ Where things live:
 - Coding standards (8) — stay in the plugin, read on demand by the agent working in
   that language. 10-11 rule files here rather than 18 is correct, not a broken install.
 - Skills ({n from the audit}) — served by the plugin as /tech-agency:<name>. Nothing was copied.
+
+Cloud sessions:
+- .claude/settings.json now declares the tech-agency marketplace and enables
+  tech-agency@tech-agency. Commit it — that declaration is the only lever a cloud
+  session has, because /plugin does not exist there.
+- First install may still be needed: as of Claude Code v2.1.195, declaring an
+  external-source plugin registers the marketplace but does not install the plugin.
+  Until it is installed, Claude Code reports it as not installed and prints:
+      claude plugin install tech-agency@tech-agency
+  Close that gap with a cloud environment setup script (running the command above
+  with --scope user) or a CLAUDE_CODE_PLUGIN_SEED_DIR seed. See the README's
+  cloud-availability section.
 
 Recommended next steps:
 1. Run /tech-agency:daily-sync to initialize the board status

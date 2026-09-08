@@ -48,7 +48,7 @@ Review & Address → PR #123 (branch: feature/foo)  |  Auto-merge: ON/OFF
 
 ## Step 2: Capture the Copilot Review Baseline (parallel with Phase 1)
 
-Copilot's review latency on this org's PRs is tightly clustered — **median ~4m, P90 ~6m, max observed ~9m** (measured across 64 PRs on `Zeyad-37/Steady`). The request that triggers that review is **not** issued here — `/create-pr` (Step 5b) already requested Copilot when the PR was opened, and Copilot re-reviews automatically on every push. This skill's job is only to *wait* for the review for the current HEAD, and to let that wait overlap Phase 1 instead of becoming idle time.
+Copilot's review latency is tightly clustered — **median ~4m, P90 ~6m, max observed ~9m** (measured across 64 PRs on one private production repo; re-measure for your own org before trusting the constants in Step 5). The request that triggers that review is **not** issued here — `/create-pr` (Step 5b) already requested Copilot when the PR was opened, and Copilot re-reviews automatically on every push. This skill's job is only to *wait* for the review for the current HEAD, and to let that wait overlap Phase 1 instead of becoming idle time.
 
 So capture the review baseline now — the latest commit time — **and probe Copilot's availability**, because the wait gate is optional: it only runs when Copilot can actually deliver a review. Because Copilot re-reviews on every push, the wait gate (Step 5) must key on a review submitted **after the current HEAD**, not just "any Copilot review":
 
