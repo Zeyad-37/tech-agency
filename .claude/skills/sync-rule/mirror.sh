@@ -102,6 +102,26 @@ require_source() {
 cmd_pull() {
   require_source
   local version; version=$(source_version "$SRC")
+
+  # Guard against a silent downgrade, BEFORE anything is copied or deleted.
+  # `pull` re-pins to whatever source resolves, so running it without
+  # TECH_AGENCY_RULES while tracking an unreleased branch quietly swaps a
+  # complete mirror for an older, smaller released one — the exact silent
+  # degradation this script exists to prevent.
+  if [ -f "$MANIFEST" ] && [ "${MIRROR_FORCE:-0}" != "1" ]; then
+    local incoming had was
+    incoming=$(find "$SRC" -name '*.md' -type f | grep -c . || true)
+    had=$(sed -n '/^---$/,$p' "$MANIFEST" | tail -n +2 | grep -c . || true)
+    was=$(grep -E '^version:' "$MANIFEST" | awk '{print $2}')
+    if [ "${incoming:-0}" -lt "${had:-0}" ]; then
+      echo -e "${RED}Refusing to shrink the mirror: ${had} file(s) → ${incoming}.${NC}" >&2
+      echo -e "${YELLOW}Source: ${SRC} (v${version})  Current pin: v${was}${NC}" >&2
+      echo    "  Tracking an unreleased branch? re-run with TECH_AGENCY_RULES set." >&2
+      echo    "  Genuinely intend to drop files? MIRROR_FORCE=1 mirror.sh pull" >&2
+      return 1
+    fi
+  fi
+
   mkdir -p "$MIRROR_DIR"
 
   # No flattening: rules-delivery.md makes the nested layout canonical on both
