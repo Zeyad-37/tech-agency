@@ -1,7 +1,7 @@
 {
   "name": "tech-agency",
   "description": "Multi-agent software development framework: 19 specialized agents and 48 skills (34 first-party workflow skills plus 14 vendored Android & Kotlin agent skills from Google and JetBrains), covering the full product lifecycle across Mobile (KMP), Web, and Server.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": {
     "name": "Zeyad Gasser",
     "url": "https://github.com/Zeyad-37"
