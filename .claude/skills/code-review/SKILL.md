@@ -25,7 +25,7 @@ Prompt to the subagent:
   2. Read board-context.md to find the task ID and acceptance criteria.
   3. Locate the task's docs by the canonical convention
      docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md — the doc TYPE is the
-     folder (docs/prd/, docs/brd/, docs/adr/, docs/rfc/, docs/design-spec/).
+     folder (docs/artifacts/prd/, docs/artifacts/brd/, docs/artifacts/adr/, docs/artifacts/rfc/, docs/artifacts/design-spec/).
      There is no docs/{feature-name}/ directory.
   4. Read the coding standard for the language(s) actually changed (Step 3).
      These are NOT preloaded — you must Read the file before judging
@@ -124,12 +124,12 @@ Check that the implementation follows the project's architectural decisions:
 
 ### ADR Compliance
 
-- **Read the actual ADRs.** They live at `docs/adr/{Task-Id}-ADR-{Title}.md` (e.g. `docs/adr/US-042-ADR-JWT Strategy.md`), not `docs/{feature-name}/adr-*.md` — a glob that matches nothing, which is how this check used to report PASS while scoring against zero documents.
+- **Read the actual ADRs.** They live at `docs/artifacts/adr/{Task-Id}-ADR-{Title}.md` (e.g. `docs/artifacts/adr/US-042-ADR-JWT Strategy.md`), not `docs/{feature-name}/adr-*.md` — a glob that matches nothing, which is how this check used to report PASS while scoring against zero documents.
 
   ```bash
   # ADRs for this task, plus any repo-wide ADRs worth cross-checking
-  ls docs/adr/ 2>/dev/null | grep -F "$TASK_ID"
-  ls docs/adr/ 2>/dev/null
+  ls docs/artifacts/adr/ 2>/dev/null | grep -F "$TASK_ID"
+  ls docs/artifacts/adr/ 2>/dev/null
   ```
 
 - **If no ADR exists for this task, say so explicitly.** Report ADR compliance as `N/A — no ADR found for {TASK_ID}`. Never report `PASS` for a check that had nothing to check: a PASS against an empty set is indistinguishable from a real pass and is exactly the false confidence this review exists to prevent.
@@ -450,7 +450,7 @@ The review is posted **directly on the PR** as a single GitHub review that carri
 
 > **This skill writes no review file into the repository. Ever.**
 >
-> Do not create `docs/{anything}/review-*.md`, `docs/code-review/…`, a review file next to the changed code, or any other in-repo artifact of this review. Nothing is added to the working tree, nothing is staged, nothing is committed. The PR **is** the record — GitHub stores the body, the inline comments, the author, and the timestamp, and it stays attached to the change forever.
+> Do not create `docs/{anything}/review-*.md`, `docs/artifacts/code-review/…`, a review file next to the changed code, or any other in-repo artifact of this review. Nothing is added to the working tree, nothing is staged, nothing is committed. The PR **is** the record — GitHub stores the body, the inline comments, the author, and the timestamp, and it stays attached to the change forever.
 >
 > The only files this skill creates are the two temporary files below, both under `/tmp`, both deleted before it returns.
 >

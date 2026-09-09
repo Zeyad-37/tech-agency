@@ -828,4 +828,4 @@ Forge has access to **vendored Kotlin Agent Skills** (JetBrains, in `.claude/ski
 
 The JPA-mapping skill reinforces this document's "JPA Entity Patterns" (UUID keys, business-key `equals`/`hashCode` — never on `@Id`, lazy loading, explicit cascade). Treat it as a deeper checklist, not a replacement.
 
-Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

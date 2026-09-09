@@ -226,8 +226,8 @@ The nested layout above is canonical in the plugin and in your project alike. Fl
 ## Configure MCP connections (optional)
 
 Only some agents need external tools (issue trackers, monitoring, design tools). See
-`docs/tool-integrations.md` for which agent needs what and how to wire it up. If you want the board
-backed by Jira, Linear, or Asana instead of `board-context.md`, see `docs/board-config.md`.
+`docs/guides/tool-integrations.md` for which agent needs what and how to wire it up. If you want the board
+backed by Jira, Linear, or Asana instead of `board-context.md`, see `docs/guides/board-config.md`.
 
 ---
 
@@ -235,7 +235,7 @@ backed by Jira, Linear, or Asana instead of `board-context.md`, see `docs/board-
 
 `/setup-repo` is non-destructive and safe to run on an existing project — it skips anything already
 present. For the phased rollout of the *standards* (which gates to turn on when, how to ratchet
-coverage, how to migrate architecture gradually), see `docs/migration-guide.md`.
+coverage, how to migrate architecture gradually), see `docs/guides/migration-guide.md`.
 
 ---
 

@@ -16,7 +16,7 @@ Note that on the `markdown` backend the merged board is **not** a live view of i
 
 To switch to Jira, Linear, Asana, or another tool:
 
-1. **Connect the MCP tool** — see `docs/tool-integrations.md` for how to configure MCP connections
+1. **Connect the MCP tool** — see `docs/guides/tool-integrations.md` for how to configure MCP connections
 2. **Update settings.json** — change `board_backend` from `"markdown"` to the tool name (e.g., `"jira"`, `"linear"`, `"asana"`)
 3. **Document the status mapping** below
 4. **Test** — run `/daily-sync` to verify reads work, then `/pick-up-task` to verify writes work

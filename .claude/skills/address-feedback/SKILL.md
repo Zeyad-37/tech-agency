@@ -340,7 +340,7 @@ For failing checks specifically:
 - **test failures** — fix the implementation, not the test, unless the test is genuinely wrong (state your reasoning before changing a test).
 - **build failures** — fix and re-run locally before pushing.
 
-For RECOMMENDED items that are small (rename, missing doc, trivial null-safety), apply inline. For larger recommendations (refactors, broader cleanups), file them to `docs/tech-debt/backlog.md` as follow-up tasks and link them in the PR comment thread.
+For RECOMMENDED items that are small (rename, missing doc, trivial null-safety), apply inline. For larger recommendations (refactors, broader cleanups), file them to `docs/guides/tech-debt/backlog.md` as follow-up tasks and link them in the PR comment thread.
 
 ## Step 7: Reply, Push, Re-watch
 

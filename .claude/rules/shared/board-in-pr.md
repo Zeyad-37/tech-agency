@@ -47,7 +47,7 @@ Some board edits have no code change to ride with: `/replenish` moving Backlog �
 
 These ride with the **documents they produced**. A planning run that writes a PRD, BRD, ADR, RFC, retro report, or replenishment report commits the board edit on the same branch as those docs, and both merge in that PR — the docs are the change, and the board edit describes it.
 
-**There is always a carrier.** Every planning run saves a document, so no planning board edit is ever left uncommitted: `/replenish` saves `docs/replenishment/{YYYY-MM-DD}-Replenishment.md`, `/retro` saves `docs/retros/{date}-retro.md`, and `/new-feature` / `/tech-task` produce a PRD, BRD, ADR, or RFC. A run that would otherwise produce nothing must save its report rather than deferring the board edit. Leaving the edit uncommitted does not work: the next agent's worktree is cut from its resolved base branch (`origin/main`, or an epic integration branch — see `@.claude/rules/shared/worktree-first.md` § Base Branch Resolution), so it never sees the pending edit — nor the Ready tasks the edit created — and the edit is discarded when the planning worktree is removed.
+**There is always a carrier.** Every planning run saves a document, so no planning board edit is ever left uncommitted: `/replenish` saves `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md`, `/retro` saves `docs/artifacts/retro/{date}-retro.md`, and `/new-feature` / `/tech-task` produce a PRD, BRD, ADR, or RFC. A run that would otherwise produce nothing must save its report rather than deferring the board edit. Leaving the edit uncommitted does not work: the next agent's worktree is cut from its resolved base branch (`origin/main`, or an epic integration branch — see `@.claude/rules/shared/worktree-first.md` § Base Branch Resolution), so it never sees the pending edit — nor the Ready tasks the edit created — and the edit is discarded when the planning worktree is removed.
 
 ## Conflicts
 
@@ -55,13 +55,15 @@ Two branches editing `board-context.md` will conflict on the second merge. That 
 
 If the same task appears in different columns on the two sides, keep the entry that sits **further along the column sequence**: Backlog → Ready → In Progress → Review → Done. Blocked is outside that sequence and is never dropped by a resolution — if either side has the task Blocked, the resolved board keeps it Blocked until the blocker is cleared.
 
+The split introduced by `board-adapter.md` makes these conflicts rarer and easier. Completed work is appended to `docs/board/done-{YYYY}-Q{N}.md`, so two branches finishing tasks in the same quarter conflict on append-only lines rather than on a shared Done table — keep both rows. A `→ Done` transition touching both files still conflicts on `board-context.md` if the other side moved the same task; resolve with the sequence rule above, then check the quarter file has exactly one row for that task.
+
 ## What the Committed Board Records
 
-Because every transition merges with the change it describes, the board on `main` is an accurate record of **completed** work — the Done column, the decisions log, and the task inventory. It is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
+Because every transition merges with the change it describes, the archives on `main` are an accurate record of **completed** work — `docs/board/done-*.md`, the decisions log, and the task inventory. `board-context.md` is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
 
 Live state is therefore **derived**, not read: open PRs and their branches are the source of truth for what is In Progress, in Review, or Blocked (`gh pr list`, `git branch -r`, and each branch's own `board-context.md`).
 
-Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked in `docs/tech-debt/backlog.md` and is out of scope for this rule.
+Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked in `docs/guides/tech-debt/backlog.md` and is out of scope for this rule.
 
 ## What This Rule Forbids
 

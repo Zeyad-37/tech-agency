@@ -19,7 +19,7 @@ Ask the user (if not already clear):
 Check `docs/` for existing context on this product. Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md` as `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`:
 
 ```bash
-grep -ril "{feature-name}" docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ 2>/dev/null
+grep -ril "{feature-name}" docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ 2>/dev/null
 ```
 
 ## Step 2: Route by Size
@@ -29,7 +29,7 @@ Skip BRD. Go straight to the relevant engineer:
 ```
 Using [agent], implement [feature].
 User story: [ID]: [description].
-Context: the docs found in Step 1 (docs/prd/, docs/brd/, docs/adr/ ...).
+Context: the docs found in Step 1 (docs/artifacts/prd/, docs/artifacts/brd/, docs/artifacts/adr/ ...).
 ```
 
 ### Medium feature (3-5 stories)
@@ -37,9 +37,9 @@ Start with Diana for a focused BRD:
 ```
 Write a BRD for adding [feature] to [product].
 Context: [what exists, what's changing].
-Existing architecture: the ADRs found in docs/adr/ for this product.
+Existing architecture: the ADRs found in docs/artifacts/adr/ for this product.
 ```
-Save to `docs/brd/{Task-Id}-BRD-{Title}.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/brd/{Task-Id}-BRD-{Title}.md`. **Get @Zeyad approval.**
 
 Then have Sage review if architectural changes are needed. If yes, write an ADR. If the feature fits within existing architecture, skip Sage and go to Atlas for board setup.
 
@@ -47,7 +47,7 @@ Then have Sage review if architectural changes are needed. If yes, write an ADR.
 This is an RFC situation. Tell the implementing agent:
 ```
 This is an epic. Write an RFC before any code.
-Save to docs/rfc/{Task-Id}-RFC-{Title}.md.
+Save to docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md.
 Include: Goal, Background, Proposed Plan, Alternatives (2+), Open Questions, Estimated Scope.
 ```
 **Get @Zeyad approval on the RFC.**
@@ -86,7 +86,7 @@ For small features that skip board setup, create the worktree immediately after 
 For medium and large features, invoke Atlas:
 ```
 Break down the [feature] into tasks and add to the board via board.create_task().
-Reference: docs/brd/{Task-Id}-BRD-{Title}.md [and the ADR/RFC if applicable].
+Reference: docs/artifacts/brd/{Task-Id}-BRD-{Title}.md [and the ADR/RFC if applicable].
 Assign agents based on the work involved.
 New tasks land in Backlog: | Task ID | Priority | Description | Requested By |
 ```
@@ -98,10 +98,10 @@ New tasks land in Backlog: | Task ID | Priority | Description | Requested By |
 If the feature has a user-facing component, invoke Pixel:
 ```
 Design the [screens/components] for [feature].
-Reference: docs/brd/{Task-Id}-BRD-{Title}.md for user stories.
+Reference: docs/artifacts/brd/{Task-Id}-BRD-{Title}.md for user stories.
 Target platforms: [platforms].
 ```
-Save to `docs/design-spec/{Task-Id}-Design Spec-{Title}.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/design-spec/{Task-Id}-Design Spec-{Title}.md`. **Get @Zeyad approval.**
 
 ## Step 6: Testing Requirements (mandatory — no exceptions)
 
@@ -179,7 +179,7 @@ If either gate fails, fix the issue and re-run before proceeding. Do not move th
 
 ## Handoff Reminders
 
-- All docs are saved by type per `@.claude/rules/shared/handoff-protocol.md`: `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` (e.g. `docs/brd/US-042-BRD-Social Sharing.md`). There is no `docs/by-type/` cross-reference tree — the type folder *is* the index
+- All docs are saved by type per `@.claude/rules/shared/handoff-protocol.md`: `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` (e.g. `docs/artifacts/brd/US-042-BRD-Social Sharing.md`). There is no `docs/by-type/` cross-reference tree — the type folder *is* the index
 - Every handoff doc needs @Zeyad approval before the next step
 - Engineers should read all existing feature docs before starting (per `@.claude/rules/shared/agent-preamble.md`)
 - **No PR without a passing static-analysis gate and a passing test gate** — this is a hard gate, not a suggestion

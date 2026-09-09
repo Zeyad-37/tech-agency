@@ -224,7 +224,7 @@ Report:
 
 ```bash
 # Check when key docs were last modified
-for doc in CLAUDE.md board-context.md docs/setup-guide.md docs/migration-guide.md; do
+for doc in CLAUDE.md board-context.md docs/guides/setup-guide.md docs/guides/migration-guide.md; do
   if [ -f "$doc" ]; then
     mod_date=$(git log -1 --format="%ai" -- "$doc" 2>/dev/null || echo "untracked")
     echo "$doc: last modified $mod_date"
@@ -333,8 +333,8 @@ For every P0 and P1 action item, create a task in `board-context.md`:
 
 - P0 items → add to Ready column immediately with appropriate assignee
 - P1 items → add to Backlog with priority marker
-- P2/P3 items → add to `docs/tech-debt/backlog.md`
+- P2/P3 items → add to `docs/guides/tech-debt/backlog.md`
 
 Tag @Atlas to review the new tasks at the next daily sync.
 
-Save the full report to `docs/health-reports/YYYY-MM-DD.md`.
+Save the full report to `docs/artifacts/health-report/YYYY-MM-DD.md`.

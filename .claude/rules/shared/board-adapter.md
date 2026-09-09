@@ -43,36 +43,63 @@ Every skill that interacts with the board MUST use these abstract operations. Th
 
 ### `"markdown"` (default)
 
-When `board_backend` is `"markdown"`, translate operations to direct reads and writes of `board-context.md`:
+When `board_backend` is `"markdown"`, the board is stored across a **hot file and three archives**:
+
+| File | Holds | Read when |
+|---|---|---|
+| `board-context.md` | Ready, In Progress, Review, Blocked | Every agent task (preamble step 1), `/pick-up-task`, `/daily-sync` |
+| `docs/board/backlog.md` | Backlog | `/replenish`, triage — not on the hot path |
+| `docs/board/done-{YYYY}-Q{N}.md` | Done, one file per quarter | `/sprint-report`, `/retro`, release notes |
+| `docs/board/decisions-log.md` | Decisions Log | When a prior decision needs checking |
+
+**Why the split.** `board-context.md` is read at the start of *every* agent task. Everything an agent needs to pick up work — what is ready, what is in flight, what is blocked — is in the four live columns. Done, Backlog, and the decisions log are history: valuable, occasionally consulted, and never needed to answer "what should I do next". Keeping them in the hot file taxes every single task with the cost of the whole project's history. In the reference consumer this was 249 KB read per task, of which under 10% was live.
+
+The live file must stay small to stay useful. Two rules keep it that way:
+
+1. **One row per task, no prose.** A row carries the task ID, agent, one-line description, and a link to its artifact (`docs/artifacts/code-review/…`). Review notes, acceptance-criteria walkthroughs, and discussion live in the linked document, never inline in the board.
+2. **Done is archived on the transition, not in a later cleanup.** `move_task(..., → Done)` appends to the current quarter's file. The task never sits in a Done column in the hot file.
+
+#### Operation translations
 
 | Operation | Translation |
 |-----------|-------------|
-| `board.read_all()` | `cat board-context.md` |
-| `board.read_column(column)` | Parse `board-context.md`, extract the section under `## {Column}` |
-| `board.read_task(task_id)` | Parse `board-context.md`, find the row matching `task_id` |
-| `board.read_agent_wip(agent)` | Parse `board-context.md`, filter "In Progress" by agent name |
-| `board.search(query)` | `grep -i "{query}" board-context.md` |
-| `board.move_task(...)` | Edit `board-context.md` — remove from source section, add to target section |
-| `board.assign_task(...)` | Edit `board-context.md` — update the "Assigned To" field |
-| `board.create_task(...)` | Append a new row to the appropriate column in `board-context.md` |
-| `board.update_task(...)` | Edit the matching row in `board-context.md` |
-| `board.add_comment(...)` | Append to a "Notes" section or inline comment in `board-context.md` |
-| `board.add_blocker(...)` | Move task to "Blocked" section with reason |
-| `board.remove_blocker(...)` | Move task back to "In Progress" from "Blocked" |
+| `board.read_all()` | `cat board-context.md` — live columns only. Add the archives explicitly if history is genuinely needed. |
+| `board.read_column(column)` | Live column → parse `## {Column}` in `board-context.md`. `Backlog` → `docs/board/backlog.md`. `Done` → the current quarter file, or all `done-*.md` if the caller needs full history. |
+| `board.read_task(task_id)` | Find the row in `board-context.md`; if absent, search `docs/board/` (the task is done or still in the backlog). |
+| `board.read_agent_wip(agent)` | Parse "In Progress" in `board-context.md`, filter by agent. Never touches the archives. |
+| `board.search(query)` | `grep -ri "{query}" board-context.md docs/board/` |
+| `board.move_task(...)` | Between live columns → edit `board-context.md` only. `Backlog → Ready` → remove from `docs/board/backlog.md`, add to Ready. `Review → Done` → remove from `board-context.md`, append to `docs/board/done-{current-quarter}.md`, creating that file with a header row if it does not exist. |
+| `board.assign_task(...)` | Edit the "Assigned To" field in whichever file holds the task. |
+| `board.create_task(...)` | Append to `docs/board/backlog.md` (new work) or to Ready in `board-context.md` (immediately actionable). |
+| `board.update_task(...)` | Edit the matching row in whichever file holds the task. |
+| `board.add_comment(...)` | Append to the task's artifact document and link it from the row. Do **not** grow the board row. |
+| `board.add_blocker(...)` | Move the task to "Blocked" in `board-context.md` with a reason. |
+| `board.remove_blocker(...)` | Move back to "In Progress" in `board-context.md`. |
 
-The markdown board follows the format documented in `board-context.md` with these columns:
+#### File formats
+
+`board-context.md` — the live board:
 
 ```markdown
-## Backlog
 ## Ready
-## In Progress
+## In Progress (WIP limit: 2 per agent)
 ## Review
 ## Blocked
-## Done
-## Decisions Log
+```
+
+`docs/board/` — the archives:
+
+```markdown
+docs/board/backlog.md          ## Backlog
+docs/board/done-2026-Q3.md     ## Done — 2026 Q3
+docs/board/decisions-log.md    ## Decisions Log
 ```
 
 Each column contains a markdown table with columns: Task ID, Description, Assigned To, Priority, Started/Added date.
+
+#### Quarter boundaries
+
+A quarter file is created lazily by the first `→ Done` transition in that quarter. Never backfill or rewrite a closed quarter — an archive that changes after the fact is no longer a record. `docs/board/README.md` indexes the quarter files.
 
 ### External Tool (Jira, Linear, Asana, etc.)
 
@@ -106,7 +133,7 @@ Map the agency's column names to external tool statuses:
 | Blocked | Blocked (custom) | Blocked (label) | On Hold |
 | Done | Done | Done | Completed |
 
-The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/board-config.md`.
+The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/guides/board-config.md`.
 
 ## Agent Guidelines
 
@@ -161,9 +188,9 @@ through their API immediately, so their reads are live.
 
 To add support for a new board tool:
 
-1. Configure the MCP connection for the tool (see `docs/tool-integrations.md`)
+1. Configure the MCP connection for the tool (see `docs/guides/tool-integrations.md`)
 2. Add the tool name as a valid `board_backend` value
-3. Document the status mapping in `docs/board-config.md`
+3. Document the status mapping in `docs/guides/board-config.md`
 4. Test with `/daily-sync` to verify read operations work
 5. Test with `/pick-up-task` to verify write operations work
 6. **Audit the skills for raw board access before trusting the new backend.** The adapter handles translation only for skills that actually go through it. Any skill that hardcodes `cat board-context.md` or edits the file directly bypasses the adapter and will read or write the wrong thing:

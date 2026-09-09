@@ -52,11 +52,11 @@ These gates run on every PR for visibility but only block release builds.
 
 Coverage thresholds increase over time to prevent regression and encourage improvement:
 
-1. **Baseline measurement**: On adoption, measure current coverage. Record in `docs/test-baseline.md`.
+1. **Baseline measurement**: On adoption, measure current coverage. Record in `docs/guides/test-baseline.md`.
 2. **Floor enforcement**: CI fails if coverage drops below the baseline for any module.
 3. **Ratchet increment**: Every 2 weeks, increase the floor by 2% until the target is reached.
 4. **Per-module tracking**: Each module has its own threshold. New modules start at the coding standard targets (80%/60%).
-5. **Exceptions**: If a module genuinely cannot meet the target (e.g., generated code, thin wrappers), document the exception in `docs/test-exceptions.md` with justification. @Sage and @Zeyad must approve.
+5. **Exceptions**: If a module genuinely cannot meet the target (e.g., generated code, thin wrappers), document the exception in `docs/guides/test-exceptions.md` with justification. @Sage and @Zeyad must approve.
 
 ## PR Quality Gate Workflow
 
@@ -133,7 +133,7 @@ If a quality gate must be bypassed for an emergency:
 2. @Shield (for security gates) or @Apex (for test gates) acknowledges the risk.
 3. @Zeyad approves the exception.
 4. A follow-up task is created in `board-context.md` to restore the gate within 48 hours.
-5. The exception is logged in `docs/ci-exceptions-log.md` with date, gate bypassed, reason, and resolution date.
+5. The exception is logged in `docs/guides/ci-exceptions-log.md` with date, gate bypassed, reason, and resolution date.
 
 Exceptions are never silent. Every bypass is tracked and resolved.
 

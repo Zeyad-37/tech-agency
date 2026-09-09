@@ -512,7 +512,7 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 | Security | OWASP dependency-check + lint rules | `build-logic/` | CI (every PR) |
 | Accessibility | Compose semantics assertions + TalkBack | `src/test/` + manual | CI (every PR) + manual |
 
-> **Full reference with code examples:** See @docs/references/compose-testing-reference.md
+> **Full reference with code examples:** See @docs/guides/references/compose-testing-reference.md
 
 ### Testing Rules Summary
 
@@ -691,7 +691,7 @@ Rules:
 
 All observability is tool-agnostic — use your logging framework, crash reporting service, and APM tool of choice. These are integrated via KMP shared interfaces (defined in `kmp-coding-standards.md`) and Android-specific actuals in `androidMain`.
 
-> **Full reference with code examples:** See @docs/references/compose-observability-reference.md
+> **Full reference with code examples:** See @docs/guides/references/compose-observability-reference.md
 
 ### Structured Logging
 
@@ -831,4 +831,4 @@ When a task matches one of these, `Read` the named `SKILL.md` and follow its wor
 | Optimizing app size / auditing R8 keep rules | `android-r8-analyzer` |
 | Diagnosing jank, latency, memory from a trace | `android-perfetto-trace-analysis`, `android-perfetto-sql` |
 
-Provenance and the full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
+Provenance and the full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

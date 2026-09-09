@@ -25,8 +25,8 @@ Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`, as 
 
 ```bash
 grep -ril "{TASK-ID}\|{feature-name}" \
-  docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ \
-  docs/api-contract/ docs/incident-notes/ docs/post-mortem/ 2>/dev/null \
+  docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ \
+  docs/artifacts/api-contract/ docs/artifacts/incident-notes/ docs/artifacts/post-mortem/ 2>/dev/null \
   || echo "No documents found for this feature"
 ```
 
@@ -52,7 +52,7 @@ Read relevant ADRs and identify how this feature fits into the system:
 
 ```bash
 # Architecture-level docs for this feature
-grep -ril "{TASK-ID}\|{feature-name}" docs/adr/ docs/rfc/ 2>/dev/null
+grep -ril "{TASK-ID}\|{feature-name}" docs/artifacts/adr/ docs/artifacts/rfc/ 2>/dev/null
 
 # Check which modules this feature touches
 grep -rl "{feature-name}" --include="*.kt" --include="*.swift" --include="*.ts" --include="*.tsx" --include="*.py" src/ | head -20
@@ -223,14 +223,14 @@ Compile everything into a single briefing document:
 - [Decisions that might seem wrong but are intentional (with ADR refs)]
 ```
 
-Save the briefing to `docs/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md` (create the folder if it does not exist), following the by-type convention in `@.claude/rules/shared/handoff-protocol.md`.
+Save the briefing to `docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md` (create the folder if it does not exist), following the by-type convention in `@.claude/rules/shared/handoff-protocol.md`.
 
 ## Step 9: Announce
 
 Notify @Atlas that the agent has been onboarded:
 
 ```markdown
-@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md. Ready to begin work.
+@Atlas: @[Agent] has been onboarded to {feature-name}. Briefing saved to docs/artifacts/onboarding/{Task-Id}-Onboarding-{Agent}-{Date}.md. Ready to begin work.
 ```
 
 If the agent should immediately pick up a task, suggest running `/pick-up-task` or `/kick-off` next.

@@ -660,7 +660,7 @@ enum Spacing {
 | Security | Xcode Analyze + dependency audit | Build settings | CI (every PR) |
 | Accessibility | XCTest accessibility assertions + VoiceOver | `Tests/` + manual | CI (every PR) + manual |
 
-> **Full reference with code examples:** See @docs/references/swiftui-testing-reference.md
+> **Full reference with code examples:** See @docs/guides/references/swiftui-testing-reference.md
 
 ### Testing Rules Summary
 
@@ -743,7 +743,7 @@ Rules:
 - Launch time P95: alert if > 3s
 - Network error rate: alert if > 2%
 
-> **Full reference with code examples:** See @docs/references/swiftui-observability-reference.md
+> **Full reference with code examples:** See @docs/guides/references/swiftui-observability-reference.md
 
 ### Key Rules
 

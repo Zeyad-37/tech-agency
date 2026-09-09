@@ -908,4 +908,4 @@ The **vendored Kotlin Agent Skills** (in `.claude/skills/`) apply to Ktor work t
 
 Note: `kotlin-backend-jpa-entity-mapping` targets **Spring Data JPA / Hibernate** and is owned by Forge — it does **not** apply here. Ktor persistence uses **Exposed** (see "Database (Exposed ORM)" above), which has different identity, fetch, and transaction semantics; do not transplant JPA mapping advice onto Exposed tables.
 
-Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

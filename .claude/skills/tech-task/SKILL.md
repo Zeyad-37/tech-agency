@@ -17,9 +17,9 @@ Ask the user (if not already clear):
 - **Which codebase areas?** (to identify the right agent(s))
 
 Check existing context:
-- `docs/tech-debt/backlog.md` — is this already tracked as tech debt?
+- `docs/guides/tech-debt/backlog.md` — is this already tracked as tech debt?
 - Recent ADRs — does an existing decision constrain this work?
-- `docs/ci-enforcement-policy.md` — relevant for CI/CD tasks
+- `docs/guides/ci-enforcement-policy.md` — relevant for CI/CD tasks
 
 ## Step 2: Create a Worktree
 
@@ -110,7 +110,7 @@ Determine:
 ```
 @Sage — Write an ADR for: [task description].
 Focus on: approach, alternatives, trade-offs, affected modules.
-Save to docs/adr/{Task-Id}-ADR-{Title}.md.
+Save to docs/artifacts/adr/{Task-Id}-ADR-{Title}.md.
 ```
 **Get @Zeyad approval on the ADR.** Then create board tasks.
 
@@ -119,14 +119,14 @@ Save to docs/adr/{Task-Id}-ADR-{Title}.md.
 This requires an RFC. Tell the assigned agent:
 ```
 This is a significant technical initiative. Write an RFC before starting.
-Save to docs/rfc/{Task-Id}-RFC-{Title}.md.
+Save to docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md.
 Include: Goal, Background, Proposed Plan, Alternatives (2+), Open Questions, Estimated Scope.
 ```
 **Get @Zeyad approval on the RFC.**
 
 Then have Sage break it into tasks:
 ```
-@Sage — Break down the RFC at docs/rfc/{Task-Id}-RFC-{Title}.md into implementable tasks.
+@Sage — Break down the RFC at docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md into implementable tasks.
 Assign each to the appropriate agent based on domain.
 ```
 
@@ -141,7 +141,7 @@ Then invoke Atlas for board setup:
 For medium and large tasks, invoke Atlas:
 ```
 @Atlas — Set up board tasks for tech task: [name].
-Reference: docs/adr/{Task-Id}-ADR-{Title}.md or docs/rfc/{Task-Id}-RFC-{Title}.md
+Reference: docs/artifacts/adr/{Task-Id}-ADR-{Title}.md or docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md
 Create them via board.create_task(). New tasks land in Backlog:
   | Task ID | Priority | Description | Requested By |
 Assign agents based on domain expertise.
@@ -158,7 +158,7 @@ If the task involves creating or updating a design system:
 Target platforms: [platforms].
 Output: Design tokens (JSON), component specs with variants/states/accessibility.
 ```
-Save to `docs/design-spec/{Task-Id}-Design Spec-{Title}.md`. **Get @Zeyad approval.**
+Save to `docs/artifacts/design-spec/{Task-Id}-Design Spec-{Title}.md`. **Get @Zeyad approval.**
 
 2. Then fan out to platform engineers:
 ```
@@ -182,17 +182,17 @@ After implementation:
 
 Tech task artifacts are filed by **document type**, exactly like feature artifacts — per `@.claude/rules/shared/handoff-protocol.md`, `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`:
 
-- `docs/rfc/{Task-Id}-RFC-{Title}.md` — RFC (large tasks only)
-- `docs/adr/{Task-Id}-ADR-{Title}.md` — ADR (if architectural decisions were made)
-- `docs/design-spec/{Task-Id}-Design Spec-{Title}.md` — design spec (design system tasks)
+- `docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md` — RFC (large tasks only)
+- `docs/artifacts/adr/{Task-Id}-ADR-{Title}.md` — ADR (if architectural decisions were made)
+- `docs/artifacts/design-spec/{Task-Id}-Design Spec-{Title}.md` — design spec (design system tasks)
 
-There is no `docs/tech-tasks/` tree and no `docs/by-type/` cross-reference tree. The type folder *is* the index, and the `T-`/`tech-` task ID in the filename is what identifies it as tech work.
+There is no `docs/artifacts/tech-task/` tree and no `docs/by-type/` cross-reference tree. The type folder *is* the index, and the `T-`/`tech-` task ID in the filename is what identifies it as tech work.
 
 ## Handoff Reminders
 
 - Every handoff doc needs @Zeyad approval before the next step
 - Tag tasks as "Tech Task" on the board so sprint reports can distinguish feature work from infrastructure work
-- If the task resolves tech debt, also update `docs/tech-debt/resolved.md` with the resolution
+- If the task resolves tech debt, also update `docs/guides/tech-debt/resolved.md` with the resolution
 - Engineers should check existing docs and ADRs before starting (per `@.claude/rules/shared/agent-preamble.md`)
 - Use `/update-board` at every lifecycle transition (→ In Progress, → Blocked, → Review, → Done) to commit the board change on the branch so it merges with the code
 - Use `/create-pr` after moving to Review to create a standardized pull request with the task ID in the title and participating agents in the body

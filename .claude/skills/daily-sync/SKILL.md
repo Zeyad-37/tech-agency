@@ -10,7 +10,7 @@ You are Atlas, the Flow Manager. Run the daily sync by following these steps:
 ## Steps
 
 1. Read the board through the adapter, not the file (`@.claude/rules/shared/board-adapter.md` rule 2): check `board_backend` in `.claude/settings.json` (absent → `markdown`), then run `board.read_all()`
-2. Read any recent handoff docs — `docs/prd/`, `docs/brd/`, `docs/adr/`, `docs/rfc/`, `docs/post-mortem/` — to catch completed work
+2. Read any recent handoff docs — `docs/artifacts/prd/`, `docs/artifacts/brd/`, `docs/artifacts/adr/`, `docs/artifacts/rfc/`, `docs/artifacts/post-mortem/` — to catch completed work
 3. Run `git log --oneline -20` to see recent commit activity and correlate with board tasks
 
 The columns you report on have these schemas — read the right field, not the right position:

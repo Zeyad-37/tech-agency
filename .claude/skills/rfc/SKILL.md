@@ -29,7 +29,7 @@ Before writing:
 #   docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md
 # Find everything already written for this feature.
 grep -ril "{TASK-ID}\|{feature-name}" \
-  docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ docs/api-contract/ 2>/dev/null
+  docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ docs/artifacts/api-contract/ 2>/dev/null
 
 # Check the codebase for related modules
 find . -type d -name "{feature-name}" 2>/dev/null | head -10
@@ -56,8 +56,8 @@ Produce the RFC following this structure exactly:
 **Date:** YYYY-MM-DD
 **Status:** Draft → In Review → Accepted / Rejected / Superseded
 **Stakeholders:** @Sage, @{implementing agents}, @{affected agents}
-**PRD:** docs/prd/{Task-Id}-PRD-{Title}.md (if exists)
-**BRD:** docs/brd/{Task-Id}-BRD-{Title}.md (if exists)
+**PRD:** docs/artifacts/prd/{Task-Id}-PRD-{Title}.md (if exists)
+**BRD:** docs/artifacts/brd/{Task-Id}-BRD-{Title}.md (if exists)
 
 ## 1. Goal
 
@@ -185,9 +185,9 @@ Documents are filed by type per `@.claude/rules/shared/handoff-protocol.md`:
 mkdir -p docs/rfc
 ```
 
-Save to `docs/rfc/{Task-Id}-RFC-{Title}.md` — e.g. `docs/rfc/US-042-RFC-Shared Auth Module.md`. If no task ID exists yet, use the feature slug and note that @Atlas should assign an ID when the work is boarded.
+Save to `docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md` — e.g. `docs/artifacts/rfc/US-042-RFC-Shared Auth Module.md`. If no task ID exists yet, use the feature slug and note that @Atlas should assign an ID when the work is boarded.
 
-There is no `docs/by-type/` cross-reference tree. The type folder *is* the index — an RFC lives in `docs/rfc/` and nowhere else, and a second copy only creates two things to keep in sync.
+There is no `docs/by-type/` cross-reference tree. The type folder *is* the index — an RFC lives in `docs/artifacts/rfc/` and nowhere else, and a second copy only creates two things to keep in sync.
 
 ## Step 4: Submit for Review
 
@@ -196,7 +196,7 @@ The RFC requires approval before implementation begins (per `@.claude/rules/shar
 ```markdown
 ## RFC Review Request
 
-**RFC:** docs/rfc/{Task-Id}-RFC-{Title}.md
+**RFC:** docs/artifacts/rfc/{Task-Id}-RFC-{Title}.md
 **Author:** @{AgentName}
 **Status:** In Review
 

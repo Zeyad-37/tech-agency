@@ -113,7 +113,7 @@ Open the PR from the hotfix branch into `main`, title it `[HOT-NNN] Hotfix v[X.Y
 
 The fixing engineer must write a post mortem within 24 hours.
 
-Save it to `docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. Append a row to `docs/post-mortem/INDEX.md`:
+Save it to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. Append a row to `docs/artifacts/post-mortem/INDEX.md`:
 
 ```
 | YYYY-MM-DD | {Incident Title} | {Severity} | [Post Mortem](./{filename}.md) |

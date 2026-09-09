@@ -30,6 +30,14 @@ Canonical regex — `hooks/commit-msg` and `hooks/pre-push` both use it verbatim
 ^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}
 ```
 
+The hook **auto-normalizes** a non-conforming message instead of blocking it — a rejected commit costs the author a retype and teaches nothing, while a rewrite lands the commit and shows the correct form:
+
+- **STORY-ID**: an explicit `[ID]` already in the message wins; otherwise it is derived from the branch (`US-016/foo` → `US-016`); if the branch carries no ID (`tech/`, `deps/`, `main`, …) the token `CHORE` is used. Number-less tokens like `CHORE`/`TECH` are accepted, and dotted sub-task IDs (`T-016.1`) are valid — the accepted format is `[A-Z]+(-[0-9]+(\.[0-9]+)?)?`. Without the dotted suffix, every sub-task commit is silently relabelled `[CHORE]`, destroying traceability on exactly the epics that use sub-task IDs.
+- **@Agent**: an `@Agent` already leading the message is kept; otherwise it defaults to the git user's first name (`@Zeyad`). A mid-sentence `@mention` is not mistaken for the agent.
+- **description**: the original first line with any leading `[..]` / `@agent` fragments stripped. The body is preserved untouched.
+
+Exceptions (left untouched): merge commits (`Merge ...`), initial commits (`Initial ...`), revert commits (`Revert ...`).
+
 | Part | Rule |
 |------|------|
 | `TAG` | Letters in square brackets, optionally followed by `-` and a number. Both `[US-042]` and bare `[TECH]` are valid. Case is not enforced, so `[tech]` passes too. |
@@ -98,7 +106,8 @@ The hook reads the refspecs git supplies on **stdin** (`<local ref> <local sha> 
 |-------|-----------|------------|
 | Branch naming convention | Warning | Rename: `git branch -m {STORY-ID}/{description}` |
 | Push onto — or deletion of — `refs/heads/main` | Yes | Create a PR instead: `gh pr create --base main` |
-| Commit subject format (every commit being pushed) | Yes | Amend: `git commit --amend`, or an interactive rebase |
+| Commit subject format (commits **unique to the branch**) | Yes | Amend: `git commit --amend`, or an interactive rebase. Commits already reachable from the remote main branch are exempt, so a rebase onto `origin/main` does not drag main's squash-merge subjects and bot commits into the check and force `--no-verify`. The commit-msg hook normalizes at commit time; this is the backstop for commits that bypassed it |
+| Shared-rules copy integrity | Yes (consumers only) | A file in `.claude/rules/shared/` was hand-edited. See `@.claude/rules/shared/rules-delivery.md` — move the edit to `.claude/rules-local/` or promote it upstream, then re-sync. Runs only where `.claude/rules/shared/.synced-from` exists; the checker resolves from a local copy, `$CLAUDE_PLUGIN_ROOT`, or the installed plugin cache, and reports loudly if it cannot be found rather than passing silently |
 | Tests for affected modules | Yes | Fix failing tests |
 | Build verification | Yes | Fix build errors |
 

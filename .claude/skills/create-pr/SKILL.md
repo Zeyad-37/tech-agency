@@ -209,7 +209,7 @@ Verified behaviour — these are the cases the regex is tuned against:
 | `features/notes/.../viewmodel/NotesListViewModel.kt` | **no** |
 | `features/notes/.../viewmodel/NotesListContract.kt` | **no** |
 | `server/.../NotesRepository.kt`, `NotesService.kt` | **no** |
-| `docs/design-spec/US-1-Design Spec-Screen.md` | **no** (not a UI extension) |
+| `docs/artifacts/design-spec/US-1-Design Spec-Screen.md` | **no** (not a UI extension) |
 | `README.md`, `build.gradle.kts` | **no** |
 
 `$UI_CHANGES` computed here is the value Step 3b acts on and Step 4b's Gate 3 reuses. Do **not** recompute it with a different pattern anywhere in this skill.
@@ -227,7 +227,7 @@ Collect the following from the current branch and task context:
 - **Related docs**: Search the canonical doc folders for artifacts matching this task ID. Per `@.claude/rules/shared/handoff-protocol.md`, every handoff document lives at `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` — the doc type is the *folder*, not a per-feature folder:
 
   ```bash
-  # Canonical layout: docs/prd/US-042-PRD-User Authentication.md
+  # Canonical layout: docs/artifacts/prd/US-042-PRD-User Authentication.md
   ls docs/{prd,brd,adr,rfc,design-spec,api-contract}/ 2>/dev/null | grep -F "$TASK_ID"
   ```
 
@@ -294,7 +294,7 @@ Use this template exactly:
 
 ## Related Docs
 
-- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/adr/US-042-ADR-JWT Strategy.md`}
+- {Link to PRD, BRD, ADR, RFC, or design spec if they exist — e.g., `docs/artifacts/adr/US-042-ADR-JWT Strategy.md`}
 - {Or "N/A — no related feature docs" for tech tasks}
 
 ## Visual Changes

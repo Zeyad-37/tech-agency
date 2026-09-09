@@ -49,7 +49,7 @@ Then install the git hooks into `.git/`:
 **You do not select or copy coding standards for your stack.** The 8 language standards stay in the
 plugin and are read on demand — an agent reads the one matching the language it is about to write.
 That is the whole point of the split: an Android-only repo never loads the React or FastAPI
-standard. See "Rules delivery" in `docs/setup-guide.md`, or the authoritative
+standard. See "Rules delivery" in `docs/guides/setup-guide.md`, or the authoritative
 `@.claude/rules/shared/rules-delivery.md`.
 
 There is no `CLAUDE.md` step. The agency's project instructions arrive as the shared rules in
@@ -66,7 +66,7 @@ pasted list) and it will triage items into Backlog and promote the prioritized o
 
 If you would rather keep your existing tracker as the source of truth, set `board_backend` in
 `.claude/settings.json` to `jira`, `linear`, or `asana` and wire up the MCP connection — see
-`docs/board-config.md`. The board adapter translates every agent operation to your tool.
+`docs/guides/board-config.md`. The board adapter translates every agent operation to your tool.
 
 **Expect `main` to show an empty "In Progress" column.** Board transitions commit on the task branch
 and only reach `main` when that branch's PR merges. That is by design — see
@@ -96,7 +96,7 @@ If you have existing CI, layer the agency's quality gates incrementally:
 | Integration tests | Week 2 | Add if you have them. If not, start writing them for new code. |
 | Coverage thresholds | Week 3+ | Once baseline is established, set thresholds at current coverage + 5% and ratchet up. |
 
-See `docs/ci-enforcement-policy.md` for the full policy.
+See `docs/guides/ci-enforcement-policy.md` for the full policy.
 
 ### 2.4 Use `/setup-repo` for New Modules
 
@@ -108,7 +108,7 @@ When creating new modules or services within the existing project, use the `/set
 
 Apply the coding standards to all **new** code immediately. Every new file, module, or feature follows the standards. This is the lowest-friction way to improve quality.
 
-Agents do this automatically — reading the stack's standard before writing code in it is a mandatory preamble step. To read one yourself, open it in the plugin at `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md` (the path table is in `docs/setup-guide.md` under "Rules delivery").
+Agents do this automatically — reading the stack's standard before writing code in it is a mandatory preamble step. To read one yourself, open it in the plugin at `${CLAUDE_PLUGIN_ROOT}/rules/<path>.md` (the path table is in `docs/guides/setup-guide.md` under "Rules delivery").
 
 ### 3.2 Modified Code Next
 
@@ -122,16 +122,16 @@ Run the formatter (Prettier, ktlint, Black, Spotless, SwiftFormat) across the en
 
 If the existing project structure doesn't match the coding standards (e.g., different package layout, missing layer separation), don't refactor everything at once. Instead:
 
-1. Document the current structure in a `docs/architecture-current.md`.
-2. Document the target structure (from the coding standards) in a `docs/architecture-target.md`.
+1. Document the current structure in a `docs/guides/architecture-current.md`.
+2. Document the target structure (from the coding standards) in a `docs/guides/architecture-target.md`.
 3. Each new feature uses the target structure. Existing modules migrate when they're significantly modified.
-4. Track migration progress in `docs/tech-debt/backlog.md`.
+4. Track migration progress in `docs/guides/tech-debt/backlog.md`.
 
 ## Phase 4 — Testing Maturity (Weeks 3–6)
 
 ### 4.1 Establish a Baseline
 
-Run your existing test suite and measure coverage. Record this in `docs/test-baseline.md` with the date.
+Run your existing test suite and measure coverage. Record this in `docs/guides/test-baseline.md` with the date.
 
 ### 4.2 Ratchet Coverage
 
@@ -178,7 +178,7 @@ If using KMP, add Konsist tests to enforce layer dependencies. For other stacks,
 
 ### 6.2 SLO Definitions
 
-Define SLOs for every service per `@.claude/rules/shared/operational-standards.md`. Store in `docs/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
+Define SLOs for every service per `@.claude/rules/shared/operational-standards.md`. Store in `docs/guides/slo/{service-name}.md`. Configure alerting based on error budget burn rate.
 
 ### 6.3 Feature Flags
 

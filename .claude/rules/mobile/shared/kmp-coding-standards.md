@@ -244,7 +244,7 @@ Rules:
 - `clazz()` returns the `KClass` of the specific `Input` this handler processes.
 - `handle()` returns a `Flow<Result>` — emit `Result` objects that will be reduced into State or dispatched as Effects.
 - Use `makeCancellable(inputClass)` for long-running operations that the user might cancel.
-- Use `executeInParallel()` for results that should be processed concurrently.
+- Use `executeInParallel()` to **document** that a flow never completes (an always-on `observe*` pipeline). It is an intent marker only — see below.
 - InputHandlers receive use cases via constructor, not repositories directly.
 
 ### Cancellable and Parallel Flows
@@ -260,15 +260,20 @@ override fun handle(input: SearchInput, state: MyState): Flow<Result> = flow {
 // Cancel from UI
 viewModel.process(CancelInput(SearchInput::class))
 
-// Parallel execution — results processed concurrently
-override fun handle(input: LoadDashboard, state: DashState): Flow<Result> = flow {
-    emit(DashResult.Loading)
-    val stats = statsUseCase()
-    val notifications = notificationsUseCase()
-    emit(DashResult.StatsLoaded(stats))
-    emit(DashResult.NotificationsLoaded(notifications))
-}.executeInParallel()
+// Never-completing observation pipeline — the marker documents that intent
+override fun handle(input: LoadDashboard, state: DashState): Flow<Result> =
+    combine(observeStatsUseCase(), observeNotificationsUseCase()) { stats, notifications ->
+        DashResult.Loaded(stats, notifications)
+    }.executeInParallel()
 ```
+
+### `executeInParallel()` is an intent marker, not a concurrency mechanism
+
+It does **not** make anything run in parallel, and there is no "async lane" versus "sequential lane". It historically selected `flatMapMerge` over `flatMapConcat` inside `process()`, but that distinction was always inert: each `process()` call resolves exactly one `Result` flow and launches its own coroutine, so there were never "later results of the same input" for a non-completing flow to block. Applying the marker or omitting it produces identical runtime behaviour.
+
+**Cross-input concurrency comes from `process()` itself** — every call starts a new coroutine in `viewModelScope`, so two inputs dispatched back to back are already processed concurrently. Nothing needs to opt in.
+
+Keep applying the marker to never-completing observation pipelines: it tells the next reader that the flow is deliberately long-lived rather than leaked. Do not reach for it expecting a speedup.
 
 ## Use Cases
 
@@ -712,7 +717,7 @@ interface Track {
 
 ## Observability
 
-> **Full reference with code examples:** See `@docs/references/kmp-observability-reference.md`
+> **Full reference with code examples:** See `@docs/guides/references/kmp-observability-reference.md`
 
 All observability in KMP uses expect/actual pattern to remain tool-agnostic. Platform actuals delegate to whatever vendor SDK the project has chosen.
 
@@ -730,7 +735,7 @@ All observability in KMP uses expect/actual pattern to remain tool-agnostic. Pla
 
 ## Testing
 
-> **Full reference with code examples:** See `@docs/references/kmp-testing-reference.md`
+> **Full reference with code examples:** See `@docs/guides/references/kmp-testing-reference.md`
 
 ### Test Types
 
@@ -990,4 +995,4 @@ The AGP 9 / KMP upgrade skill is the canonical reference for the Kotlin-version-
 
 For Compose Multiplatform or shared-code work that needs a running Android target, use the `android` CLI via Bash (`android emulator start`, `android run --apks=…`, `android docs search "<keywords>"` for up-to-date Android API guidance, `android layout`/`android screen capture` for inspection). If `command -v android` is empty the toolchain isn't installed — flag it as a blocker (install steps in `/setup-repo`). Android-platform UI tasks (theming, edge-to-edge, navigation, profiling) are owned by Kai and mapped to `android-*` skills in `compose-coding-standards.md`.
 
-Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/references/android-kotlin-skills-integration.md`.
+Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

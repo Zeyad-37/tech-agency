@@ -76,9 +76,9 @@ Key sections:
 - Contributing factors
 - Lessons learned
 
-Save to `docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — e.g. `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`. This is the canonical location mandated by `@.claude/rules/shared/crash-investigation.md` and the handoff protocol; create the folder if it does not exist. Post-mortems are project artifacts under version control, not Claude Code configuration, so they never live under `.claude/`.
+Save to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — e.g. `docs/artifacts/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`. This is the canonical location mandated by `@.claude/rules/shared/crash-investigation.md` and the handoff protocol; create the folder if it does not exist. Post-mortems are project artifacts under version control, not Claude Code configuration, so they never live under `.claude/`.
 
-Append one row to `docs/post-mortem/INDEX.md` (create it with the header row if new):
+Append one row to `docs/artifacts/post-mortem/INDEX.md` (create it with the header row if new):
 
 ```
 | Date | Incident | Severity | Report |
@@ -103,13 +103,13 @@ Every "Prevention Action Points" row in the post-mortem MUST become a tracked ta
 1. For each action point, run `board.create_task()` targeting the Backlog column, whose schema is `| Task ID | Priority | Description | Requested By |`:
    - **Requested By**: the "Suggested Owner" from the post-mortem table (or @Atlas if unassigned)
    - **Priority**: match the post-mortem (P0/P1/P2/P3)
-   - **Description**: the action text, suffixed with the source reference `[Post-mortem: docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md]`
+   - **Description**: the action text, suffixed with the source reference `[Post-mortem: docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md]`
    - **Due date**: P0 = 48 hours, P1 = 1 week, P2 = 2 weeks, P3 = next sprint — record it via `board.add_comment()` on backends that have no due-date field
 
 2. Verify: count the action points in the post-mortem table and confirm `board.read_column("Backlog")` returns the same number of new tasks.
 
-3. If this incident is a recurrence (check `docs/post-mortem/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
+3. If this incident is a recurrence (check `docs/artifacts/post-mortem/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
 
-The board edit ships inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/post-mortem/…`, never as a board-only PR and never on `main`.
+The board edit ships inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…`, never as a board-only PR and never on `main`.
 
-This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/incident-response.md` for the full feedback loop closure policy.
+This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/guides/incident-response.md` for the full feedback loop closure policy.

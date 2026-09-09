@@ -27,11 +27,18 @@ need to read them explicitly — they are already in your context.
 | `board-adapter.md` | Platform-agnostic board operations (markdown / Jira / Linear / Asana) |
 | `shared-standards.md` | Communication, quality gates, git + push policy, security/observability/testing baselines, Kanban protocol |
 | `operational-standards.md` | API versioning, dependency management, feature flags, DB change safety, SLOs, incident severity |
-| `handoff-protocol.md` | The 19 agent-to-agent handoff templates and the `docs/{doc-type}/` filing convention |
+| `handoff-protocol.md` | The 19 agent-to-agent handoff templates and the `docs/artifacts/{doc-type}/` filing convention (closed type list) |
 | `crash-investigation.md` | Crash spike triage and the post-mortem document protocol |
 | `git-hooks.md` | What the commit-msg / pre-commit / pre-push hooks enforce |
 | `kotlin-agent-skills.md` | When to route a Kotlin task through a JetBrains Kotlin Agent Skill |
 | `rules-delivery.md` | This file — which rules live where and how to reference them |
+
+**The copy is generated, not authored.** `/setup-repo` writes it and `/sync-rule` refreshes it; a
+manifest at `.claude/rules/shared/.synced-from` records the plugin version and a SHA-256 per file,
+and `pre-push` fails when a copied file has been hand-edited. This matters because nothing else
+notices: in the reference consumer, 13 of 15 copied rule files had silently forked from the plugin
+before this gate existed, and the skill meant to catch it pointed at a directory that did not exist.
+Project-specific rules go in `.claude/rules-local/`, which also auto-loads and wins on conflict.
 
 **Reference form:** `@.claude/rules/shared/<name>.md`
 

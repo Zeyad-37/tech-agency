@@ -427,3 +427,6 @@ jobs:
             echo "::error::$hits personal contact address(es) found in a public path. See the errors above."
             exit 1
           fi
+
+      - name: (i) docs/artifacts folders are all declared types
+        run: ./scripts/check-doc-types.sh

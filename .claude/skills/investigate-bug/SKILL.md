@@ -25,16 +25,16 @@ Then gather technical context:
 git log --oneline -20
 
 # Check for existing feature docs — filed by type per the handoff protocol
-grep -ril "{feature-name}" docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ 2>/dev/null \
+grep -ril "{feature-name}" docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ 2>/dev/null \
   || echo "No feature docs found"
 ```
 
 Check the board for related tasks through the adapter, not by reading the file (`@.claude/rules/shared/board-adapter.md` rule 2) — read `board_backend` from `.claude/settings.json` (absent → `markdown`), then run `board.search("{feature-name}")`, falling back to `board.read_all()` if the backend has no search.
 
 Read the relevant feature documentation, filed as `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`:
-- PRD (`docs/prd/`) — what was the intended behavior?
-- BRD (`docs/brd/`) — what are the acceptance criteria and user stories?
-- ADR (`docs/adr/`) — any architectural decisions that constrain the fix?
+- PRD (`docs/artifacts/prd/`) — what was the intended behavior?
+- BRD (`docs/artifacts/brd/`) — what are the acceptance criteria and user stories?
+- ADR (`docs/artifacts/adr/`) — any architectural decisions that constrain the fix?
 
 ## Step 2: Reproduce and Locate
 
@@ -137,7 +137,7 @@ Not every functional bug needs a full post-mortem. Use this decision tree:
 
 **Bug report** (always produced — this is the minimum deliverable):
 
-Save to `docs/incident-notes/{Bug-Id}-Incident Notes-{Title}.md` per `@.claude/rules/shared/handoff-protocol.md` (create the folder if it does not exist):
+Save to `docs/artifacts/incident-notes/{Bug-Id}-Incident Notes-{Title}.md` per `@.claude/rules/shared/handoff-protocol.md` (create the folder if it does not exist):
 
 ```markdown
 # Bug Report: {Title}
@@ -181,7 +181,7 @@ For severe bugs (P0/P1), produce a full post-mortem following the template in `@
 - Severity is based on user impact, not crash percentages
 - Prevention Action Points should focus on: missing test coverage, spec gaps, validation gaps, review process
 
-Save to `docs/post-mortem/{Bug-Id}-Post Mortem-{Title}.md` — the canonical location per the handoff protocol; create the folder if it does not exist. Append one row to `docs/post-mortem/INDEX.md` in the single agency-wide schema (create it with the header row if new):
+Save to `docs/artifacts/post-mortem/{Bug-Id}-Post Mortem-{Title}.md` — the canonical location per the handoff protocol; create the folder if it does not exist. Append one row to `docs/artifacts/post-mortem/INDEX.md` in the single agency-wide schema (create it with the header row if new):
 
 ```
 | Date | Incident | Severity | Report |
@@ -195,7 +195,7 @@ Create these through the board adapter (`board.create_task()`, see `@.claude/rul
 
 1. **The fix itself** — assigned to the appropriate engineer (from git blame or domain ownership)
 2. **Tests to add** — assigned to the fixing engineer or @Apex
-3. **Any prevention actions** from the post-mortem (if produced) — with owners, priorities, and due dates per the feedback loop closure policy in `docs/incident-response.md`
+3. **Any prevention actions** from the post-mortem (if produced) — with owners, priorities, and due dates per the feedback loop closure policy in `docs/guides/incident-response.md`
 
 If the root cause is **spec ambiguity**:
 - Add a task for @Diana or @Morgan to clarify the spec

@@ -13,7 +13,7 @@ Read the board through the adapter, not the file (`@.claude/rules/shared/board-a
 
 1. `board.read_column("Ready")` and `board.read_column("In Progress")` — how full is Ready relative to current load?
 2. `board.read_column("Backlog")` — the candidate pool
-3. Read `docs/tech-debt/backlog.md` if it exists — identify high-severity debt items
+3. Read `docs/guides/tech-debt/backlog.md` if it exists — identify high-severity debt items
 4. Check recent feature request compilations from Echo in `docs/` if any exist
 
 Move selected items with `board.move_task(id, "Backlog", "Ready")`. The two columns differ only in the last field — Backlog is `| Task ID | Priority | Description | Requested By |`, Ready is `| Task ID | Priority | Description | Assigned To |` — so write the assignee, not the requester, into the Ready row.
@@ -56,7 +56,7 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 
 ## Saving the Report
 
-**Always save the report** to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/retros/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
+**Always save the report** to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if it does not exist), following the precedent `/retro` sets with `docs/artifacts/retro/`. This is not optional: the saved report is the carrier that the board edit rides with. Without it, a replenishment run produces a board edit that nothing can commit.
 
 Then run the `board.move_task()` calls to land the selected items in Ready.
 
@@ -65,7 +65,7 @@ Then run the `board.move_task()` calls to land the selected items in Ready.
 The board edit and the replenishment report are one change. Commit them together on the same branch, and both merge in that one PR (see `@.claude/rules/shared/board-in-pr.md`):
 
 ```bash
-git add docs/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
 git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
 ```
 

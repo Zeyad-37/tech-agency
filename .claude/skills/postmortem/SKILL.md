@@ -15,8 +15,8 @@ Check for existing investigation artifacts:
 
 ```bash
 # Check for recent post-mortems from /investigate-crash or /investigate-bug
-ls docs/post-mortem/ 2>/dev/null
-cat docs/post-mortem/INDEX.md 2>/dev/null
+ls docs/artifacts/post-mortem/ 2>/dev/null
+cat docs/artifacts/post-mortem/INDEX.md 2>/dev/null
 
 # Check for bug reports and incident notes
 find docs/incident-notes docs/post-mortem -name '*.md' -mtime -7 2>/dev/null
@@ -96,9 +96,9 @@ Classify the systemic root cause:
 
 ## Step 4: Generate the Post-Mortem Document
 
-Save to `docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. If this deepens an existing post-mortem, **replace** the original file, keeping the same filename so the INDEX row keeps resolving.
+Save to `docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md` — the canonical location per `@.claude/rules/shared/crash-investigation.md` and the handoff protocol. If this deepens an existing post-mortem, **replace** the original file, keeping the same filename so the INDEX row keeps resolving.
 
-If `docs/post-mortem/` does not exist, create it.
+If `docs/artifacts/post-mortem/` does not exist, create it.
 
 ```markdown
 # {Incident Title}
@@ -194,7 +194,7 @@ Priority SLAs:
 
 ## Recurrence Check
 
-{Check `docs/post-mortem/INDEX.md` for similar past incidents. If this is a recurrence:}
+{Check `docs/artifacts/post-mortem/INDEX.md` for similar past incidents. If this is a recurrence:}
 - **Previous incident:** {link to prior post-mortem}
 - **Previous prevention actions:** {were they completed? did they work?}
 - **Why recurrence:** {what the previous actions missed}
@@ -202,7 +202,7 @@ Priority SLAs:
 
 ## Step 5: Update the Index
 
-There is exactly one index, `docs/post-mortem/INDEX.md`, with exactly one schema — the four-column form that `/investigate-crash` and `@.claude/rules/shared/crash-investigation.md` also write. Do not add a fifth column: a second schema makes the row-matching step below impossible.
+There is exactly one index, `docs/artifacts/post-mortem/INDEX.md`, with exactly one schema — the four-column form that `/investigate-crash` and `@.claude/rules/shared/crash-investigation.md` also write. Do not add a fifth column: a second schema makes the row-matching step below impossible.
 
 If INDEX.md does not exist, create it with the header row:
 
@@ -230,7 +230,7 @@ Every prevention action point MUST become a tracked task. Use `board.create_task
 
 2. **Create one task per prevention action** in the Backlog column, whose schema is `| Task ID | Priority | Description | Requested By |`:
    - **Task ID**: `PM-{NNN}` (sequential, from the post-mortem action point number)
-   - **Description**: the action text from the prevention table, prefixed with `[5-Whys]` and suffixed with the source reference `[Post-mortem: docs/post-mortem/{Task-Id}-Post Mortem-{Title}.md]`
+   - **Description**: the action text from the prevention table, prefixed with `[5-Whys]` and suffixed with the source reference `[Post-mortem: docs/artifacts/post-mortem/{Task-Id}-Post Mortem-{Title}.md]`
    - **Requested By**: the "Owner" from the prevention table (or @Atlas if unassigned)
    - **Priority**: match the priority from the table
    - **Due date** and **labels** (`post-mortem`, `prevention`, `{category}`): set natively on backends that support them; on the markdown backend record them via `board.add_comment()`, since the Backlog table has no column for either
@@ -251,7 +251,7 @@ After the post-mortem and tasks are created:
 - Notify @Atlas to schedule a brief retro focused on the systemic root cause
 - If the incident is P0/P1 → recommend sharing the post-mortem with the full team
 
-The board edits from Step 6 ship inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/post-mortem/…` and `docs/post-mortem/INDEX.md`. Never open a board-only PR and never commit the board on `main`.
+The board edits from Step 6 ship inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…` and `docs/artifacts/post-mortem/INDEX.md`. Never open a board-only PR and never commit the board on `main`.
 
 ## When to Use This Skill
 

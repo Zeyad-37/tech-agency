@@ -20,9 +20,9 @@ Read these sources:
 1. **Board state** — Read board via board adapter (`read_all`). Count tasks per column.
 2. **Git log** — `git log --since="<start>" --until="<end>" --oneline --format="%h|%ai|%s"` to get all commits in the period.
 3. **Done column history** — Count tasks that moved to Done during the period. Extract story IDs from commit messages (`[STORY-ID]`).
-4. **Retro reports** — Check `docs/retros/` for any retros run during the period.
-5. **Health reports** — Check `docs/health-reports/` for the most recent health check.
-6. **Post-mortems** — Check `docs/post-mortem/INDEX.md` for any incidents during the period.
+4. **Retro reports** — Check `docs/artifacts/retro/` for any retros run during the period.
+5. **Health reports** — Check `docs/artifacts/health-report/` for the most recent health check.
+6. **Post-mortems** — Check `docs/artifacts/post-mortem/INDEX.md` for any incidents during the period.
 
 ## Step 2 — Compute Metrics
 
@@ -58,13 +58,13 @@ For each agent with commits in the period:
   ```
 
   If `gh` is unavailable or unauthenticated, report the metric as "n/a (gh unavailable)" — never as 0, which reads as "nobody reviewed anything".
-- **Incidents**: count of rows added to `docs/post-mortem/INDEX.md` during the period
+- **Incidents**: count of rows added to `docs/artifacts/post-mortem/INDEX.md` during the period
 - **Health grade**: latest from health report (if available)
 - **Hotfixes**: count of hotfix branches merged in the period (`git log --merges --since=<start> --until=<end> --oneline | grep -c 'hotfix/'`)
 
 ## Step 3 — Identify Trends
 
-Compare against previous period (if data exists in `docs/sprint-reports/`):
+Compare against previous period (if data exists in `docs/artifacts/sprint-report/`):
 - Throughput trending up/down/stable
 - Cycle time trending up/down/stable
 - Block time trending up/down/stable
@@ -90,7 +90,7 @@ Flag any of the following:
 
 ## Step 5 — Generate Report
 
-Save to `docs/sprint-reports/YYYY-MM-DD.md` with this structure:
+Save to `docs/artifacts/sprint-report/YYYY-MM-DD.md` with this structure:
 
 ```markdown
 # Sprint Report — [Start Date] to [End Date]

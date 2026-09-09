@@ -98,6 +98,8 @@ Only at the merge gate — checks green and merge approved, immediately before `
 board.move_task(task_id, "Review", "Done")
 board.update_task(task_id, { output: "PR #{pr_number}", completed: "YYYY-MM-DD" })
 ```
+On the markdown backend this touches **two** files: the row leaves `board-context.md` and is appended to `docs/board/done-{YYYY}-Q{N}.md` (created on the quarter's first completion). Stage both in the same commit — a Done row that lands without leaving the live board double-counts the task. See `@.claude/rules/shared/board-adapter.md`.
+
 Push right after committing (see Step 3), then let the pushed commit's required checks go green before merging — the board commit is a new head and re-triggers CI.
 
 **If that re-triggered run fails**, the Done commit is on the branch while the PR is still open — the exact state this design exists to prevent. Undo it:
@@ -141,7 +143,7 @@ Some board edits have no code change to accompany: `/replenish` moving Backlog �
 
 Every planning run saves a document, so **there is always a carrier** and a planning board edit is never left uncommitted:
 
-- Commit the board edit on the **same branch as the document that run produced** — PRD, BRD, ADR, RFC, retro report (`docs/retros/`), or replenishment report (`docs/replenishment/`). Both merge in one PR.
+- Commit the board edit on the **same branch as the document that run produced** — PRD, BRD, ADR, RFC, retro report (`docs/artifacts/retro/`), or replenishment report (`docs/artifacts/replenishment/`). Both merge in one PR.
 - If a run looks like it produced no document, that run is incomplete: it must save its report first, then commit the board edit with it. Do **not** leave the edit uncommitted for a later PR to carry — the agent that would carry it works in a worktree cut from its resolved base branch (`origin/main` or an epic integration branch — see `.claude/rules/shared/worktree-first.md` § Base Branch Resolution), so it never sees the pending edit nor the Ready tasks the edit created, and the edit is discarded when the planning worktree is removed.
 - Still never commit it to `main`, and never open a board-only PR.
 

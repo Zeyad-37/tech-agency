@@ -326,15 +326,33 @@ server/src/main/kotlin/com/example/{project}/
 ├── plugins/, features/, core/
 ```
 
-Also create the standard docs and agency scaffolding:
+Also create the standard docs and agency scaffolding. `docs/` has exactly five children — anything that does not fit one of them does not get a new top-level folder:
+
 ```
 docs/
-├── performance-budgets.md
-├── data-retention-policy.md
-├── slo/
-└── releases/
-board-context.md          # Empty Kanban board
+├── README.md             # Index: what lives where
+├── artifacts/            # Agent-written, one folder per doc type (CLOSED list —
+│   │                     #   see handoff-protocol.md). Folders are created on
+│   │                     #   demand; filenames carry the Task ID.
+│   ├── prd/  brd/  adr/  rfc/  spike/  design-spec/  api-contract/
+│   ├── api-migration/  test-plan/  code-review/  security-review/
+│   ├── static-analysis/  health-report/  incident-notes/  post-mortem/
+│   └── release-record/  runbook/  tech-task/  retro/  replenishment/
+│                        #   sprint-report/  onboarding/
+├── board/                # Board archives (see board-adapter.md)
+│   ├── README.md         # Index of quarter files
+│   ├── backlog.md
+│   ├── decisions-log.md
+│   └── done-{YYYY}-Q{N}.md   # Created lazily on first completed task
+├── guides/               # Hand-maintained and long-lived: setup, references,
+│                         #   policies, and living registers (tech debt, SLOs,
+│                         #   performance budgets, data retention)
+├── assets/               # Images, GIFs, design handoff HTML/CSS
+└── archive/{year}/       # Superseded documents — moved, never deleted
+board-context.md          # Live columns only: Ready, In Progress, Review, Blocked
 ```
+
+The split is by **lifecycle**: `artifacts/` is written once per task by an agent and then read; `guides/` is maintained by hand over time; `board/` is appended to; `assets/` is binary; `archive/` is frozen.
 
 ## Step 6: Copy Agency Configuration (Gap-Filling)
 
@@ -475,6 +493,15 @@ if [ -f "board-context.md" ]; then
 else
     echo "Generating board-context.md"
 fi
+
+mkdir -p docs/board
+for f in backlog.md decisions-log.md README.md; do
+    if [ ! -f "docs/board/$f" ]; then
+        cp "{project-template}/docs/board/$f" "docs/board/$f"
+        echo "Copied docs/board/$f"
+    fi
+done
+# Quarter files (done-YYYY-QN.md) are created lazily by the first completed task.
 ```
 
 ```markdown
@@ -528,7 +555,7 @@ These column headers are the contract every board-touching skill writes against.
 ### 6f. Reference Docs (if missing)
 
 ```bash
-mkdir -p docs docs/references
+mkdir -p docs/guides/references
 
 if [ "$PAYLOAD_HAS_DOCS" = "true" ]; then
     for doc in setup-guide migration-guide ci-enforcement-policy incident-response; do
@@ -549,9 +576,9 @@ if [ "$PAYLOAD_HAS_DOCS" = "true" ]; then
     # read`, not `for ref in $SELECTED_REFERENCES` — unquoted expansion does not
     # word-split in zsh, which would make the loop run once on the whole list.
     printf '%s\n' "$SELECTED_REFERENCES" | grep -v '^$' | while read -r ref; do
-        if [ ! -f "docs/references/${ref}" ] && [ -f "${PAYLOAD_ROOT}/docs/references/${ref}" ]; then
-            cp "${PAYLOAD_ROOT}/docs/references/${ref}" "docs/references/${ref}"
-            echo "Copied: docs/references/${ref}"
+        if [ ! -f "docs/guides/references/${ref}" ] && [ -f "${PAYLOAD_ROOT}/docs/guides/references/${ref}" ]; then
+            cp "${PAYLOAD_ROOT}/docs/guides/references/${ref}" "docs/guides/references/${ref}"
+            echo "Copied: docs/guides/references/${ref}"
         fi
     done
 else
@@ -1181,8 +1208,8 @@ TODOs (manual — fill in your tooling):
 - [ ] Add secrets to GitHub repo settings (API keys, deploy tokens, etc.)
 - [ ] Configure deployment targets in release.yml (staging, canary, production)
 - [ ] Configure notification channels in verify-main.yml (Slack, email, etc.)
-- [ ] Update performance budgets in docs/performance-budgets.md
-- [ ] Define SLOs per service in docs/slo/
+- [ ] Update performance budgets in docs/guides/performance-budgets.md
+- [ ] Define SLOs per service in docs/guides/slo/
 - [ ] Run /tech-agency:new-product to kick off the product planning chain
 
 Where things live:
@@ -1224,7 +1251,7 @@ Still needs attention:
 - [ ] Fill in TODO placeholders in any new workflow files
 - [ ] Review git hook settings — adjust lint commands for your tooling
 - [ ] Delete any stale local coding-standards copies flagged [!] in the audit
-- [ ] See docs/migration-guide.md for the full incremental adoption path
+- [ ] See docs/guides/migration-guide.md for the full incremental adoption path
 
 Where things live:
 - Shared rules ({n}) — .claude/rules/shared/ in THIS repo. Auto-loaded every session.
@@ -1248,7 +1275,7 @@ Recommended next steps:
 1. Run /tech-agency:daily-sync to initialize the board status
 2. Start using commit format: [STORY-ID] @Agent: description
    (agent tag optional — [TECH] Fix the thing is also valid)
-3. Follow docs/migration-guide.md phases for gradual adoption
+3. Follow docs/guides/migration-guide.md phases for gradual adoption
 ```
 
 ## Customization Notes

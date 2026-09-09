@@ -29,9 +29,9 @@ Provide two options:
 
 After completing the investigation, generate a post mortem document as the **sole output** of the session.
 
-**Canonical location — `docs/post-mortem/`.** Save the document to
-`docs/post-mortem/{Task-Id}-Post Mortem-Title.md`
-(e.g., `docs/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
+**Canonical location — `docs/artifacts/post-mortem/`.** Save the document to
+`docs/artifacts/post-mortem/{Task-Id}-Post Mortem-Title.md`
+(e.g., `docs/artifacts/post-mortem/BUG-017-Post Mortem-NPE User Profile Load.md`).
 
 This directory is canonical and non-negotiable. It follows the `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md`
 filing convention from `@.claude/rules/shared/handoff-protocol.md`, which every other agency artifact
@@ -39,9 +39,9 @@ filing convention from `@.claude/rules/shared/handoff-protocol.md`, which every 
 `.claude/post-mortems/` — that path is not the convention, is not where any other artifact lives, and
 is not where `/postmortem`, `/investigate-crash`, `/health-check`, or a human reader will look for
 them. If you encounter an existing `.claude/post-mortems/` directory in a project, treat it as legacy:
-new documents go to `docs/post-mortem/`.
+new documents go to `docs/artifacts/post-mortem/`.
 
-If `docs/post-mortem/` does not exist, create it.
+If `docs/artifacts/post-mortem/` does not exist, create it.
 
 The post mortem must follow this structure exactly:
 
@@ -99,7 +99,7 @@ Action points must cover all relevant layers: unit/integration tests, CI checks 
 
 ### 5. Update the Index
 
-Append a one-line entry to `docs/post-mortem/INDEX.md` — the canonical index, alongside the
+Append a one-line entry to `docs/artifacts/post-mortem/INDEX.md` — the canonical index, alongside the
 canonical directory. Create the file if it doesn't exist.
 
 **Canonical schema — exactly these four columns, in this order:**

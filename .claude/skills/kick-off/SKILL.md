@@ -66,7 +66,7 @@ Report the decision:
 Run an abbreviated replenishment — enough to fill the Ready column without the full weekly analysis:
 
 1. Run `board.read_column("Backlog")`
-2. Check `docs/tech-debt/backlog.md` if it exists
+2. Check `docs/guides/tech-debt/backlog.md` if it exists
 3. Move the top items into Ready with `board.move_task(id, "Backlog", "Ready")` using this priority:
    - P0/P1 bugs → always first
    - Items that unblock In Progress work → next
@@ -86,12 +86,12 @@ Produce:
 Moved [n] items to Ready. Tech debt: [n] items ([%] of total).
 ```
 
-Save this quick-replenish report to `docs/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent). The Ready column uses `| Task ID | Priority | Description | Assigned To |` — match it exactly.
+Save this quick-replenish report to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent). The Ready column uses `| Task ID | Priority | Description | Assigned To |` — match it exactly.
 
 The report is the carrier for the board edit — same rule as `/replenish` (see `@.claude/rules/shared/board-in-pr.md`). Commit both together on one branch:
 
 ```bash
-git add docs/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md
 git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
 ```
 
@@ -133,7 +133,7 @@ Before pulling:
 ### 4d. Pull and Context Load
 
 1. Move the task to In Progress via `board.move_task(id, "Ready", "In Progress")` + `board.assign_task(id, "@{YourAgent}")`. The In Progress schema is `| Task ID | Agent | Description | Started | Cycle Day |` — it differs from Ready's, so write a new row rather than moving the old one. Ship this edit as the first commit on the task branch (`@.claude/rules/shared/board-in-pr.md`).
-2. Read feature docs filed by type per the handoff protocol — `docs/prd/`, `docs/brd/`, `docs/adr/`, `docs/rfc/`, `docs/design-spec/` — matching the task ID or feature name
+2. Read feature docs filed by type per the handoff protocol — `docs/artifacts/prd/`, `docs/artifacts/brd/`, `docs/artifacts/adr/`, `docs/artifacts/rfc/`, `docs/artifacts/design-spec/` — matching the task ID or feature name
 3. Read the coding standard for the task's stack from `${CLAUDE_PLUGIN_ROOT}/rules/...` (see the table in `/pick-up-task` Step 5). It is not preloaded — read it explicitly
 4. Check recent git activity: `git log --oneline --since="3 days ago" -- {affected-dirs}`
 5. Check for parallel work on the same code area

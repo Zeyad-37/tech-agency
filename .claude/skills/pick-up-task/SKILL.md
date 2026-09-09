@@ -107,8 +107,8 @@ Follow the agent preamble's context-loading discipline:
 
    ```bash
    grep -ril "{TASK-ID}\|{feature-name}" \
-     docs/prd/ docs/brd/ docs/adr/ docs/rfc/ docs/design-spec/ \
-     docs/api-contract/ docs/incident-notes/ docs/post-mortem/ 2>/dev/null
+     docs/artifacts/prd/ docs/artifacts/brd/ docs/artifacts/adr/ docs/artifacts/rfc/ docs/artifacts/design-spec/ \
+     docs/artifacts/api-contract/ docs/artifacts/incident-notes/ docs/artifacts/post-mortem/ 2>/dev/null
    ```
 
    Read every hit:
