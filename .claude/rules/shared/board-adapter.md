@@ -7,11 +7,21 @@ The board backend is configured per-project in `.claude/settings.json` via the `
 ```json
 // .claude/settings.json
 {
-  "board_backend": "markdown"
+  "board_backend": "github"
 }
 ```
 
-Supported values: `"markdown"` (default), or any external tool accessible via MCP (e.g., `"jira"`, `"linear"`, `"asana"`). If the field is missing, default to `"markdown"`.
+| Value | Backend | When |
+|---|---|---|
+| `"github"` | GitHub Issues + Projects v2, driven by `gh` | **Default.** Any repo with a GitHub remote |
+| `"markdown"` | `board-context.md` + `docs/board/` | Repos with no GitHub remote, or an explicit opt-out |
+| `"jira"` / `"linear"` / `"asana"` / … | External tool over MCP | Teams already living in that tool |
+
+If the field is missing, default to `"github"` when `gh repo view` succeeds, and to `"markdown"`
+otherwise. `/setup-repo` writes the value explicitly so this fallback is never load-bearing.
+
+Migrating an existing markdown board to GitHub is what `/migrate-board` does. It never deletes the
+markdown files — it freezes them as history.
 
 ## Board Operations
 
@@ -41,7 +51,87 @@ Every skill that interacts with the board MUST use these abstract operations. Th
 
 ## Backend Translations
 
-### `"markdown"` (default)
+### `"github"` (default)
+
+Tasks are GitHub Issues. Columns are a Projects v2 `Status` field, mirrored to `status:` labels so
+the board still works when Projects v2 is unavailable. Epics are native sub-issues.
+
+#### Column mapping
+
+| Agency column | Projects v2 `Status` | Label | Issue state |
+|---|---|---|---|
+| Backlog | `Backlog` | `status:backlog` | open |
+| Ready | `Ready` | `status:ready` | open |
+| In Progress | `In Progress` | `status:in-progress` | open |
+| Review | `In Review` | `status:review` | open |
+| Blocked | `Blocked` | `status:blocked` | open |
+| Done | `Done` | *(none)* | **closed** |
+
+Done is issue-closed, not a label. That is what makes `Closes #N` in a PR body perform the
+`→ Done` transition on merge, server-side and atomically.
+
+#### Identity
+
+**The agency Task ID stays the identity; the issue number is incidental.** Branch names
+(`T-027/slug`), commit prefixes (`[T-027]`), and artifact filenames (`T-027-RFC-….md`) all key off
+the agency ID, and the `commit-msg` hook enforces it. So the issue title is prefixed — `[T-027]
+Title` — and `read_task("T-027")` resolves by searching that prefix. Nothing about the commit,
+branch, or artifact conventions changes.
+
+**Agency agents are not GitHub accounts.** @Kai, @Swift and @Atlas have no logins. The **human owner
+is the GitHub assignee**; the agent is an `agent:{name}` label. `read_agent_wip` and the 2-item WIP
+limit query the label, so assignee stays meaningful for notifications.
+
+#### Operation translations
+
+| Operation | Translation |
+|-----------|-------------|
+| `board.read_all()` | One `gh issue list` per column (see the degradation note on fanning out) |
+| `board.read_column(column)` | `gh issue list --label "status:{column}" --json number,title,labels,assignees` — `Done` is `gh issue list --state closed` |
+| `board.read_task(task_id)` | `gh issue list --search "[{task_id}] in:title" --json number,title,body,labels,state`, then `gh issue view {n} --json …` |
+| `board.read_agent_wip(agent)` | `gh issue list --label "agent:{agent},status:in-progress" --json number,title` |
+| `board.search(query)` | `gh issue list --search "{query}" --state all` |
+| `board.move_task(id, from, to)` | `gh issue edit {n} --remove-label "status:{from}" --add-label "status:{to}"`; `→ Done` is `gh issue close {n}`; when Projects v2 is available also `gh project item-edit --id {item} --field-id {status} --single-select-option-id {opt}` |
+| `board.assign_task(id, agent)` | `gh issue edit {n} --add-assignee {human-owner} --add-label "agent:{agent}"` |
+| `board.create_task(task)` | `gh issue create --title "[{task_id}] {desc}" --body {criteria} --label "status:backlog,priority:{p}"` |
+| `board.update_task(id, fields)` | `gh issue edit {n} --title/--body/--add-label/--remove-label` |
+| `board.add_comment(id, comment)` | `gh issue comment {n} --body "{comment}"` |
+| `board.add_blocker(id, reason)` | `gh issue edit {n} --add-label status:blocked --remove-label status:in-progress` + `gh issue comment {n} --body "Blocked: {reason}"` |
+| `board.remove_blocker(id)` | `gh issue edit {n} --add-label status:in-progress --remove-label status:blocked` |
+| *(epic link)* | `gh issue edit {epic} --add-sub-issue {story}` |
+| *(epic read)* | `gh issue view {epic} --json subIssues` |
+
+#### Epics are native sub-issues
+
+An epic (`T-016`) is a parent issue; its stories (`T-016.1 … T-016.10`) are sub-issues, which gives
+real hierarchy and automatic progress rollup — mirroring the epic integration branch in
+`@.claude/rules/shared/worktree-first.md`. `gh` supports this directly (`--parent`,
+`--add-sub-issue`, `--remove-sub-issue`, `--remove-parent`); no GraphQL, and only the `repo` scope,
+so **the hierarchy keeps working even when Projects v2 is not available**.
+
+#### Degradation is a supported mode, not a failure
+
+Projects v2 needs a `project` token scope that the `repo` scope does not include:
+
+```bash
+gh project list --owner {owner}
+# error: your authentication token is missing required scopes [read:project]
+```
+
+That scope requires an interactive `gh auth refresh -s project`, which **no agent can perform**, and
+a cloud session's token may never carry it. So every operation above is defined on labels first and
+Projects v2 second. When the scope is absent, skip the `gh project` half and carry on — do not error,
+and do not fall back to the markdown files. Say once that the board is running label-only and that
+`gh auth refresh -s project` unlocks the project view.
+
+#### Reads fan out; that is deliberate
+
+`read_all()` is one `gh issue list` per column — about six calls. A single GraphQL query would do it
+in one, but the translations above have to stay readable and adaptable by an agent, which matters
+more than the round trips at this scale. If rate limits ever bite on a large board, one GraphQL
+query behind `read_all()` is the known escape hatch and needs no redesign.
+
+### `"markdown"` (no GitHub remote, or explicit opt-out)
 
 When `board_backend` is `"markdown"`, the board is stored across a **hot file and three archives**:
 
@@ -124,20 +214,22 @@ When `board_backend` is set to an external tool, translate operations to MCP too
 
 Map the agency's column names to external tool statuses:
 
-| Agency Column | Jira (typical) | Linear (typical) | Asana (typical) |
-|---------------|----------------|-------------------|-----------------|
-| Backlog | Backlog | Backlog | Not Started |
-| Ready | To Do / Selected for Dev | Todo | Upcoming |
-| In Progress | In Progress | In Progress | In Progress |
-| Review | In Review | In Review | In Review |
-| Blocked | Blocked (custom) | Blocked (label) | On Hold |
-| Done | Done | Done | Completed |
+| Agency Column | GitHub | Jira (typical) | Linear (typical) | Asana (typical) |
+|---------------|--------|----------------|-------------------|-----------------|
+| Backlog | `status:backlog` | Backlog | Backlog | Not Started |
+| Ready | `status:ready` | To Do / Selected for Dev | Todo | Upcoming |
+| In Progress | `status:in-progress` | In Progress | In Progress | In Progress |
+| Review | `status:review` | In Review | In Review | In Review |
+| Blocked | `status:blocked` | Blocked (custom) | Blocked (label) | On Hold |
+| Done | *issue closed* | Done | Done | Completed |
 
 The exact mapping depends on the project's board configuration. When setting up an external backend, document the status mapping in `docs/guides/board-config.md`.
 
 ## Agent Guidelines
 
-0. **Board writes ship inside the PR carrying the change.** Whatever the backend, a `board-context.md` write is committed on the branch that carries the change it describes and merges in that change's PR — never as a board-only PR, never as a commit on `main`. See `@.claude/rules/shared/board-in-pr.md`. (External backends like Jira write through their API, where this doesn't apply; the local mirror still follows the rule.)
+0. **On the `markdown` backend, board writes ship inside the PR carrying the change.** A `board-context.md` write is committed on the branch that carries the change it describes and merges in that change's PR — never as a board-only PR, never as a commit on `main`. See `@.claude/rules/shared/board-in-pr.md`.
+
+   **On `github` and other API-backed backends this rule does not apply**, because there is no file to commit. Transitions take effect the moment they are made, and `→ Done` is performed by `Closes #N` in the PR body when the PR merges. Put `Closes #{issue}` in every PR that completes a task — that *is* the Done transition, and it is the one thing a PR must carry for the board to stay correct.
 
 1. **Always check `board_backend`** before any board interaction. Read `.claude/settings.json` at the start of any skill that touches the board.
 
@@ -150,13 +242,16 @@ The exact mapping depends on the project's board configuration. When setting up 
 
    A skill step reads: "`board.read_column('Ready')` — resolve via the backend in `.claude/settings.json`". It does not read: "run `cat board-context.md`".
 
-3. **Handle both backends gracefully.** If an MCP tool is not available for the configured backend, report the error clearly: "Board backend is set to {tool} but the MCP connection is not available. Please check your MCP configuration or switch to markdown."
+3. **Handle a missing backend gracefully, but never silently.** On `github`, a missing `project` scope is a *supported degraded mode* — run label-only and say so once. Anything else is an error to report, not to route around: if `gh` is unauthenticated, or an MCP tool for the configured backend is unavailable, say plainly "Board backend is `{backend}` but {reason}" and stop. Do not fall back to reading the markdown files — on a migrated repo they are frozen history, and acting on them would silently operate on a board months out of date.
 
-4. **Keep `board-context.md` as fallback.** Even when using an external tool, `board-context.md` can serve as a local cache or backup. If the external tool is unreachable, the agent may fall back to the last cached state in `board-context.md` and note that it's potentially stale.
+4. **Never mirror an API-backed board into the repo.** There is no local copy of a `github`, Jira, or Linear board, and no skill should write one. A mirror is stale from the moment it is written, and a stale mirror is worse than none — the next agent cannot tell it apart from a live board. Frozen files left behind by `/migrate-board` carry a banner saying so, and are never read by the adapter.
 
-5. **Sync after external operations.** When using an external backend, after any write operation, the agent should update `board-context.md` as a local mirror if it exists. This keeps the file useful for quick offline reference.
+## Known Limitation — Live State Is Derived, Not Read (`markdown` only)
 
-## Known Limitation — Live State Is Derived, Not Read
+**This section applies only to the `markdown` backend.** On `github` the read operations are live by
+construction: a transition is an API write that takes effect immediately, so there is no gap between
+what the board says and what is in flight. The limitation below, and the tech-debt item tracking it,
+are retired on the default backend.
 
 The read operations above return what the **merged** board says. On the `markdown` backend that is
 not the same as what is actually in flight.
@@ -181,14 +276,15 @@ straight from the merged file and will therefore **under-report in-flight work**
 In Progress numbers as a lower bound. Reworking those consumers onto the derived source is tracked
 in `docs/tech-debt/backlog.md`.
 
-This limitation is specific to the `markdown` backend. External backends (Jira, Linear, Asana) write
-through their API immediately, so their reads are live.
+This limitation is specific to the `markdown` backend. API-backed backends (GitHub, Jira, Linear,
+Asana) write through their API immediately, so their reads are live. Migrating to `github` is the
+structural fix; `/migrate-board` performs it.
 
 ## Adding a New Backend
 
 To add support for a new board tool:
 
-1. Configure the MCP connection for the tool (see `docs/guides/tool-integrations.md`)
+1. Configure access for the tool — an MCP connection (see `docs/guides/tool-integrations.md`), or a CLI already on `PATH` as `github` uses `gh`
 2. Add the tool name as a valid `board_backend` value
 3. Document the status mapping in `docs/guides/board-config.md`
 4. Test with `/daily-sync` to verify read operations work

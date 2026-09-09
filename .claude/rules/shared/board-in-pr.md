@@ -1,6 +1,34 @@
-# Board Updates Ship Inside the PR
+# Board Updates Ship Inside the PR (`markdown` backend)
+
+**Applies to the `markdown` backend only.** Check `board_backend` in `.claude/settings.json` before
+applying anything here — see `@.claude/rules/shared/board-adapter.md`.
 
 **Rule:** every `board-context.md` edit is committed on the branch that carries the change it describes, and merges to `main` as part of that change's PR. There is no board-only PR. There is no board commit directly on `main`.
+
+## On the `github` backend, this rule is unnecessary
+
+There is no file to commit. A transition is an API write that takes effect immediately, and `→ Done`
+is performed by GitHub itself:
+
+```
+Closes #47
+```
+
+in the PR body. On merge, the issue closes — atomically, server-side, and only if the merge actually
+happens. Every mechanism below exists to emulate that by hand:
+
+| This rule's machinery | What GitHub does instead |
+|---|---|
+| `→ Done` as the final pre-merge commit | `Closes #N` closes the issue on merge |
+| The reset loop when the post-Done check run fails | No Done commit exists to reset; a failed check just means no merge |
+| § Conflicts — resolving two branches editing one file | No shared file |
+| § Planning-Only Board Edits needing a carrier document | Planning writes go straight to the API |
+
+**The one obligation that carries over:** every PR completing a task must have `Closes #{issue}` in
+its body. That *is* the Done transition. `/create-pr` adds it; if you write a PR body by hand, it is
+on you.
+
+The rest of this document is the `markdown` backend's implementation of the same intent.
 
 ## Why
 
@@ -19,6 +47,8 @@ A board update is a description of a change, not a change of its own. When the t
 All five are ordinary commits in the worktree, following the `[STORY-ID] @Agent: …` commit format. None of them warrants its own PR.
 
 ## The `→ Done` Transition
+
+*(`markdown` only — on `github`, `Closes #N` does this.)*
 
 `→ Done` is written **after the PR's checks are green and the merge is approved, but before the merge runs**. The sequence at the merge gate is:
 
@@ -43,6 +73,8 @@ That loop is bounded by the same **3-iteration cap** as `/address-feedback` Step
 
 ## Planning-Only Board Edits
 
+*(`markdown` only — on `github`, planning writes go straight to the API and need no carrier.)*
+
 Some board edits have no code change to ride with: `/replenish` moving Backlog → Ready, `/new-feature` or `/tech-task` creating tasks during planning, `/retro` filing action items.
 
 These ride with the **documents they produced**. A planning run that writes a PRD, BRD, ADR, RFC, retro report, or replenishment report commits the board edit on the same branch as those docs, and both merge in that PR — the docs are the change, and the board edit describes it.
@@ -50,6 +82,8 @@ These ride with the **documents they produced**. A planning run that writes a PR
 **There is always a carrier.** Every planning run saves a document, so no planning board edit is ever left uncommitted: `/replenish` saves `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md`, `/retro` saves `docs/artifacts/retro/{date}-retro.md`, and `/new-feature` / `/tech-task` produce a PRD, BRD, ADR, or RFC. A run that would otherwise produce nothing must save its report rather than deferring the board edit. Leaving the edit uncommitted does not work: the next agent's worktree is cut from its resolved base branch (`origin/main`, or an epic integration branch — see `@.claude/rules/shared/worktree-first.md` § Base Branch Resolution), so it never sees the pending edit — nor the Ready tasks the edit created — and the edit is discarded when the planning worktree is removed.
 
 ## Conflicts
+
+*(`markdown` only — `github` has no shared file to conflict on.)*
 
 Two branches editing `board-context.md` will conflict on the second merge. That is expected. Resolve by keeping every task movement from both sides — board edits are additive.
 
@@ -59,6 +93,9 @@ The split introduced by `board-adapter.md` makes these conflicts rarer and easie
 
 ## What the Committed Board Records
 
+*(`markdown` only. On `github` the board is live, and the tech-debt item tracking the gap below is
+retired — see `@.claude/rules/shared/board-adapter.md` § Known Limitation.)*
+
 Because every transition merges with the change it describes, the archives on `main` are an accurate record of **completed** work — `docs/board/done-*.md`, the decisions log, and the task inventory. `board-context.md` is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
 
 Live state is therefore **derived**, not read: open PRs and their branches are the source of truth for what is In Progress, in Review, or Blocked (`gh pr list`, `git branch -r`, and each branch's own `board-context.md`).
@@ -67,7 +104,15 @@ Known limitation: the consumers that report live state — `/pick-up-task`'s 2-i
 
 ## What This Rule Forbids
 
+On the `markdown` backend:
+
 - Opening a PR whose only change is `board-context.md`.
 - Committing `board-context.md` on `main`, including post-merge cleanup steps.
 - An "Atlas updates the board centrally" path that bypasses the task branch.
 - Deferring a task's board transition to a later PR than the one carrying its change.
+
+On the `github` backend:
+
+- Writing a local mirror of the board into the repo (`board-adapter.md` rule 4).
+- Opening a PR that completes a task without `Closes #{issue}` in its body.
+- Editing frozen post-migration board files as though they were live.

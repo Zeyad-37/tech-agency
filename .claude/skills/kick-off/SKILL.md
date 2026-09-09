@@ -13,7 +13,7 @@ Read the board **through the adapter** — never `cat board-context.md` (`@.clau
 
 - `board.read_all()` — full board state for the snapshot below.
 
-On the `markdown` backend this resolves to reading `board-context.md`; on Jira/Linear/Asana it routes through MCP. The skill must not assume which.
+On `github` this resolves to one `gh issue list` per column; on `markdown` to reading `board-context.md`; on Jira/Linear/Asana it routes through MCP. The skill must not assume which.
 
 ```bash
 git log --oneline -20
@@ -36,9 +36,11 @@ Produce this summary (abbreviated version of the full `/daily-sync` output):
 **Blockers:** [list, or "None"]
 ```
 
-Update `board-context.md` with any status changes discovered. Each correction commits on the branch of the task it describes — never centrally and never on `main` (see `@.claude/rules/shared/board-in-pr.md`). A correction with no branch to ride with goes in the report for the owning agent to carry.
+Apply any status changes discovered via `board.update_task()` / `board.move_task()`.
 
-Note that the merged board under-reports in-flight work: In Progress and Blocked entries live on unmerged branches. Cross-check against open PRs and branches — see `board-in-pr.md` § "What the Committed Board Records".
+**On `github`** these are API writes that take effect immediately — apply them and move on.
+
+**On `markdown`** each correction commits on the branch of the task it describes — never centrally and never on `main` (see `@.claude/rules/shared/board-in-pr.md`). A correction with no branch to ride with goes in the report for the owning agent to carry. Note also that the merged board under-reports in-flight work: In Progress and Blocked entries live on unmerged branches, so cross-check against open PRs and branches — see `board-in-pr.md` § "What the Committed Board Records".
 
 ## Step 2: Evaluate Board Health
 
@@ -88,7 +90,14 @@ Moved [n] items to Ready. Tech debt: [n] items ([%] of total).
 
 Save this quick-replenish report to `docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md` (create the folder if absent). The Ready column uses `| Task ID | Priority | Description | Assigned To |` — match it exactly.
 
-The report is the carrier for the board edit — same rule as `/replenish` (see `@.claude/rules/shared/board-in-pr.md`). Commit both together on one branch:
+**On `github`** the board is already updated; commit the report alone:
+
+```bash
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md
+git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
+```
+
+**On `markdown`** the report is the carrier for the board edit — same rule as `/replenish` (see `@.claude/rules/shared/board-in-pr.md`). Commit both together on one branch:
 
 ```bash
 git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md

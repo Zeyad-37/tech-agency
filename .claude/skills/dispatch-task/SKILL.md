@@ -176,8 +176,10 @@ Run this the moment the user approves, and **before** creating a single implemen
 ```bash
 cd "$PLAN_DIR"
 
-# The docs and the board edit are one change — they commit together.
-git add docs/ board-context.md
+# On `github` the Phase 1 tasks were created via board.create_task() and are
+# already live — commit the docs alone. On `markdown` the docs and the board
+# edit are one change and commit together; add board-context.md to this line.
+git add docs/
 git commit -m "[{TASK-ID}] @Atlas: Plan {description} — docs + board tasks"
 
 # Land it on the base branch that Phase 2 will branch from.
@@ -203,8 +205,12 @@ printf '%s\n' "$PHASE1_DOCS" | grep -v '^$' | while read -r doc; do
     fi
 done
 
-# Every Phase 1 board task must be present too (expect one hit per dispatched task).
-git -C "$MAIN_REPO" show "origin/${BASE}:board-context.md" | grep -c "{TASK-ID}"
+# Every Phase 1 board task must exist too. Resolve through the adapter — on
+# `github` the task is an issue and was created live in Phase 1; on `markdown`
+# it must already be committed on $BASE.
+#   board.read_task("{TASK-ID}")   -> must return a task
+# github:   gh issue list --search "[{TASK-ID}] in:title" --state open
+# markdown: git -C "$MAIN_REPO" show "origin/${BASE}:board-context.md" | grep -c "{TASK-ID}"
 ```
 
 If any check fails, stop. Dispatching now produces agents whose prompts point at files that do not exist in their worktrees.

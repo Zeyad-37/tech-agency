@@ -2,7 +2,7 @@
 
 **AI-powered multi-agent development team for fullstack product delivery.**
 
-Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 48 skills (34 first-party workflows + 14 vendored Google/JetBrains skills), and 8 language coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
+Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 49 skills (35 first-party workflows + 14 vendored Google/JetBrains skills), and 8 language coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
 
 **Author:** Zeyad Gasser
 
@@ -23,7 +23,7 @@ This is the single most important thing to understand before installing. **Insta
 | Component | Ships with the plugin? | How you get it |
 |---|---|---|
 | 19 agent definitions | **Yes** | Available immediately after install |
-| 48 skills (slash commands) | **Yes** | Available immediately after install |
+| 49 skills (slash commands) | **Yes** | Available immediately after install |
 | 8 language coding standards | **Yes**, but **read on demand** | Stay in the plugin; an agent reads the one matching its task's stack. Never auto-loaded — see [Rules delivery](#rules-delivery) |
 | 11 shared policy rules | Ship in the plugin, but must be **copied into your project** | `/setup-repo` copies them to your `.claude/rules/shared/`, where they auto-load every session |
 | `board-context.md` Kanban board | **No** | `/setup-repo` creates it from a template |
@@ -123,7 +123,7 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 ## Skills
 
-48 skills ship with the plugin, all invoked as slash commands. 34 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
+49 skills ship with the plugin, all invoked as slash commands. 34 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
 
 ### First-party workflows (34)
 
@@ -145,6 +145,7 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 | `/daily-sync` | Aggregate status from all agents, flag blockers and WIP violations |
 | `/pick-up-task` | Pick the next available task from the Kanban board |
 | `/update-board` | Move a task between board columns (In Progress, Blocked, Review, Done) |
+| `/migrate-board` | Migrate a markdown board to GitHub Issues + Projects v2; repairs, dry-runs, never deletes |
 | `/replenish` | Review backlog, prioritize items, move them to Ready |
 | `/sprint-report` | Generate a sprint report with metrics and trends |
 | `/retro` | Run a retrospective analyzing cycle times, throughput, and blockers |
@@ -271,7 +272,7 @@ tech-agency/
 │   │   ├── mobile/{shared,android,ios}/   # KMP, Compose, SwiftUI standards
 │   │   ├── web/                 # React standard
 │   │   └── backend/{nodejs,python,jvm,kotlin}/  # Fastify, FastAPI, Spring, Ktor standards
-│   ├── skills/                  # 48 skills — 34 first-party + 14 vendored
+│   ├── skills/                  # 49 skills — 35 first-party + 14 vendored
 │   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 14
 │   │   └── LICENSE-APACHE-2.0.txt
 │   ├── hooks.json               # Session hooks

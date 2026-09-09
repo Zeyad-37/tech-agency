@@ -13,7 +13,7 @@ The 34 first-party commands, grouped by what they are for. Each is documented in
 | Group | Commands |
 |---|---|
 | Planning & requirements | `/new-product`, `/new-feature`, `/write-prd`, `/tech-task`, `/rfc` |
-| Board & flow | `/kick-off`, `/daily-sync`, `/pick-up-task`, `/update-board`, `/replenish`, `/sprint-report`, `/retro` |
+| Board & flow | `/kick-off`, `/daily-sync`, `/pick-up-task`, `/update-board`, `/migrate-board`, `/replenish`, `/sprint-report`, `/retro` |
 | Parallel execution | `/dispatch`, `/dispatch-task` |
 | Ship a change | `/ship-it`, `/ship-pr`, `/create-pr`, `/code-review`, `/review-and-address`, `/address-feedback`, `/capture-screenshots`, `/lint-changed` |
 | Diagnose & respond | `/investigate-bug`, `/investigate-crash`, `/postmortem`, `/hotfix`, `/health-check` |

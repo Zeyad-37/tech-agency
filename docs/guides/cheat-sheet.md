@@ -29,7 +29,7 @@ board, no git hooks, no sandbox, and none of the shared policy rules in context.
 | Group | Commands |
 |---|---|
 | Planning | `/new-product` `/new-feature` `/write-prd` `/tech-task` `/rfc` |
-| Board & flow | `/kick-off` `/daily-sync` `/pick-up-task` `/update-board` `/replenish` `/sprint-report` `/retro` |
+| Board & flow | `/kick-off` `/daily-sync` `/pick-up-task` `/update-board` `/migrate-board` `/replenish` `/sprint-report` `/retro` |
 | Parallel | `/dispatch` `/dispatch-task` |
 | Ship | `/ship-it` `/ship-pr` `/create-pr` `/code-review` `/review-and-address` `/address-feedback` `/capture-screenshots` `/lint-changed` |
 | Diagnose | `/investigate-bug` `/investigate-crash` `/postmortem` `/hotfix` `/health-check` |

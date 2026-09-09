@@ -432,7 +432,7 @@ Remove the worktree before deleting the branch (git refuses to delete a branch t
 
 `git branch -d` is a **safe** delete: it refuses if the branch isn't fully merged into its upstream. Under `--squash` the branch is not an ancestor of the base, so this delete can legitimately fail — that is not an error worth escalating. `gh pr merge --delete-branch` already removed the remote branch; if the local safe-delete refuses, leave the local branch in place and say so rather than reaching for `-D`.
 
-No board update happens here — `→ Done` was already committed and pushed onto the PR branch in Step 8, so it merged with the change. Never commit `board-context.md` on `main`.
+No board update happens here. **On `github`** the `Closes #{issue}` line in the PR body closed the issue when the merge landed — that *is* the Done transition, performed by GitHub. **On `markdown`** `→ Done` was already committed and pushed onto the PR branch in Step 8, so it merged with the change; never commit `board-context.md` on `main`.
 
 Print:
 

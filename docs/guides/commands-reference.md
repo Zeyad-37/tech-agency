@@ -412,6 +412,28 @@ Supports all lifecycle transitions: Ready → In Progress, In Progress → Block
 
 ---
 
+### `/migrate-board`
+
+Migrates a project's task tracking from the markdown board (`board-context.md` + `docs/board/`) to GitHub Issues, with a repo-scoped Projects v2 board when the token carries the `project` scope. Sets `board_backend` to `github` when it finishes.
+
+Runs in nine steps: preflight → repair and parse → create labels → create issues → link epics as sub-issues → create the project → verify → freeze the markdown → report. It **repairs table corruption first** (markdown boards corrupt silently on merge, and nothing else detects it), **dry-runs before writing**, and **never deletes** the markdown files — they are frozen with a banner and kept as history.
+
+Safe to re-run: every create is preceded by a search for the task's `[TASK-ID]` title prefix, so an interrupted run resumes by running it again.
+
+Projects v2 needs a scope that `repo` does not include. When it is missing the migration runs label-only rather than failing — that is a supported mode, and `gh auth refresh -s project` unlocks the board view later.
+
+**When to use:** Once per repo, when the markdown board stops scaling — context cost per task, merge conflicts on a single file, or live state not reaching `main`.
+
+**Example triggers:**
+- "migrate board"
+- "move to github issues"
+- "switch board backend"
+- "the markdown board is not scaling"
+
+**Arguments:** None.
+
+---
+
 ### `/create-pr`
 
 Creates a pull request with a standardized format. The PR title includes the task ID (e.g., `[US-042] Add email validation`), and the body lists the primary authoring agent and all participating agents, a summary of changes, related docs, a test plan, and a review checklist. Suggests reviewers based on the code review matrix. The PR base is resolved dynamically (Pre-flight 0): `--base <branch>` if passed, else auto-detected (an `epic/*` integration branch the current branch was cut from, confirmed with you), else `main` — and the branch is rebased onto that base before the PR opens.
@@ -599,6 +621,7 @@ Mirrors edits to `.claude/rules/` between a consumer project and the canonical t
 | `/dispatch` | Dispatch parallel tasks via git worktrees (dynamic base: `--base` / epic branch / main) | As needed |
 | `/dispatch-task` | Plan (tech-task/new-feature/bug/crash chain) then dispatch to parallel worktrees | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
+| `/migrate-board` | Markdown board → GitHub Issues + Projects v2; repairs, dry-runs, never deletes | Once per repo |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
 | `/ship-it` | End-to-end: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag | Per task |
 | `/ship-pr` | Ready branch → PR → review-and-address → merge; `--auto-merge` flag | Per ready branch |

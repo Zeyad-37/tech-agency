@@ -14,7 +14,9 @@ Read the board **through the adapter**, never by reading `board-context.md` dire
 1. Read `board_backend` from `.claude/settings.json` (absent → `markdown`).
 2. Run `board.read_agent_wip("@{YourAgent}")` for your current In Progress items.
 
-On the `markdown` backend the adapter resolves this to parsing the `## In Progress` section of `board-context.md` and filtering by the `Agent` column; on an external backend it becomes a "list issues by assignee + status" MCP call. Either way, go through the operation — the skill must not know which.
+On `github` the adapter resolves this to `gh issue list --label "agent:@{YourAgent},status:in-progress"`; on `markdown` it parses the `## In Progress` section of `board-context.md` and filters by the `Agent` column; on an external backend it becomes a "list issues by assignee + status" MCP call. Either way, go through the operation — the skill must not know which.
+
+**Accuracy of the count differs by backend, and it matters here.** On `github` the answer is exact: a transition is an API write, so every in-flight task is visible the moment it starts. On `markdown` it is a **lower bound** — `→ In Progress` sits on an unmerged branch, so a worktree cut from `origin/main` cannot see other agents' in-flight work (`@.claude/rules/shared/board-adapter.md` § Known Limitation). On `markdown` only, cross-check `gh pr list --state open` before concluding you are under the limit.
 
 **WIP limit: 2 items per agent.** If you already have 2 items in "In Progress", you CANNOT pick up a new task. Instead:
 
@@ -97,7 +99,7 @@ The two columns have **different** schemas — you are not moving a row, you are
 
 `Agent` is the second column in In Progress — that is the field the adapter's "filter In Progress by agent name" reads. `Cycle Day` starts at 1 on the day you pull and is what `/daily-sync` and `/sprint-report` use for the >5-day stale-task alert. `Priority` does not survive the move; it lives in Ready and Backlog only.
 
-This board edit is the **first commit** on your task branch (`@.claude/rules/shared/board-in-pr.md`) — run `/update-board {TASK-ID} → In Progress` inside the worktree from Step 7 rather than editing the file by hand.
+Run `/update-board {TASK-ID} → In Progress` inside the worktree from Step 7 rather than editing anything by hand. **On `github`** that is an API write and takes effect immediately. **On `markdown`** it is the **first commit** on your task branch (`@.claude/rules/shared/board-in-pr.md`).
 
 ## Step 5: Load Context
 

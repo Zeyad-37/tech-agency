@@ -82,6 +82,8 @@ ls -la .claude/skills/ 2>/dev/null && echo "SKILLS_EXIST=true" || echo "SKILLS_E
 ls -la hooks/ 2>/dev/null && echo "HOOKS_EXIST=true" || echo "HOOKS_EXIST=false"
 ls -la .github/workflows/ 2>/dev/null && echo "CI_EXISTS=true" || echo "CI_EXISTS=false"
 ls board-context.md 2>/dev/null && echo "BOARD_EXISTS=true" || echo "BOARD_EXISTS=false"
+gh repo view --json nameWithOwner >/dev/null 2>&1 \
+  && echo "GITHUB_REMOTE=true" || echo "GITHUB_REMOTE=false"   # picks the board backend
 ls -la .git/hooks/pre-commit 2>/dev/null && echo "GIT_HOOKS_INSTALLED=true" || echo "GIT_HOOKS_INSTALLED=false"
 ```
 
@@ -143,7 +145,13 @@ test -f CLAUDE.md && echo "[✓] CLAUDE.md exists" || echo "[✗] CLAUDE.md miss
 
 # 3. Board
 echo "--- Board ---"
-test -f board-context.md && echo "[✓] board-context.md exists" || echo "[✗] board-context.md missing"
+grep -q '"board_backend"' .claude/settings.json 2>/dev/null \
+  && echo "[✓] board_backend set: $(grep -o '"board_backend"[^,}]*' .claude/settings.json)" \
+  || echo "[✗] board_backend not set in .claude/settings.json"
+# board-context.md is only expected on the markdown backend.
+grep -q '"board_backend": *"markdown"' .claude/settings.json 2>/dev/null && {
+  test -f board-context.md && echo "[✓] board-context.md exists" || echo "[✗] board-context.md missing"
+}
 
 # 4. Shared rules — everything the plugin ships under rules/shared/ gets copied
 #    into the consumer. Enumerate by glob, never a hardcoded list: adding a rule
@@ -349,7 +357,9 @@ docs/
 │                         #   performance budgets, data retention)
 ├── assets/               # Images, GIFs, design handoff HTML/CSS
 └── archive/{year}/       # Superseded documents — moved, never deleted
-board-context.md          # Live columns only: Ready, In Progress, Review, Blocked
+board-context.md          # `markdown` backend only. Live columns: Ready, In
+                          #   Progress, Review, Blocked. On `github` the board is
+                          #   GitHub Issues and this file does not exist.
 ```
 
 The split is by **lifecycle**: `artifacts/` is written once per task by an agent and then read; `guides/` is maintained by hand over time; `board/` is appended to; `assets/` is binary; `archive/` is frozen.
@@ -479,13 +489,50 @@ Write a `CLAUDE.md` that states:
 - Where the shared rules live (`.claude/rules/shared/`) and that they auto-load.
 - Where the coding standards live (the plugin, read on demand) with the table from 6b trimmed to this project's stacks.
 - The commit format: `[STORY-ID] @Agent: description`, where the agent tag is optional. The hook accepts `[T-015] @Claude: …`, `[TECH] @Claude: …`, `[tech] …`, and `[US-042] @Kai: …` — canonical regex `^\[[A-Za-z]+(-[0-9]+)?\][[:space:]]+(@[A-Za-z]+:[[:space:]]+)?.{3,}`.
-- A pointer to `board-context.md` and to `/tech-agency:daily-sync`.
+- A pointer to the board — `gh issue list` on the `github` backend, `board-context.md` on `markdown` — and to `/tech-agency:daily-sync`. Name the configured `board_backend` explicitly so an agent never has to guess.
 
 Present it to the user for review — it is the one file they will edit most.
 
 ### 6e. Board (if missing)
 
-`board-context.md` is project state, not plugin payload. Generate an empty board with the canonical column schema:
+**First pick the backend** and write it to `.claude/settings.json`. This is the single most
+consequential setup choice for the board, and leaving it unset makes every board-touching skill
+guess (see `@.claude/rules/shared/board-adapter.md`):
+
+| `GITHUB_REMOTE` from Step 1 | `board_backend` | What gets scaffolded |
+|---|---|---|
+| `true` | `"github"` **(default)** | Labels only. No `board-context.md`. |
+| `false` | `"markdown"` | `board-context.md` + `docs/board/` as below |
+
+```json
+// .claude/settings.json
+{ "board_backend": "github" }
+```
+
+**On `github`**, create the status labels and stop — there is no board file:
+
+```bash
+for l in "status:backlog:ededed" "status:ready:0e8a16" "status:in-progress:1d76db" \
+         "status:review:fbca04" "status:blocked:d93f0b" \
+         "priority:P0:b60205" "priority:P1:d93f0b" "priority:P2:fbca04" "priority:P3:c2e0c6" \
+         "tech-debt:5319e7"; do
+  gh label create "${l%:*}" --color "${l##*:}" --force
+done
+```
+
+There is no `status:done` label by design — Done is the issue being closed, which is what lets
+`Closes #N` in a PR body perform the transition. A Projects v2 board is optional and needs a
+`project` token scope; `/migrate-board` Step 6 creates one when that scope is present.
+
+`docs/board/decisions-log.md` is still created on **both** backends — it is a versioned document,
+not tracked work.
+
+**An existing repo that already has a markdown board** is not converted here. Say that
+`/migrate-board` performs that migration — it repairs, dry-runs, never deletes, and is safe to
+re-run — and leave `board_backend` as `"markdown"` until the user runs it.
+
+**On `markdown`**, `board-context.md` is project state, not plugin payload. Generate an empty board
+with the canonical column schema:
 
 ```bash
 if [ -f "board-context.md" ]; then
