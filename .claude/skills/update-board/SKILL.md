@@ -23,7 +23,7 @@ Call `/update-board` at every task lifecycle transition:
 | Task sent to review | In Progress → Review | Agent finishes implementation |
 | Task completed | Review → Done | Checks green and merge approved — **before** the merge runs |
 
-**On `github`,** `→ Done` needs no action here: `Closes #{issue}` in the PR body closes the issue when the merge lands, atomically and only if the merge actually happens. Verify the line is present before merging; that is the whole obligation.
+**On `github`,** `→ Done` needs no action here: `Closes #{issue}` in the PR body closes the issue when the merge lands, atomically and only if the merge actually happens. `/create-pr` Step 1b writes the line (resolving the issue with `board.read_task()`), and `/address-feedback` Step 8 verifies it is present before merging — adding it with `gh pr edit` if it is missing. A PR opened or merged outside those skills must carry the line by hand.
 
 **On `markdown`,** `→ Done` is the last commit pushed to the PR branch before `gh pr merge`, so it merges together with the change. It is not written at code-review-approval time (checks may still fail) and never after the merge (that would be a board change outside the PR). If the merge gate is declined, the task stays in Review and no Done commit is made.
 
@@ -57,7 +57,13 @@ Each transition is one adapter call — swap the `status:` label, and close the 
 gh issue edit {n} --remove-label "status:{from}" --add-label "status:{to}"
 ```
 
-Resolve `{n}` from the Task ID with `board.read_task()` (`gh issue list --search "[{TASK-ID}] in:title"`). When the `project` scope is available, the adapter also moves the Projects v2 `Status` field; when it is not, the labels alone are the board — that is a supported mode, not a failure (`@.claude/rules/shared/board-adapter.md`).
+Resolve `{n}` from the Task ID with `board.read_task()` — the search narrows candidates, an exact `[{TASK-ID}] ` title-prefix match decides, so `[T-016]` never resolves to `[T-016.4]`:
+
+```bash
+n=$(gh issue list --state all --limit 100 --search "{TASK-ID} in:title" --json number,title \
+  | jq -r --arg p "[{TASK-ID}] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+```
+ When the `project` scope is available, the adapter also moves the Projects v2 `Status` field; when it is not, the labels alone are the board — that is a supported mode, not a failure (`@.claude/rules/shared/board-adapter.md`).
 
 There is no row schema to get right, no placeholder rows, and no conflict handling — skip to Step 4.
 
@@ -208,7 +214,7 @@ This skill is automatically invoked by:
 - `/kick-off` — after the task pickup step (→ In Progress)
 - `/tech-task` — after creating and assigning a task (→ In Progress)
 - `/code-review` — only when the verdict is BLOCKED (→ Blocked). An APPROVED verdict leaves the task in Review; Done comes at the merge gate
-- `/address-feedback` — at the merge gate, after approval and before `gh pr merge` (→ Done)
+- `/address-feedback` — at the merge gate, after approval and before `gh pr merge` (→ Done, `markdown` only; on `github` it verifies the `Closes #{issue}` line instead)
 - `/dispatch` — after each dispatched agent completes work (→ Review)
 
 Agents can also invoke it directly at any time by saying "update board" or "move task to [column]".

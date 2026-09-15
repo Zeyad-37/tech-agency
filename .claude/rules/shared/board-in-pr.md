@@ -25,8 +25,15 @@ happens. Every mechanism below exists to emulate that by hand:
 | § Planning-Only Board Edits needing a carrier document | Planning writes go straight to the API |
 
 **The one obligation that carries over:** every PR completing a task must have `Closes #{issue}` in
-its body. That *is* the Done transition. `/create-pr` adds it; if you write a PR body by hand, it is
-on you.
+its body. That *is* the Done transition. Two skills own it:
+
+- **`/create-pr` Step 1b produces it** — it resolves the task's issue with `board.read_task()` (exact
+  `[TASK-ID] ` title-prefix match) and writes the line into the PR body. If no issue is found it omits
+  the line and warns in its report rather than inventing a number.
+- **`/address-feedback` Step 8 verifies it** before merging, and adds it with `gh pr edit` if it is
+  missing. With no matching issue it stops and asks rather than merging.
+
+A PR body written by hand, or merged outside those skills, must carry the line by hand.
 
 The rest of this document is the `markdown` backend's implementation of the same intent.
 
