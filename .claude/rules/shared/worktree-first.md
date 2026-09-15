@@ -58,11 +58,12 @@ fi
 ```
 
 **`--no-track` and explicit push refspecs are load-bearing, not style.** A branch cut from
-`origin/main` tracks `main` by default. In a repo with `push.default=upstream`, `git push origin <!-- push-safety: prose, not a command -->
-<branch>` and a bare `git push` both follow that upstream — to `main`. This has landed commits on a <!-- push-safety: prose, not a command -->
-real consumer's `main`. So task branches are created `--no-track`, and every push names its
-destination: `git push origin "HEAD:refs/heads/$BRANCH"`. `scripts/check-push-safety.sh` enforces
-both across the skills and rules.
+`origin/main` tracks `main` by default. In a repo with `push.default=upstream`, a push that names
+no destination ref follows that upstream, to `main`:
+`git push origin <branch>` does, and so does a bare `git push`. This has landed commits on a real <!-- push-safety: allow describes the unsafe form -->
+consumer's `main`. So task branches are created `--no-track`, and every push names its destination:
+`git push origin "HEAD:refs/heads/$BRANCH"`. `scripts/check_push_safety.py` enforces both across
+the skills, rules, agents, hooks, scripts and workflows, and CI runs it on every PR.
 
 If either verification fails, **stop immediately and report**. Do not proceed in the wrong directory. Do not modify files in the main checkout.
 

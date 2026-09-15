@@ -113,7 +113,7 @@ The hook reads the refspecs git supplies on **stdin** (`<local ref> <local sha> 
 
 Consequences of reading the refspecs, all of which are the intended behaviour:
 
-- `git push origin HEAD:main` from a feature branch **is blocked** — it is a push to main.
+- `git push origin HEAD:main` from a feature branch **is blocked** — it is a push to main. <!-- push-safety: allow describes a push the hook blocks -->
 - `git push origin v1.2.3` from `main` **is allowed** — a tag is not a branch, and releases are tagged on main by design.
 - `git push origin --delete <branch>` **is allowed**, and the content checks are skipped: a deletion pushes no commits. The one exception is `--delete main`, which is blocked by the same gate as a push onto main — a deletion is still a direct, destructive write to the branch.
 

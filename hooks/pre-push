@@ -274,7 +274,7 @@ fi
 echo ""
 if [ $ERRORS -gt 0 ]; then
     echo -e "${RED}❌ Pre-push check failed with $ERRORS error(s). Fix the issues above and try again.${NC}"
-    echo -e "${YELLOW}To bypass (emergency only): git push --no-verify${NC}"
+    echo -e "${YELLOW}To bypass (emergency only): git push --no-verify origin \"HEAD:refs/heads/\$(git branch --show-current)\"${NC}"
     exit 1
 else
     echo -e "${GREEN}✅ All pre-push checks passed. Pushing...${NC}"
