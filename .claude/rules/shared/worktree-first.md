@@ -46,7 +46,7 @@ else
   #    Resolution" below.
   BASE="main"   # or "epic/US-100-checkout" when working inside an epic
   git -C "$MAIN_REPO" fetch origin "$BASE"
-  git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+  git -C "$MAIN_REPO" worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
 
   # 5. Move into the worktree. EVERY subsequent command runs here.
   cd "$WORKTREE_DIR"
@@ -56,6 +56,13 @@ else
   git branch --show-current        # must equal $BRANCH
 fi
 ```
+
+**`--no-track` and explicit push refspecs are load-bearing, not style.** A branch cut from
+`origin/main` tracks `main` by default. In a repo with `push.default=upstream`, `git push origin <!-- push-safety: prose, not a command -->
+<branch>` and a bare `git push` both follow that upstream — to `main`. This has landed commits on a <!-- push-safety: prose, not a command -->
+real consumer's `main`. So task branches are created `--no-track`, and every push names its
+destination: `git push origin "HEAD:refs/heads/$BRANCH"`. `scripts/check-push-safety.sh` enforces
+both across the skills and rules.
 
 If either verification fails, **stop immediately and report**. Do not proceed in the wrong directory. Do not modify files in the main checkout.
 
@@ -71,7 +78,7 @@ If either verification fails, **stop immediately and report**. Do not proceed in
 | Triage before ID assigned | `triage/{slug}` | `triage/crash-spike-2026-05-21` |
 | Epic integration branch | `epic/{EPIC-ID}-{slug}` | `epic/US-100-checkout` |
 
-Hotfix branches cut from the release tag instead of `origin/main` — replace step 4 above with `git worktree add -b "$BRANCH" "$WORKTREE_DIR" v{X.Y.Z}`.
+Hotfix branches cut from the release tag instead of `origin/main` — replace step 4 above with `git worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" v{X.Y.Z}`.
 
 ## Base Branch Resolution
 
@@ -82,7 +89,7 @@ The base branch — what a worktree branches **off from** and what its PR merges
 3. **Hotfix** — cut from the release tag `v{X.Y.Z}`; merge per the hotfix process (release branch + `main`).
 4. **Default** — `origin/main`.
 
-An epic integration branch is itself created from `origin/main` (`git branch epic/{EPIC-ID}-{slug} origin/main && git push -u origin epic/{EPIC-ID}-{slug}`) and is NOT a worktree task branch — no direct commits on it; it only receives story-branch PR merges and periodic `main` merges to stay current.
+An epic integration branch is itself created from `origin/main` (`git branch --no-track epic/{EPIC-ID}-{slug} origin/main && git push -u origin refs/heads/epic/{EPIC-ID}-{slug}:refs/heads/epic/{EPIC-ID}-{slug}`) and is NOT a worktree task branch — no direct commits on it; it only receives story-branch PR merges and periodic `main` merges to stay current.
 
 Publishing a new, empty epic integration branch is the one **named exception** to the push policy's "no bare `git push` outside `/create-pr` / `/ship-pr`" rule (see "Push Policy" in `@.claude/rules/shared/shared-standards.md`): the branch must exist on the remote before any story worktree can be cut from it, and there is no PR to carry it. It pushes zero commits — only a ref pointing at `origin/main`. Do this only when @Zeyad has approved the epic, and never use it as cover for pushing commits.
 

@@ -135,7 +135,7 @@ In critical situations (hotfix, production incident), hooks can be skipped:
 
 ```bash
 git commit --no-verify -m "[HOT-001] @Kai: Emergency fix for crash"
-git push --no-verify
+git push --no-verify origin "HEAD:refs/heads/$(git branch --show-current)"
 ```
 
 **This must be documented**: add a note in the post-mortem explaining why hooks were bypassed. @Sentinel and @Apex must verify the skipped checks manually before the next release.

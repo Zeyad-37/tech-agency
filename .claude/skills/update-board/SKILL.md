@@ -130,7 +130,7 @@ Push right after committing (see Step 3), then let the pushed commit's required 
 
 **If that re-triggered run fails**, the Done commit is on the branch while the PR is still open — the exact state this design exists to prevent. Undo it:
 
-1. `git reset --hard HEAD~1` (the Done commit is the branch tip) then `git push --force-with-lease`.
+1. `git reset --hard HEAD~1` (the Done commit is the branch tip) then `git push --force-with-lease origin "HEAD:refs/heads/$(git branch --show-current)"`.
 2. Move the task back to Review.
 3. Hand the failure back to `/address-feedback` Step 3 as new feedback.
 
@@ -162,7 +162,7 @@ If the transition is `→ Done` at a merge gate, push immediately after committi
 ```bash
 git add board-context.md
 git commit -m "[{TASK-ID}] @{AgentName}: Update board — {task_id} → Done"
-git push
+git push origin "HEAD:refs/heads/$(git branch --show-current)"
 ```
 
 ## Planning-Only Board Edits (`markdown` only)

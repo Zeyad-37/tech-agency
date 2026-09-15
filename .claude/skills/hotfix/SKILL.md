@@ -34,7 +34,7 @@ VERSION="v[X.Y.Z]"                                     # the tag currently in pr
 BRANCH="hotfix/v[X.Y.Z+1]/[short-description]"         # e.g. hotfix/v1.2.1/fix-login-crash
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 
-git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "$VERSION"
+git -C "$MAIN_REPO" worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "$VERSION"
 cd "$WORKTREE_DIR"
 
 # Verify BEFORE any write. If either check fails, STOP and report.

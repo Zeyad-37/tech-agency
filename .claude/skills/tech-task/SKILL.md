@@ -37,7 +37,7 @@ BRANCH="tech/{short-description}"        # e.g. tech/improve-git-hooks, tech/des
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 
 git -C "$MAIN_REPO" fetch origin "$BASE"
-git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+git -C "$MAIN_REPO" worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
 cd "$WORKTREE_DIR"
 
 # Verify BEFORE any write. If either check fails, STOP and report.

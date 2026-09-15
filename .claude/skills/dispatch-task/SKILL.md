@@ -54,7 +54,7 @@ PLAN_BRANCH="{TASK-ID}/plan-{slug}"          # e.g. US-100/plan-checkout, or tri
 PLAN_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${PLAN_BRANCH//\//-}"
 
 git -C "$MAIN_REPO" fetch origin "$BASE"
-git -C "$MAIN_REPO" worktree add -b "$PLAN_BRANCH" "$PLAN_DIR" "origin/$BASE"
+git -C "$MAIN_REPO" worktree add --no-track -b "$PLAN_BRANCH" "$PLAN_DIR" "origin/$BASE"
 cd "$PLAN_DIR"
 
 pwd                          # must equal $PLAN_DIR — STOP if not
@@ -199,7 +199,7 @@ Then, on either backend:
 
 ```bash
 # Land it on the base branch that Phase 2 will branch from.
-git push -u origin "$PLAN_BRANCH"
+git push -u origin "HEAD:refs/heads/$PLAN_BRANCH"
 /create-pr --base "$BASE"
 ```
 
@@ -261,8 +261,8 @@ WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}
 # origin/$BASE already carries the Phase 1 docs and board tasks (Phase 1 Step 5),
 # so every worktree created here contains them.
 git -C "$MAIN_REPO" fetch origin "$BASE"
-git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
-# Hotfix exception: git -C "$MAIN_REPO" worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
+git -C "$MAIN_REPO" worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+# Hotfix exception: git -C "$MAIN_REPO" worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
 
 # Gradle/Android projects: carry the gitignored host config into the worktree.
 [ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"

@@ -61,7 +61,7 @@ All five are ordinary commits in the worktree, following the `[STORY-ID] @Agent:
 
 1. Checks green, review resolved, merge approved (by @Zeyad or `--auto-merge`).
 2. `/update-board {TASK-ID} → Done` — commits on the PR branch.
-3. `git push` — the Done commit joins the PR.
+3. `git push origin "HEAD:refs/heads/$(git branch --show-current)"` — the Done commit joins the PR.
 4. `gh pr merge` — the change and its Done state land together.
 
 Do **not** write `→ Done` at code-review-approval time: an approved PR whose checks later fail would leave the board claiming Done for work that never merged. And do **not** write it after the merge — a post-merge board commit on `main` is exactly the separate change this rule exists to prevent.
@@ -70,7 +70,7 @@ Do **not** write `→ Done` at code-review-approval time: an approved PR whose c
 
 Step 3 pushes a new head, so the required checks run again against a branch that already contains the Done commit. If that run fails:
 
-1. Drop the Done commit off the branch — `git reset --hard HEAD~1` (the Done commit is the branch tip) followed by `git push --force-with-lease`.
+1. Drop the Done commit off the branch — `git reset --hard HEAD~1` (the Done commit is the branch tip) followed by `git push --force-with-lease origin "HEAD:refs/heads/$(git branch --show-current)"`.
 2. Move the task back to Review.
 3. Re-enter `/address-feedback` Step 3 with the new failure as feedback.
 
