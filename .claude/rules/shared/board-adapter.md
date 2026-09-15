@@ -92,8 +92,8 @@ limit query the label, so assignee stays meaningful for notifications.
 
 | Operation | Translation |
 |-----------|-------------|
-| `board.read_all()` | One `gh issue list` per column (see the degradation note on fanning out) |
-| `board.read_column(column)` | `gh issue list --label "status:{column}" --json number,title,labels,assignees` — `Done` is `gh issue list --state closed` |
+| `board.read_all()` | One `gh issue list --state open --label "status:{column}"` per **live** column — Backlog, Ready, In Progress, Review, Blocked. Done is **not** included, matching the markdown backend's live-columns-only `read_all()`: closed issues are the whole project's history. Read it explicitly with `read_column('Done')` (see the degradation note on fanning out) |
+| `board.read_column(column)` | `gh issue list --label "status:{column}" --json number,title,labels,assignees` — `Done` is completed closes only: `gh issue list --state closed --search "reason:completed"`. An issue closed as *not planned* was never done and must not count toward Done, throughput, or cycle time |
 | `board.read_task(task_id)` | `gh issue list --state all --search "{task_id} in:title" --json number,title` piped to `jq -r --arg p "[{task_id}] " 'map(select(.title \| startswith($p))) \| .[0].number // empty'`, then `gh issue view {n} --json …`. The search only narrows candidates; the exact prefix match decides, so `[T-016]` never resolves to `[T-016.4]` |
 | `board.read_agent_wip(agent)` | `gh issue list --label "agent:{agent},status:in-progress" --json number,title` |
 | `board.search(query)` | `gh issue list --search "{query}" --state all` |
@@ -132,7 +132,7 @@ and do not fall back to the markdown files. Say once that the board is running l
 
 #### Reads fan out; that is deliberate
 
-`read_all()` is one `gh issue list` per column — about six calls. A single GraphQL query would do it
+`read_all()` is one `gh issue list` per live column — five calls. A single GraphQL query would do it
 in one, but the translations above have to stay readable and adaptable by an agent, which matters
 more than the round trips at this scale. If rate limits ever bite on a large board, one GraphQL
 query behind `read_all()` is the known escape hatch and needs no redesign.
