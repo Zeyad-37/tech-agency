@@ -193,6 +193,12 @@ class HeaderAndRowIntegrity(BoardDir):
         self.valid_board(live(READY, drifted, REVIEW, BLOCKED))
         self.assertProblem("In Progress header is | Task ID | Description | Agent |")
 
+    def test_single_board_row_cut_off_by_a_blank_line_is_not_dropped(self) -> None:
+        # A one-row fragment has no second line, so a check keyed on the second
+        # line never fired and the row was silently skipped.
+        self.valid_board(live(READY, IN_PROGRESS, REVIEW.replace("| T-003.1 |", "\n| T-003.1 |"), BLOCKED))
+        self.assertProblem("1 row(s) starting at 'T-003.1' are cut off")
+
     def test_row_arity_mismatch(self) -> None:
         short = IN_PROGRESS + "| T-006 | @Kai | Missing two cells |\n"
         self.valid_board(live(READY, short, REVIEW, BLOCKED))
@@ -306,6 +312,250 @@ class Verify(BoardDir):
         self.valid_board()
         code, out = self.run_verify(MATCHING)
         self.assertRegex(out, r"blocked\s+markdown=\s*0\s+github=\s*0\s+OK")
+
+
+class DoneFreeze(BoardDir):
+    """--done freeze: Done rows stay markdown history."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.valid_board(live(READY, IN_PROGRESS, """## Review
+
+| Task ID | Agent | Description | Reviewer | Waiting Since |
+|---------|-------|-------------|----------|---------------|
+| T-005.1 | @Kai | Story whose epic is Done | @Zeyad | 2026-09-02 |
+| T-003.1 | @Swift | Story whose epic is not on the board | @Zeyad | 2026-09-02 |
+""", BLOCKED))
+
+    def test_issues_mode_keeps_done_rows(self) -> None:
+        cols = {t["column"] for t in pb.board_tasks(self.root, "issues")}
+        self.assertIn("done", cols)
+
+    def test_freeze_omits_done_rows(self) -> None:
+        tasks = pb.board_tasks(self.root, "freeze")
+        self.assertNotIn("done", {t["column"] for t in tasks})
+        self.assertNotIn("T-005", {t["task_id"] for t in tasks})
+
+    def test_story_of_a_frozen_epic_is_flagged(self) -> None:
+        by_id = {t["task_id"]: t for t in pb.board_tasks(self.root, "freeze")}
+        self.assertTrue(by_id["T-005.1"]["parent_frozen"])
+        # An epic that simply has no row is still created as before.
+        self.assertFalse(by_id["T-003.1"]["parent_frozen"])
+
+    def test_issues_mode_never_flags_parent_frozen(self) -> None:
+        self.assertFalse(any(t["parent_frozen"] for t in pb.board_tasks(self.root, "issues")))
+
+    def test_verify_freeze_does_not_expect_done_on_github(self) -> None:
+        issues = [issue("T-004", status="backlog"), issue("T-001", status="ready"),
+                  issue("T-002", status="in-progress"), issue("T-005.1", status="review"),
+                  issue("T-003.1", status="review")]
+        with mock.patch.object(pb, "fetch_issues", return_value=issues), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pb.verify(self.root, "freeze"), 0, out.getvalue())
+        self.assertIn("frozen", out.getvalue())
+        with mock.patch.object(pb, "fetch_issues", return_value=issues), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pb.verify(self.root, "issues"), 1)
+        self.assertIn("MISSING 1: T-005", out.getvalue())
+
+
+# tech-agency's column order: '#' first, Description before Severity.
+DEBT_AGENCY = """# Tech Debt Backlog
+
+| # | Description | Severity | Category | Affected Modules | Est. Effort | Discovered By |
+|---|-------------|----------|----------|------------------|-------------|---------------|
+| 1 | First agency item | low | Documentation | x | 1h | review |
+| 3 | Third agency item | high | Architecture | y | 1d | review |
+"""
+
+# Steady's column order: ID first, Severity before Description, plus a Resolved table.
+DEBT_STEADY = """# Tech Debt Backlog
+
+## Active Debt Items
+
+| ID | Severity | Category | Description | Affected Modules | Effort | Discovered By | Board Task |
+|----|----------|----------|-------------|------------------|--------|---------------|------------|
+| TD-337 | Low | Testing Gaps | Steady low item | ios | S | @Shield | — |
+| TD-002 | **High** | Architecture | Steady high item already on the board | core | M | @Sage | T-002 |
+
+## Resolved Debt
+
+| ID | Description | Resolution | Resolved By | Date |
+|----|-------------|------------|-------------|------|
+| TD-001 | Old item | Fixed | @Kai | 2026-06-01 |
+"""
+
+
+class DebtDir(BoardDir):
+    """Fixture base only — no tests, so subclasses do not re-run another class's cases."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.valid_board()
+
+    def put(self, rel: str, text: str) -> None:
+        os.makedirs(os.path.join(self.root, os.path.dirname(rel)), exist_ok=True)
+        self.write(rel, text)
+
+
+class TechDebtLocation(DebtDir):
+
+    def test_current_path(self) -> None:
+        self.put("docs/guides/tech-debt/backlog.md", DEBT_AGENCY)
+        self.assertEqual(pb.parse_debt(self.root, pb.parse(self.root))["file"],
+                         "docs/guides/tech-debt/backlog.md")
+
+    def test_legacy_path_is_not_silently_skipped(self) -> None:
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertEqual(debt["file"], "docs/tech-debt/backlog.md")
+        self.assertEqual(len(debt["items"]), 2)
+
+    def test_both_paths_is_an_error(self) -> None:
+        self.put("docs/guides/tech-debt/backlog.md", DEBT_AGENCY)
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
+        with self.assertRaises(pb.BoardError) as cm:
+            pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertIn("both", str(cm.exception))
+
+    def test_no_debt_file_is_empty_not_an_error(self) -> None:
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertEqual((debt["file"], debt["items"]), (None, []))
+
+
+class TechDebtParsing(DebtDir):
+    def items(self, text: str, rel: str = "docs/tech-debt/backlog.md") -> dict:
+        self.put(rel, text)
+        return {d["task_id"]: d for d in pb.parse_debt(self.root, pb.parse(self.root))["items"]}
+
+    def assertDebtProblem(self, text: str, fragment: str) -> None:
+        self.put("docs/tech-debt/backlog.md", text)
+        problems = pb.debt_check(self.root, pb.parse(self.root))
+        self.assertTrue(any(fragment in p for p in problems), f"{fragment!r} not in {problems}")
+        with self.assertRaises(pb.BoardError):
+            pb.parse_debt(self.root, pb.parse(self.root))
+
+    def test_agency_column_order_maps_by_name(self) -> None:
+        got = self.items(DEBT_AGENCY)
+        self.assertEqual(set(got), {"TD-1", "TD-3"})  # bare '#' normalises to TD-<n>
+        self.assertEqual(got["TD-3"]["severity"], "high")
+        self.assertEqual(got["TD-3"]["description"], "Third agency item")
+        self.assertEqual(got["TD-3"]["category"], "Architecture")
+
+    def test_steady_column_order_maps_by_name(self) -> None:
+        got = self.items(DEBT_STEADY)
+        self.assertEqual(got["TD-337"]["severity"], "low")
+        self.assertEqual(got["TD-337"]["description"], "Steady low item")
+        self.assertEqual(got["TD-002"]["severity"], "high")  # bold markers stripped
+
+    def test_resolved_table_is_not_migrated_but_reported(self) -> None:
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertNotIn("TD-001", {d["task_id"] for d in debt["items"]})
+        self.assertEqual(debt["not_migrated"], [{"heading": "Resolved Debt", "line": 12, "rows": 1}])
+
+    def test_item_already_a_live_board_task_is_marked_on_board(self) -> None:
+        # Default board has T-002, not TD-002: neither debt item is on the board.
+        got = self.items(DEBT_STEADY)
+        self.assertFalse(got["TD-002"]["on_board"])
+        self.assertFalse(got["TD-337"]["on_board"])
+        # Put TD-002 on the board as a live task: matched by exact ID.
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-002"), REVIEW, BLOCKED))
+        got = {d["task_id"]: d for d in pb.parse_debt(self.root, pb.parse(self.root))["items"]}
+        self.assertTrue(got["TD-002"]["on_board"])
+        self.assertFalse(got["TD-337"]["on_board"])
+
+    def test_unescaped_pipe_is_rejected(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("Steady low item", "Steady | low item"),
+                               "unescaped '|'")
+
+    def test_rows_split_off_by_a_blank_line_are_named_as_such(self) -> None:
+        split = DEBT_STEADY.replace("| TD-002 |", "\n| TD-002 |")
+        self.assertDebtProblem(split, "cut off from their table")
+        self.put("docs/tech-debt/backlog.md", split)
+        self.assertFalse(any("table header with no separator" in p
+                             for p in pb.debt_check(self.root, pb.parse(self.root))))
+
+    def test_bad_debt_id(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| TD-337 |", "| TD-337 (follow-up) |"),
+                               "is not a tech-debt ID")
+
+    def test_bad_severity(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| Low |", "| Urgent |"), "severity 'Urgent'")
+
+    def test_duplicate_active_id(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| TD-002 |", "| TD-337 |"), "listed 2 times")
+
+    def test_active_and_resolved_contradiction(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| TD-001 | Old item", "| TD-337 | Old item"),
+                               "both active and resolved")
+
+    def test_active_debt_whose_board_task_is_done(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("T-005", "TD-337"))
+        self.assertDebtProblem(DEBT_STEADY, "board task is Done")
+
+    def test_file_with_no_active_table(self) -> None:
+        self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")
+
+
+def debt_issue(tid: str, severity: str | None = "low", state: str = "open",
+               board_status: str | None = "backlog") -> dict:
+    labels = [pb.DEBT_LABEL] + ([f"severity:{severity}"] if severity else [])
+    labels += [f"status:{board_status}"] if board_status else []
+    return {"title": f"[{tid}] title", "state": state, "state_reason": None, "labels": labels}
+
+
+class VerifyTechDebt(DebtDir):
+    def setUp(self) -> None:
+        super().setUp()
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-002"), REVIEW, BLOCKED))
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
+
+    def board_issues(self) -> list[dict]:
+        merged = issue("TD-002", status="in-progress")
+        merged["labels"] += [pb.DEBT_LABEL, "severity:high"]  # the board task, labelled as debt
+        return [issue("T-004", status="backlog"), issue("T-001", status="ready"), merged,
+                issue("T-003", status="review"), issue("T-003.1", status="review"),
+                issue("T-005", "closed", reason="completed")]
+
+    def run_verify(self, issues: list[dict]) -> tuple[int, str]:
+        with mock.patch.object(pb, "fetch_issues", return_value=issues), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            code = pb.verify(self.root, "issues", include_debt=True)
+        return code, out.getvalue()
+
+    def test_matching_passes_and_debt_issue_is_not_a_backlog_extra(self) -> None:
+        code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337")])
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 merged onto board tasks", out)
+        self.assertIn("not migrated: 'Resolved Debt'", out)
+
+    def test_missing_debt_issue(self) -> None:
+        code, out = self.run_verify(self.board_issues())
+        self.assertEqual(code, 1)
+        self.assertIn("MISSING 1: TD-337", out)
+
+    def test_board_task_merged_without_the_debt_label(self) -> None:
+        issues = self.board_issues()
+        issues[2]["labels"] = ["status:in-progress"]
+        code, out = self.run_verify(issues + [debt_issue("TD-337")])
+        self.assertEqual(code, 1)
+        self.assertIn("NOT LABELLED tech-debt 1: TD-002", out)
+
+    def test_wrong_severity(self) -> None:
+        code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337", severity="high")])
+        self.assertEqual(code, 1)
+        self.assertIn("WRONG SEVERITY 1: TD-337", out)
+
+    def test_extra_debt_issue(self) -> None:
+        code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337"), debt_issue("TD-999")])
+        self.assertEqual(code, 1)
+        self.assertIn("EXTRA 1: TD-999", out)
+
+    def test_closed_active_debt(self) -> None:
+        code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337", state="closed")])
+        self.assertEqual(code, 1)
+        self.assertIn("CLOSED 1: TD-337", out)
 
 
 class FetchIssues(unittest.TestCase):
