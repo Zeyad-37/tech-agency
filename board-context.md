@@ -14,13 +14,13 @@ Keep rows to one line. Review notes and walkthroughs belong in the linked artifa
 
 | Task ID | Agent | Description | Started | Cycle Day |
 |---------|-------|-------------|---------|-----------|
-| T-027.13 | @Claude | `/migrate-board` issue fields: titles capped at 256, `agent:@Name` / `priority:Pn` labels normalised, placeholder epics for stories with no epic row, `--check` refuses duplicate live IDs (found by the Steady dry run) | 2026-09-15 | 1 |
 | T-016 | @Claude | Epic: file organization — rules mirror, board split, doc taxonomy, single version source (integration branch `epic/T-016-file-organization`) | 2026-09-01 | 1 |
 
 ## Review
 
 | Task ID | Agent | Description | Reviewer | Waiting Since |
 |---------|-------|-------------|----------|---------------|
+| T-027.13 | @Claude | `/migrate-board` issue fields: titles capped at 256, `agent:@Name` / `priority:Pn` labels normalised, placeholder epics for stories with no epic row, `--check` refuses duplicate live IDs (found by the Steady dry run) | @Zeyad | 2026-09-15 |
 | T-016.10 | @Claude | Promote the task-ID-title rule the mirror gate caught in the consumer | @Zeyad | 2026-09-08 |
 | T-016.9 | @Claude | mirror.sh: refuse a silent downgrade before writing anything | @Zeyad | 2026-09-08 |
 | T-016.8 | @Claude | Reconcile T-016 with the merged T-018 plugin audit | @Zeyad | 2026-09-08 |
