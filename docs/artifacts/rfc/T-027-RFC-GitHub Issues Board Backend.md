@@ -2,9 +2,9 @@
 
 **Task ID:** T-027 GitHub Issues board backend
 **Author:** @Claude
-**Status:** Draft — open questions resolved 2026-09-09; awaiting @Zeyad approval to implement
+**Status:** Accepted — approved by @Zeyad on 2026-09-09, before implementation began. Recorded in `docs/board/decisions-log.md`.
 **Date:** 2026-09-09
-**Supersedes:** nothing. **Retires:** tech-debt item #3 (derived live state).
+**Supersedes:** nothing. **Rescopes:** tech-debt item #3 (derived live state) to the `markdown` backend — it no longer applies on `github`, and stays open for repos still on `markdown`.
 
 ## Goal
 
@@ -169,4 +169,4 @@ Answered by @Zeyad, 2026-09-09. All four are folded into the stories above.
 
 ---
 
-**Approval:** @Zeyad — approve, or tell me which stories to cut, before any implementation begins.
+**Approval:** Approved by @Zeyad on 2026-09-09, before implementation began.
