@@ -73,6 +73,7 @@ BODY_MAX = 65536 - 1024  # GitHub's issue-body cap
 # An @mention, not the domain of an email address; a suffix like "-owned" is not part of it.
 AGENT = re.compile(r"(?<![\w.@])@([A-Za-z][A-Za-z0-9]*)")
 WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9]*\b")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 # The agency's agents, read from the plugin's agents/ directory beside skills/ — the
 # same tree whether this runs from the tech-agency repo or an installed plugin.
 # Fallback for a copy run on its own. `Claude` is the generic agent.
@@ -487,8 +488,10 @@ def issue_title(task_id: str, description: str, limit: int = TITLE_MAX) -> str:
     title = f"[{task_id}] {description.strip() or '(no description)'}"
     if utf16_len(title) <= limit:
         return title
-    cut = cut16(title, limit - 1)  # room for the ellipsis
     prefix = len(task_id) + 3
+    cut = cut16(title, limit - 1)  # room for the ellipsis
+    if len(cut) <= prefix:  # one huge cluster: never cut into the "[ID] " identity
+        cut = title[:prefix + 1]
     space = cut.rfind(" ", prefix)
     if space > prefix and space >= len(cut) * 3 // 4:
         cut = cut[:space]
@@ -536,6 +539,7 @@ def agent_names(cell: str, known: dict[str, str] | None = None) -> list[str]:
     "link to PR" or "CI pipeline" does not. Anything else — TBD, N/A, a human such
     as @Zeyad, who is the assignee — is no agent label."""
     known = known if known is not None else known_agents()
+    cell = EMAIL.sub(" ", cell)  # "kai@example.com" names no one
     mentioned = [known[m.lower()] for m in AGENT.findall(cell) if m.lower() in known]
     if mentioned:
         return list(dict.fromkeys(mentioned))

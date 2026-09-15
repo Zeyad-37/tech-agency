@@ -1092,7 +1092,9 @@ class IssueFields(BoardDir):
         ri = lambda c: 0x1F1E6 <= ord(c) <= 0x1F1FF  # noqa: E731
         flag, sub = "\U0001F1EA\U0001F1EC", "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"
         conjunct = "\u0915\u094D\u0937"  # क्ष
-        for text in ("\U0001F1FA" + flag * 5, flag * 5, "ab" + sub * 3, conjunct * 5,
+        family = "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+        for text in ("\U0001F1FA" + flag * 5, flag * 5, "ab" + sub * 3, conjunct * 5, family * 3,
+                     "\u0915\u093f" * 5,  # कि: consonant + vowel sign (Mc)
                      "\U0001F44D\U0001F3FD" * 5, "\u2764\ufe0f" * 5):
             for units in range(pb.utf16_len(text) + 1):
                 cut = pb.cut16(text, units)
@@ -1122,6 +1124,11 @@ class IssueFields(BoardDir):
         cut = pb.issue_title("T-1", family * 100)[:-1]
         self.assertTrue(cut.endswith("\U0001F467"), repr(cut[-4:]))
 
+    def test_a_huge_first_cluster_never_cuts_into_the_id_prefix(self) -> None:
+        title = pb.issue_title("T-12.3", "a" + "\u0301" * 400)
+        self.assertTrue(title.startswith("[T-12.3] "), repr(title[:12]))
+        self.assertLessEqual(pb.utf16_len(title), pb.TITLE_MAX)
+
     def test_empty_description_gets_a_placeholder_title(self) -> None:
         self.assertEqual(pb.issue_title("T-001", ""), "[T-001] (no description)")
 
@@ -1144,6 +1151,7 @@ class IssueFields(BoardDir):
                                   ({f"F{i}": "y" * 20 for i in range(3000)}, ""),
                                   ({f"F{i}": "y" * 100 for i in range(3000)}, ""),
                                   ({f"F{i}": "y" * 5 for i in range(8000)}, ""),
+                                  ({"Description": "z" * 70000, "Links": "PR #12"}, ""),
                                   ({"K" * 70000: "v"}, "")):
                 body = pb.issue_body(fields, "src.md", extra=extra)
                 self.assertLessEqual(pb.utf16_len(body), pb.BODY_MAX)
@@ -1154,6 +1162,16 @@ class IssueFields(BoardDir):
         body = pb.issue_body({"Description": "\U0001F600" * 60000}, "src.md")
         self.assertLessEqual(pb.utf16_len(body), pb.BODY_MAX)
         self.assertGreater(pb.utf16_len(body), pb.BODY_MAX - 500)
+
+    def test_body_cap_cuts_the_long_field_and_keeps_the_short_ones(self) -> None:
+        body = pb.issue_body({"Description": "z" * 70000, "Links": "PR #12", "Started": "2026-09-01"}, "src.md")
+        self.assertLessEqual(pb.utf16_len(body), pb.BODY_MAX)
+        self.assertIn("**Links:** PR #12", body)
+        self.assertIn("**Started:** 2026-09-01", body)
+        self.assertIn("truncated", body)
+        self.assertGreater(pb.utf16_len(body), pb.BODY_MAX - 200)
+        exact = pb.issue_body({"D": "z" * (pb.BODY_MAX - len("**D:** "))}, "src.md")
+        self.assertNotIn("truncated", exact)
 
     def test_body_is_capped_under_githubs_limit(self) -> None:
         huge = "x " * 40000
@@ -1174,7 +1192,7 @@ class IssueFields(BoardDir):
                            ("@Link (Claude)", ["@Link"]),
                            ("@Kai / @Kai", ["@Kai"]),
                            ("@kai / @Kai", ["@Kai"]),  # canonical spelling
-                           ("kai@example.com", []),
+                           ("kai@example.com", []), ("Kai@example.com", []),
                            ("link to PR", []), ("CI pipeline", []),
                            ("Kai (pairing w/ @Zeyad)", ["@Kai"]),
                            ("@Link-owned", ["@Link"]),

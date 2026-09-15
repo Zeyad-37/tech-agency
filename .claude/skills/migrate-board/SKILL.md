@@ -259,9 +259,9 @@ done 3< <(jq -c '.[]' "$BOARD_JSON")
   - `priority_label` is `P0`–`P3` or empty: `**P1**` gives `P1`.
   - A raw cell would give a label nobody queries, or one Step 3 never created, and the create
     would fail.
-- **Synthetic epics.** When live stories share a stem that has no row anywhere (`T-054.1`,
-  `T-054.2`, but no `T-054`), the parser emits a placeholder task for the stem, marked
-  `synthetic: true`, placed before its stories.
+- **Synthetic epics.** When stories name a stem that has no row anywhere (`T-054.1`, `T-054.2`,
+  but no `T-054`) — one story is enough, and under `DONE_MODE=issues` Done stories count too — the
+  parser emits a placeholder task for the stem, marked `synthetic: true`, placed before its stories.
   - It takes the column most of its **open** stories are in. Ties go to the further-along column,
     and Blocked never wins a tie.
   - It is Done only when every story is Done, so an epic is never closed over open work.
@@ -385,8 +385,7 @@ while read -r pair <&3; do
 done 3< <(jq -r '.[] | select(.parent != null and (.parent_frozen | not)) | "\(.task_id) \(.parent)"' "$BOARD_JSON")
 ```
 
-Re-running is safe: adding an existing
-sub-issue is a no-op.
+Re-running is safe: adding an existing sub-issue is a no-op.
 
 **Except when `parent_frozen` is true.** Under `DONE_MODE=freeze`, a story whose epic is a Done row
 has no epic issue on purpose — creating one would resurrect finished work as an open issue. Leave
@@ -419,12 +418,15 @@ against GitHub **in both directions**, over a fully paginated issue list — no 
   a close as *not planned* is not Done).
 - **EXTRA** — an issue in that column whose Task ID is not in the markdown.
 - **DUPLICATE** — a Task ID with more than one issue, the exact failure Step 4's guard exists to
-  prevent. (A Task ID repeated in the *markdown* never gets this far: Step 2's `--check` refuses it.) Closing the extras as *not planned* resolves it.
+  prevent. (A Task ID repeated in the *markdown* never gets this far: Step 2's `--check` refuses
+  it.) Closing the extras as *not planned* resolves it.
 - **NO TABLE** — a column's source file exists but no table for that column was found in it, so a
   wholly dropped column cannot pass as an empty one. A table holding only the `—` placeholder is a
   genuinely empty column and passes.
 
-Placeholder epics count like any other task. The `synthetic` tasks Step 4 created are expected in their column, so a missing placeholder is reported as MISSING, not ignored. Under `DONE_MODE=freeze` the Done line reads `frozen` and is not compared. With
+Placeholder epics count like any other task. The `synthetic` tasks Step 4 created are expected in
+their column, so a missing placeholder is reported as MISSING, not ignored. Under `DONE_MODE=freeze`
+the Done line reads `frozen` and is not compared. With
 `--include-tech-debt`, a `tech-debt` line checks every active item is an **open** issue carrying
 `tech-debt` and exactly one `severity:` label, `issue_severity` (the highest among every item on that
 issue) — its own issue, or the board task it was merged onto:
