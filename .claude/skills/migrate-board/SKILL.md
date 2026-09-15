@@ -203,7 +203,8 @@ Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **o
   `Board Task` column names. Label **that task's issue**; do not create an issue for the debt. A
   second issue would either collide with `[TD-n]` — the search-before-create guard silently skips
   whichever came second — or sit unlinked beside the task that resolves it. Several debt items may
-  share one task. When `board_task` differs from the debt's ID, also leave a comment carrying the
+  share one task; the issue then carries **one** `severity:` label, `issue_severity` — the highest
+  among them — never one per item. When `board_task` differs from the debt's ID, also leave a comment carrying the
   debt's ID, severity and description, so its detail is not lost with no `[TD-n]` issue to hold it.
 - **`on_board: false`** — create it on the Backlog, with the same exact-prefix guard as Step 4.
   That includes items whose Board Task is **Done**: finished work cannot carry open debt, so those
@@ -219,7 +220,8 @@ issue_for() {
 STOPPED=""
 while read -r item <&3; do
   TASK_ID=$(jq -r '.task_id' <<<"$item")
-  SEVERITY=$(jq -r '.severity' <<<"$item")
+  SEVERITY=$(jq -r '.severity' <<<"$item")              # this item's own, for the comment
+  ISSUE_SEVERITY=$(jq -r '.issue_severity' <<<"$item")  # the one label the issue carries
   BOARD_TASK=$(jq -r '.board_task // empty' <<<"$item")
 
   if [ -n "$BOARD_TASK" ]; then
@@ -229,7 +231,7 @@ while read -r item <&3; do
       STOPPED=1
       break
     fi
-    gh issue edit "$n" --add-label tech-debt --add-label "severity:$SEVERITY"
+    gh issue edit "$n" --add-label tech-debt --add-label "severity:$ISSUE_SEVERITY"
     if [ "$BOARD_TASK" != "$TASK_ID" ]; then
       # Idempotent: the hidden marker stops a re-run posting the same comment twice.
       MARK="<!-- migrated-debt:$TASK_ID -->"
@@ -248,7 +250,7 @@ while read -r item <&3; do
   BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
   # .title is "[TD-n] description", already cut to GitHub's 256-character cap.
   gh issue create --title "$(jq -r '.title' <<<"$item")" --body "$BODY" \
-    --label status:backlog --label tech-debt --label "severity:$SEVERITY"
+    --label status:backlog --label tech-debt --label "severity:$ISSUE_SEVERITY"
 done 3< <(jq -c '.items[]' "$DEBT_JSON")
 
 if [ -n "$STOPPED" ]; then
@@ -314,13 +316,15 @@ against GitHub **in both directions**, over a fully paginated issue list — no 
 
 Under `DONE_MODE=freeze` the Done line reads `frozen` and is not compared. With
 `--include-tech-debt`, a `tech-debt` line checks every active item is an **open** issue carrying
-`tech-debt` and its `severity:` label — its own issue, or the board task it was merged onto:
+`tech-debt` and exactly one `severity:` label, `issue_severity` (the highest among every item on that
+issue) — its own issue, or the board task it was merged onto:
 
 - **MISSING** — no issue for the item. **NOT LABELLED** — the issue the item lives on exists but
   lacks `tech-debt`, which is what a skipped `on_board` merge looks like. For a merged item that
   issue is its `board_task`'s, not a `[TD-n]` — so a board task carrying debt is never an EXTRA.
 - **CLOSED** — active debt on a closed issue, invisible to `/replenish`'s label query.
-- **WRONG SEVERITY**, and **EXTRA** — an open `tech-debt` issue that is not in the backlog.
+- **WRONG SEVERITY** — the issue lacks `severity:{issue_severity}` or carries any other `severity:`
+  label as well; the note names both. **EXTRA** — an open `tech-debt` issue that is not in the backlog.
 
 Debt-only issues carry `status:backlog`, but they are **not** counted against the Backlog column —
 otherwise every imported item would show as a Backlog EXTRA.

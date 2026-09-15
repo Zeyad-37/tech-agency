@@ -522,6 +522,16 @@ class TechDebtParsing(DebtDir):
                                              "| Testing Gaps | Steady low item | ios | S | @Shield | T-002 |"))
         self.assertEqual({got["TD-337"]["board_task"], got["TD-002"]["board_task"]}, {"T-002"})
 
+    def test_items_sharing_a_board_task_carry_the_highest_severity(self) -> None:
+        got = self.items(DEBT_STEADY.replace("| Testing Gaps | Steady low item | ios | S | @Shield | — |",
+                                             "| Testing Gaps | Steady low item | ios | S | @Shield | T-002 |"))
+        self.assertEqual((got["TD-337"]["severity"], got["TD-002"]["severity"]), ("low", "high"))
+        self.assertEqual({got["TD-337"]["issue_severity"], got["TD-002"]["issue_severity"]}, {"high"})
+
+    def test_unmerged_item_issue_severity_is_its_own(self) -> None:
+        got = self.items(DEBT_STEADY)
+        self.assertEqual(got["TD-337"]["issue_severity"], "low")
+
     def test_unescaped_pipe_is_rejected(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("Steady low item", "Steady | low item"),
                                "unescaped '|'")
@@ -731,6 +741,38 @@ class VerifyTechDebt(DebtDir):
         self.assertEqual(code, 1)
         self.assertIn("NOT LABELLED tech-debt 1: TD-002", out)
         self.assertNotIn("EXTRA", out)
+
+    def shared_board_task(self) -> list[dict]:
+        """TD-337 (low) and TD-002 (high) both merged onto [T-002]."""
+        self.write("board-context.md", live(READY, IN_PROGRESS, REVIEW, BLOCKED))
+        self.put("docs/tech-debt/backlog.md",
+                 DEBT_STEADY.replace("| Testing Gaps | Steady low item | ios | S | @Shield | — |",
+                                     "| Testing Gaps | Steady low item | ios | S | @Shield | T-002 |"))
+        issues = self.board_issues()
+        issues[2] = issue("T-002", status="in-progress")
+        issues[2]["labels"] += [pb.DEBT_LABEL]
+        return issues
+
+    def test_shared_issue_with_only_the_highest_severity_passes(self) -> None:
+        issues = self.shared_board_task()
+        issues[2]["labels"] += ["severity:high"]
+        code, out = self.run_verify(issues)
+        self.assertEqual(code, 0, out)
+
+    def test_shared_issue_with_two_severities_fails(self) -> None:
+        issues = self.shared_board_task()
+        issues[2]["labels"] += ["severity:high", "severity:low"]
+        code, out = self.run_verify(issues)
+        self.assertEqual(code, 1, out)
+        self.assertIn("WRONG SEVERITY", out)
+        self.assertIn("severity:low", out)
+
+    def test_shared_issue_with_only_the_lower_severity_fails(self) -> None:
+        issues = self.shared_board_task()
+        issues[2]["labels"] += ["severity:low"]
+        code, out = self.run_verify(issues)
+        self.assertEqual(code, 1, out)
+        self.assertIn("WRONG SEVERITY", out)
 
     def test_closed_active_debt(self) -> None:
         code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337", state="closed")])

@@ -499,8 +499,10 @@ def parse_debt(root: str, board: list[dict]) -> dict:
     that is a board task, or the single live task its `Board Task` column names —
     and `on_board` is whether there is one. Such an item must NOT become an issue
     of its own: the board task's issue is labelled as debt instead. Several debt
-    items may share one task. An item whose Board Task is Done gets its own issue
-    and is listed in `notes`, since finished work cannot carry open debt."""
+    items may share one task; `issue_severity` is the highest severity among every
+    item on the same issue, and is the one `severity:` label that issue carries. An
+    item whose Board Task is Done gets its own issue and is listed in `notes`, since
+    finished work cannot carry open debt."""
     problems = debt_check(root, board)
     if problems:
         raise BoardError("\n".join(problems))
@@ -538,6 +540,14 @@ def parse_debt(root: str, board: list[dict]) -> dict:
                 "board_task": board_task,
                 "on_board": board_task is not None,
             })
+    # One issue carries one severity: the highest among every item living on it.
+    worst: dict[str, str] = {}
+    for d in result["items"]:
+        key = d["board_task"] or d["task_id"]
+        if key not in worst or SEVERITIES.index(d["severity"]) < SEVERITIES.index(worst[key]):
+            worst[key] = d["severity"]
+    for d in result["items"]:
+        d["issue_severity"] = worst[d["board_task"] or d["task_id"]]
     return result
 
 
@@ -639,8 +649,9 @@ def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> 
 
 
 def verify_debt(debt: dict, issues: list[dict]) -> int:
-    """Every active debt item is an open issue labelled tech-debt with its
-    severity — its own issue, or the board task's it was merged onto."""
+    """Every active debt item is an open issue labelled tech-debt and exactly one
+    severity label, `issue_severity` — its own issue, or the board task's it was
+    merged onto."""
     live = [i for i in issues if i.get("state_reason") != "not_planned"]
     by_id: dict[str, list[dict]] = {}
     for i in live:
@@ -660,8 +671,11 @@ def verify_debt(debt: dict, issues: list[dict]) -> int:
             closed.append(tid)
         if DEBT_LABEL not in i["labels"]:
             unlabelled.append(tid)
-        elif f"severity:{d['severity']}" not in i["labels"]:
-            severity.append(tid)
+        else:
+            have = sorted(l for l in i["labels"] if l.startswith("severity:"))
+            if have != [f"severity:{d['issue_severity']}"]:
+                severity.append(f"{tid} (wants severity:{d['issue_severity']}, has "
+                                f"{', '.join(have) or 'none'})")
     extra = sorted({m.group(1) for i in live if DEBT_LABEL in i["labels"] and i["state"] == "open"
                     and (m := TITLE_ID.match(i["title"])) and m.group(1) not in expected})
     notes = [f"{name} {len(v)}: {', '.join(v)}" for name, v in
