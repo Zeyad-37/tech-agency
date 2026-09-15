@@ -209,6 +209,10 @@ class HeaderAndRowIntegrity(BoardDir):
         self.valid_board(live(READY, IN_PROGRESS, REVIEW.replace("| T-003.1 |", "\n| T-003.1 |"), BLOCKED))
         self.assertProblem("1 row(s) starting at 'T-003.1' are cut off")
 
+    def test_table_line_inside_a_code_fence_on_the_board_is_not_a_table(self) -> None:
+        self.valid_board(live(READY, IN_PROGRESS, REVIEW, BLOCKED, "## Notes\n\n```\n| a | b |\n```\n"))
+        self.assertEqual(pb.check(self.root), [])
+
     def test_row_arity_mismatch(self) -> None:
         short = IN_PROGRESS + "| T-006 | @Kai | Missing two cells |\n"
         self.valid_board(live(READY, short, REVIEW, BLOCKED))
@@ -627,6 +631,17 @@ class TechDebtParsing(DebtDir):
         self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
         debt = pb.parse_debt(self.root, pb.parse(self.root))
         self.assertIn("Resolved", {nm["heading"] for nm in debt["not_migrated"]})
+
+    def test_table_line_inside_a_code_fence_is_not_a_table(self) -> None:
+        for fence in ("```", "~~~"):
+            with self.subTest(fence=fence):
+                example = f"\n## Format\n\n{fence}\n| a | b |\n{fence}\n"
+                self.put("docs/tech-debt/backlog.md", DEBT_STEADY + example)
+                self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+
+    def test_cut_off_row_outside_a_fence_is_still_reported(self) -> None:
+        text = DEBT_STEADY.replace("| TD-002 |", "\n| TD-002 |") + "\n```\n| a | b |\n```\n"
+        self.assertDebtProblem(text, "cut off from their table")
 
     def test_file_with_no_active_table(self) -> None:
         self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")

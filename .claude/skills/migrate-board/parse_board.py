@@ -124,13 +124,37 @@ def section(lines: list[str], heading: str) -> tuple[int, int] | None:
     return start, len(lines)
 
 
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def fenced(lines: list[str]) -> set[int]:
+    """Indices of lines inside a fenced code block, the fence lines included. A
+    fence closes on the same character repeated at least as many times."""
+    inside: set[int] = set()
+    opener: str | None = None
+    for i, line in enumerate(lines):
+        m = FENCE.match(line)
+        if opener is None:
+            if m:
+                opener = m.group(1)
+                inside.add(i)
+        else:
+            inside.add(i)
+            if m and m.group(1)[0] == opener[0] and len(m.group(1)) >= len(opener) \
+                    and not line.strip()[len(m.group(1)):].strip():
+                opener = None
+    return inside
+
+
 def table_blocks(lines: list[str], offset: int = 0) -> list[tuple[int, list[str]]]:
-    """Runs of consecutive '|' lines, as (first line index, lines)."""
+    """Runs of consecutive '|' lines, as (first line index, lines). Lines inside
+    fenced code are examples, not tables, and are skipped."""
     blocks: list[tuple[int, list[str]]] = []
     cur: list[str] = []
     start = 0
+    code = fenced(lines)
     for i, line in enumerate(lines):
-        if line.startswith("|"):
+        if line.startswith("|") and i not in code:
             if not cur:
                 start = i
             cur.append(line)
@@ -329,6 +353,7 @@ def debt_tables(root: str, rel: str) -> list[dict]:
     documentation table such as `| Field | Description |` has one — and
     `| Item | Rule | Severity | … |` meets none of these; both are ignored."""
     lines = read_lines(os.path.join(root, rel))
+    code = fenced(lines)
     found: list[dict] = []
     for start, block in table_blocks(lines):
         if len(block) < 2 or not SEPARATOR.match(block[1]):
@@ -343,7 +368,8 @@ def debt_tables(root: str, rel: str) -> list[dict]:
             or ("description" in lower and ("severity" in lower or "category" in lower)))
         if not looks_like_debt:
             continue
-        heading = next((m.group(1) for l in reversed(lines[:start]) if (m := HEADING_LINE.match(l))), "")
+        heading = next((m.group(1) for i in range(start - 1, -1, -1)
+                        if i not in code and (m := HEADING_LINE.match(lines[i]))), "")
         missing = [name for name, present in (("an '#' or 'ID' column", id_col is not None),
                                               ("a Description column", "description" in lower),
                                               ("a Severity column", "severity" in lower)) if not present]
