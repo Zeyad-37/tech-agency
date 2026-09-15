@@ -362,7 +362,8 @@ class DoneFreeze(BoardDir):
     def test_verify_freeze_does_not_expect_done_on_github(self) -> None:
         issues = [issue("T-004", status="backlog"), issue("T-001", status="ready"),
                   issue("T-002", status="in-progress"), issue("T-005.1", status="review"),
-                  issue("T-003.1", status="review")]
+                  issue("T-003.1", status="review"),
+                  issue("T-003", status="review")]  # the synthetic epic for T-003.1
         with mock.patch.object(pb, "fetch_issues", return_value=issues), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(pb.verify(self.root, "freeze"), 0, out.getvalue())
@@ -1037,10 +1038,8 @@ class FrozenDoneIds(BoardDir):
 
     def test_freeze_still_flags_a_task_both_live_and_done(self) -> None:
         self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-001 |"))
-        with mock.patch.object(pb, "fetch_issues", return_value=[]), \
-                contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(pb.verify(self.root, "freeze"), 1)
-        self.assertIn("DUPLICATE in markdown: T-001", out.getvalue())
+        with self.assertRaisesRegex(pb.BoardError, "T-001 appears 2 times"):
+            pb.parse(self.root, "freeze")
 
     def test_debt_on_a_suffixed_done_task_is_still_noted(self) -> None:
         self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-005 (phase 1) |"))
@@ -1060,6 +1059,185 @@ class FrozenDoneIds(BoardDir):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(pb.main(["--check", "--done", "freeze", "--root", self.root]), 0)
             self.assertEqual(pb.main(["--check", "--root", self.root]), 1)
+
+
+class IssueFields(BoardDir):
+    """What Step 4 writes: a title within GitHub's cap, clean agent and priority
+    labels, and an issue for every epic a live story names."""
+
+    def tasks(self, done_mode: str = "freeze") -> dict:
+        return {t["task_id"]: t for t in pb.board_tasks(self.root, done_mode)}
+
+    def test_long_description_title_is_capped_and_body_keeps_it(self) -> None:
+        long = "word " * 80
+        self.valid_board(live(READY, IN_PROGRESS, REVIEW.replace("Reviewed task", long.strip()), BLOCKED))
+        t = self.tasks()["T-003"]
+        self.assertLessEqual(len(t["title"]), pb.TITLE_MAX)
+        self.assertTrue(t["title"].startswith("[T-003] "))
+        self.assertTrue(t["title"].endswith("…"))
+        self.assertEqual(t["description"], long.strip())
+
+    def test_short_title_is_untouched(self) -> None:
+        self.valid_board()
+        self.assertEqual(self.tasks()["T-001"]["title"], "[T-001] Ready task")
+
+    def test_agent_cell_splits_into_one_label_per_agent(self) -> None:
+        for cell, want in (("@Kai (with @Link, @Swift, @Pixel)", ["@Kai", "@Link", "@Swift", "@Pixel"]),
+                           ("@Apex + @Kai", ["@Apex", "@Kai"]),
+                           ("@Link/@Kai", ["@Link", "@Kai"]),
+                           ("@Link (Claude)", ["@Link"]),
+                           ("@Kai / @Kai", ["@Kai"]),
+                           ("—", [])):
+            with self.subTest(cell=cell):
+                self.valid_board(live(READY, IN_PROGRESS.replace("| @Kai |", f"| {cell} |"), REVIEW, BLOCKED))
+                self.assertEqual(self.tasks()["T-002"]["agents"], want)
+
+    def test_priority_label_is_normalised(self) -> None:
+        for cell, want in (("**P1**", "P1"), ("P0", "P0"), ("P3 (stretch)", "P3"), ("high", ""), ("—", "")):
+            with self.subTest(cell=cell):
+                self.valid_board(live(READY.replace("| P1 |", f"| {cell} |"), IN_PROGRESS, REVIEW, BLOCKED))
+                self.assertEqual(self.tasks()["T-001"]["priority_label"], want)
+
+    def test_epic_with_no_row_is_synthesised_before_its_stories(self) -> None:
+        ready = READY + "| T-009.1 | P2 | First story | @Kai |\n| T-009.2 | P2 | Second story | @Kai |\n"
+        self.valid_board(live(ready, IN_PROGRESS, REVIEW, BLOCKED))
+        order = [t["task_id"] for t in pb.board_tasks(self.root, "freeze")]
+        epic = self.tasks()["T-009"]
+        self.assertTrue(epic["synthetic"])
+        self.assertEqual(epic["column"], "ready")
+        self.assertEqual(epic["children"], ["T-009.1", "T-009.2"])
+        self.assertTrue(epic["title"].startswith("[T-009] "))
+        self.assertLess(order.index("T-009"), order.index("T-009.1"))
+        self.assertFalse(self.tasks()["T-009.1"]["parent_frozen"])
+
+    def test_synthetic_epic_takes_its_childrens_majority_column(self) -> None:
+        backlog = BACKLOG_FILE + "| T-009.1 | P2 | A | @Morgan |\n| T-009.2 | P2 | B | @Morgan |\n"
+        self.valid_board(live(READY, IN_PROGRESS + "| T-009.3 | @Kai | C | 2026-09-01 | 1 |\n", REVIEW, BLOCKED))
+        self.write("docs/board/backlog.md", backlog)
+        self.assertEqual(self.tasks()["T-009"]["column"], "backlog")
+
+    def test_no_epic_is_synthesised_for_a_live_or_frozen_parent(self) -> None:
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-008 | @Kai | Done epic | PR #8 | 2026-09-04 |\n")
+        self.write("board-context.md", live(READY + "| T-008.1 | P2 | Story of a done epic | @Kai |\n",
+                                            IN_PROGRESS, REVIEW, BLOCKED))
+        tasks = self.tasks()
+        self.assertFalse(any(t.get("synthetic") for t in tasks.values()), tasks.keys())
+        self.assertTrue(tasks["T-008.1"]["parent_frozen"])
+        self.assertNotIn("T-008", self.tasks())
+
+    def test_issues_mode_does_not_synthesise_an_epic_that_is_a_done_row(self) -> None:
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-008 | @Kai | Done epic | PR #8 | 2026-09-04 |\n")
+        self.write("board-context.md", live(READY + "| T-008.1 | P2 | Story | @Kai |\n", IN_PROGRESS, REVIEW, BLOCKED))
+        self.assertFalse(self.tasks("issues")["T-008"].get("synthetic"))
+
+    def test_duplicate_live_ids_fail_check(self) -> None:
+        self.valid_board()
+        self.write("docs/board/backlog.md", BACKLOG_FILE + "| T-001 | P2 | Same id, other work | @Morgan |\n")
+        with self.assertRaisesRegex(pb.BoardError, "T-001 appears 2 times"):
+            pb.parse(self.root, "freeze")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(pb.main(["--check", "--done", "freeze", "--root", self.root]), 1)
+        self.assertIn("T-001 appears 2 times", err.getvalue())
+
+    def test_issues_mode_flags_a_done_row_repeated_in_the_archive(self) -> None:
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-005 | @Kai | Again | PR #6 | 2026-09-04 |\n")
+        with self.assertRaisesRegex(pb.BoardError, "T-005 appears 2 times"):
+            pb.parse(self.root, "issues")
+        pb.parse(self.root, "freeze")  # frozen archive repeats create nothing
+
+    def test_verify_expects_the_synthetic_epic(self) -> None:
+        ready = READY + "| T-009.1 | P2 | Story | @Kai |\n"
+        self.valid_board(live(ready, IN_PROGRESS, REVIEW, BLOCKED))
+        base = MATCHING + [issue("T-009.1", status="ready")]
+        for issues, code, text in ((base + [issue("T-009", status="ready")], 0, "All tasks accounted for."),
+                                   (base, 1, "MISSING 1: T-009")):
+            with self.subTest(code=code), mock.patch.object(pb, "fetch_issues", return_value=issues), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(pb.verify(self.root, "issues"), code, out.getvalue())
+            self.assertIn(text, out.getvalue())
+
+
+def skill_section_blocks(start: str, end: str) -> list[str]:
+    import re
+    with open(SKILL_MD, encoding="utf-8") as fh:
+        text = fh.read()
+    return re.findall(r"```bash\n(.*?)```", text[text.index(start):text.index(end)], re.S)
+
+
+# A gh stand-in: `issue list` answers from a JSON file of existing issues (by exact
+# "[ID] " prefix, as GitHub would after search); every other call is appended to $LOG.
+FAKE_GH = r"""#!/usr/bin/env bash
+if [ "$1 $2" = "issue list" ]; then
+  q=""; while [ $# -gt 0 ]; do [ "$1" = "--search" ] && q="$2"; shift; done
+  id=${q% in:title}
+  jq -c --arg p "[$id] " 'map(select(.title | startswith($p)))' "$EXISTING"; exit 0
+fi
+{ printf '%s\037' "$@"; printf '\036'; } >> "$LOG"   # unit/record separators: args may hold newlines
+if [ "$1 $2" = "issue create" ]; then   # the new issue becomes findable, like on GitHub
+  title=""; for ((i = 1; i < $#; i++)); do [ "${!i}" = "--title" ] && j=$((i + 1)) && title="${!j}"; done
+  n=$(jq 'length + 1000' "$EXISTING")
+  jq --arg t "$title" --argjson n "$n" '. + [{number: $n, title: $t}]' "$EXISTING" > "$EXISTING.new"
+  mv "$EXISTING.new" "$EXISTING"
+  echo "https://github.com/o/r/issues/$n"
+fi
+exit 0
+"""
+
+
+class SkillIssueSteps(BoardDir):
+    """Steps 4 and 5 of SKILL.md, run verbatim against a fake gh, so the skill's
+    bash and the parser's JSON cannot drift apart."""
+
+    def run_steps(self, existing: list[dict]) -> list[str]:
+        import json
+        import subprocess
+        tmp = os.path.join(self.root, ".gh")
+        os.makedirs(tmp)
+        with open(os.path.join(tmp, "gh"), "w") as fh:
+            fh.write(FAKE_GH)
+        os.chmod(os.path.join(tmp, "gh"), 0o755)
+        board = os.path.join(tmp, "board.json")
+        with open(board, "w") as fh:
+            json.dump(pb.board_tasks(self.root, "freeze"), fh)
+        with open(os.path.join(tmp, "existing.json"), "w") as fh:
+            json.dump(existing, fh)
+        step4 = skill_section_blocks("## Step 4: Create the issues", "## Step 4b")[0]
+        step5 = [b for b in skill_section_blocks("## Step 5:", "## Step 6") if "while read" in b][0]
+        env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "BOARD_JSON": board,
+               "LOG": os.path.join(tmp, "log"), "EXISTING": os.path.join(tmp, "existing.json")}
+        r = subprocess.run(["bash", "-c", step4 + "\n" + step5], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(env["LOG"], encoding="utf-8") as fh:
+            return [r.split("\x1f")[:-1] for r in fh.read().split("\x1e") if r]
+
+    def test_creates_capped_titles_and_clean_labels(self) -> None:
+        long = "word " * 80
+        ready = READY.replace("| P1 |", "| **P1** |") + "| T-009.1 | P2 | Story | @Kai (with @Link) |\n"
+        self.valid_board(live(ready, IN_PROGRESS, REVIEW.replace("Reviewed task", long.strip()), BLOCKED))
+        calls = self.run_steps([])
+        creates = [c for c in calls if c[:2] == ["issue", "create"]]
+        titles = [c[c.index("--title") + 1] for c in creates]
+        labels = sorted({c[i + 1] for c in creates for i, a in enumerate(c) if a == "--label"})
+        self.assertTrue(all(len(t) <= pb.TITLE_MAX for t in titles), titles)
+        self.assertIn("[T-009] Epic T-009 (placeholder — no board row)", titles)
+        self.assertIn("priority:P1", labels)
+        self.assertTrue(all(" " not in l and l.count("@") <= 1 for l in labels), labels)
+        self.assertIn("agent:@Link", labels)
+        bodies = [c[c.index("--body") + 1] for c in creates if c[c.index("--title") + 1].startswith("[T-003] ")]
+        self.assertIn(long.strip(), bodies[0])
+
+    def test_links_every_story_to_its_parent(self) -> None:
+        ready = READY + "| T-009.1 | P2 | Story | @Kai |\n"
+        self.valid_board(live(ready, IN_PROGRESS, REVIEW, BLOCKED))
+        existing = [{"number": n, "title": f"[{tid}] x"}
+                    for n, tid in enumerate(["T-003", "T-003.1", "T-009", "T-009.1"], 1)]
+        calls = self.run_steps(existing)
+        self.assertEqual(sorted(tuple(c) for c in calls if "--add-sub-issue" in c),
+                         [("issue", "edit", "1", "--add-sub-issue", "2"),
+                          ("issue", "edit", "3", "--add-sub-issue", "4")])
 
 
 class FetchIssues(unittest.TestCase):

@@ -67,6 +67,8 @@ DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
 DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
 SEVERITIES = ("high", "medium", "low")
 TITLE_MAX = 256  # GitHub's issue-title cap
+AGENT = re.compile(r"@[A-Za-z][\w-]*")
+PRIORITY = re.compile(r"\bP([0-3])\b")
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
 LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
@@ -350,17 +352,43 @@ def parse(root: str, done_mode: str = "issues") -> list[dict]:
                 if c[0] == PLACEHOLDER:
                     continue
                 row = dict(zip(t["header"], c))
+                description = row.get("Description") or row.get("Blocker", "")
+                agent = row.get("Agent") or row.get("Assigned To", "")
+                priority = row.get("Priority", "")
                 tasks.append({
                     "task_id": c[0],
                     "column": col,
-                    "description": row.get("Description") or row.get("Blocker", ""),
-                    "agent": row.get("Agent") or row.get("Assigned To", ""),
-                    "priority": row.get("Priority", ""),
+                    "description": description,
+                    "title": issue_title(c[0], description),
+                    "agent": agent,
+                    # One `agent:@Name` label per agent the cell names — a label
+                    # cannot be "@Kai (with @Link, @Swift)".
+                    "agents": list(dict.fromkeys(AGENT.findall(agent))),
+                    "priority": priority,
+                    # "**P1**" or "P3 (stretch)" → P1 / P3; Step 3 creates only P0–P3.
+                    "priority_label": (m := PRIORITY.search(priority)) and f"P{m.group(1)}" or "",
                     "fields": row,
                     "source": t["source"],
                     "parent": c[0].rsplit(".", 1)[0] if "." in c[0] else None,
                 })
+    problems = duplicate_problems(tasks, done_mode)
+    if problems:
+        raise BoardError("\n".join(problems))
     return tasks
+
+
+def duplicate_problems(tasks: list[dict], done_mode: str) -> list[str]:
+    """Task IDs that would become two issues with one title prefix. Under freeze a
+    task repeated inside the Done archive creates nothing, so only live rows count —
+    plus a Done row repeating a live task, which cannot be both finished and in flight."""
+    live_ids = {t["task_id"] for t in tasks if t["column"] != "done"}
+    if done_mode == "freeze":  # one Done row is enough to contradict a live task
+        counted = [t["task_id"] for t in tasks if t["column"] != "done"] + sorted(
+            {t["task_id"] for t in tasks if t["column"] == "done" and t["task_id"] in live_ids})
+    else:
+        counted = [t["task_id"] for t in tasks]
+    return [f"{tid} appears {n} times — each row would become an issue with the same "
+            f"[{tid}] title; give one a new ID" for tid, n in sorted(Counter(counted).items()) if n > 1]
 
 
 def debt_file(root: str) -> str | None:
@@ -646,7 +674,40 @@ def board_tasks(root: str, done_mode: str) -> list[dict]:
         tasks = [t for t in tasks if t["column"] != "done"]
     for t in tasks:
         t["parent_frozen"] = done_mode == "freeze" and t["parent"] in done_ids
-    return tasks
+    return synthesize_epics(tasks, done_ids)
+
+
+def synthesize_epics(tasks: list[dict], frozen: set[str]) -> list[dict]:
+    """An epic named only by its stories' IDs (T-054.1 with no T-054 row anywhere)
+    gets a placeholder issue, so the stories have a parent to link to. It takes
+    the column most of its stories sit in (ties go to the further-along column)
+    and is placed before them."""
+    ids = {t["task_id"] for t in tasks}
+    children: dict[str, list[dict]] = {}
+    for t in tasks:
+        p = t["parent"]
+        if p and p not in ids and p not in frozen:
+            children.setdefault(p, []).append(t)
+    order = list(COLUMNS)
+    out: list[dict] = []
+    for t in tasks:
+        p = t["parent"]
+        if p in children:
+            kids = children.pop(p)
+            votes = Counter(k["column"] for k in kids)
+            column = max(votes, key=lambda c: (votes[c], order.index(c)))
+            description = (f"Epic {p} — placeholder created by /migrate-board: its stories "
+                           f"({', '.join(k['task_id'] for k in kids)}) had no epic row on the board")
+            out.append({
+                "task_id": p, "column": column, "description": description,
+                "title": issue_title(p, f"Epic {p} (placeholder — no board row)"),
+                "agent": "", "agents": [], "priority": "", "priority_label": "",
+                "fields": {}, "source": "(synthesised from its stories' IDs)",
+                "parent": None, "parent_frozen": False,
+                "synthetic": True, "children": [k["task_id"] for k in kids],
+            })
+        out.append(t)
+    return out
 
 
 def fetch_issues() -> list[dict]:
@@ -675,8 +736,11 @@ def issue_column(issue: dict) -> str | None:
 
 
 def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> int:
-    tasks = parse(root, done_mode)
-    debt = parse_debt(root, tasks) if include_debt else None
+    board = parse(root, done_mode)  # raises on duplicate IDs, before anything is compared
+    debt = parse_debt(root, board) if include_debt else None
+    # What the migration created: board_tasks() adds synthetic epics and, under
+    # freeze, drops Done — which is still counted below, as frozen history.
+    tasks = board_tasks(root, done_mode) + [t for t in board if t["column"] == "done" and done_mode == "freeze"]
     issues = fetch_issues()
     failures = 0
 
@@ -696,18 +760,6 @@ def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> 
         if n > 1:
             print(f"  DUPLICATE on GitHub: [{tid}] appears {n} times — close the extras as not planned")
             failures += 1
-    # Under freeze a task done twice in the archive creates nothing on GitHub, so
-    # Done-vs-Done repeats are history. A Done row repeating a LIVE task is still a
-    # contradiction — the task cannot be both finished and in flight.
-    live_ids = {t["task_id"] for t in tasks if t["column"] != "done"}
-    counted = [t for t in tasks if not (done_mode == "freeze" and t["column"] == "done")]
-    if done_mode == "freeze":
-        counted += list({t["task_id"]: t for t in tasks if t["column"] == "done" and t["task_id"] in live_ids}.values())
-    for tid, n in sorted(Counter(t["task_id"] for t in counted).items()):
-        if n > 1:
-            print(f"  DUPLICATE in markdown: {tid} appears {n} times")
-            failures += 1
-
     for col in COLUMNS:
         want = Counter(t["task_id"] for t in tasks if t["column"] == col)
         if col == "done" and done_mode == "freeze":
