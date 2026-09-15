@@ -216,6 +216,7 @@ issue_for() {
     | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
 }
 
+STOPPED=""
 while read -r item <&3; do
   TASK_ID=$(jq -r '.task_id' <<<"$item")
   SEVERITY=$(jq -r '.severity' <<<"$item")
@@ -223,7 +224,11 @@ while read -r item <&3; do
 
   if [ -n "$BOARD_TASK" ]; then
     n=$(issue_for "$BOARD_TASK")
-    [ -n "$n" ] || { echo "STOP: $TASK_ID maps to $BOARD_TASK, which has no issue — run Step 4 first"; break; }
+    if [ -z "$n" ]; then
+      echo "STOP: $TASK_ID maps to $BOARD_TASK, which has no issue — run Step 4 first"
+      STOPPED=1
+      break
+    fi
     gh issue edit "$n" --add-label tech-debt --add-label "severity:$SEVERITY"
     if [ "$BOARD_TASK" != "$TASK_ID" ]; then
       # Idempotent: the hidden marker stops a re-run posting the same comment twice.
@@ -245,6 +250,11 @@ while read -r item <&3; do
   gh issue create --title "$(jq -r '.title' <<<"$item")" --body "$BODY" \
     --label status:backlog --label tech-debt --label "severity:$SEVERITY"
 done 3< <(jq -c '.items[]' "$DEBT_JSON")
+
+if [ -n "$STOPPED" ]; then
+  echo "Tech-debt import halted. Do NOT continue to Step 5 — fix the cause above and re-run Step 4b." >&2
+  exit 1
+fi
 ```
 
 Descriptions are often long, and GitHub caps titles at 256 characters. The parser's `title` field
