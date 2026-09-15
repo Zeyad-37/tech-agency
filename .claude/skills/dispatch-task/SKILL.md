@@ -173,15 +173,31 @@ Approve this plan to proceed with implementation? (yes / adjust / cancel)
 
 Run this the moment the user approves, and **before** creating a single implementation worktree. Phase 2 cuts every worktree from `origin/$BASE`; anything not on `origin/$BASE` at that moment is invisible to every dispatched agent.
 
+Commit according to `board_backend` (absent → `markdown`).
+
+**On `github`** the Phase 1 tasks were created via `board.create_task()` and are already live — the
+next agent sees them regardless of what is committed. Commit the docs alone:
+
 ```bash
 cd "$PLAN_DIR"
-
-# On `github` the Phase 1 tasks were created via board.create_task() and are
-# already live — commit the docs alone. On `markdown` the docs and the board
-# edit are one change and commit together; add board-context.md to this line.
 git add docs/
-git commit -m "[{TASK-ID}] @Atlas: Plan {description} — docs + board tasks"
+git commit -m "[{TASK-ID}] @Atlas: Plan {description} — docs"
+```
 
+**On `markdown`** the docs and the board edit are one change and must commit together. Leaving
+`board-context.md` out is silently lossy: every Phase 2 worktree is cut from `origin/$BASE`, so an
+uncommitted board edit — and the Ready tasks it created — is invisible to them and discarded when
+this worktree is removed (`@.claude/rules/shared/board-in-pr.md` § Planning-Only Board Edits):
+
+```bash
+cd "$PLAN_DIR"
+git add docs/ board-context.md
+git commit -m "[{TASK-ID}] @Atlas: Plan {description} — docs + board tasks"
+```
+
+Then, on either backend:
+
+```bash
 # Land it on the base branch that Phase 2 will branch from.
 git push -u origin "$PLAN_BRANCH"
 /create-pr --base "$BASE"
