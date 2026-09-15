@@ -13,7 +13,7 @@ Read the board through the adapter, not the file (`@.claude/rules/shared/board-a
 
 1. `board.read_column("Ready")` and `board.read_column("In Progress")` — how full is Ready relative to current load?
 2. `board.read_column("Backlog")` — the candidate pool
-3. Read `docs/guides/tech-debt/backlog.md` if it exists — identify high-severity debt items
+3. Read the tech-debt items. **On `github`** they are board tasks: `board.search("label:tech-debt label:severity:high state:open")`. **On `markdown`** read `docs/guides/tech-debt/backlog.md` if it exists. Either way, identify the high-severity items
 4. Check recent feature request compilations from Echo in `docs/` if any exist
 
 Move selected items with `board.move_task(id, "Backlog", "Ready")`. The two columns differ only in the last field — Backlog is `| Task ID | Priority | Description | Requested By |`, Ready is `| Task ID | Priority | Description | Assigned To |` — so write the assignee, not the requester, into the Ready row.
@@ -44,7 +44,7 @@ Apply RICE scoring (Reach, Impact, Confidence, Effort) to backlog items. Conside
 | ... | ... | ... | ... | ... |
 
 ## Tech Debt Allocation
-[Items pulled from tech-debt/backlog.md — target 15-20% of capacity]
+[Items pulled from the `tech-debt` label (github) or tech-debt/backlog.md (markdown) — target 15-20% of capacity]
 
 | Task ID | Description | Severity | Assigned To |
 |---------|-------------|----------|-------------|
@@ -62,7 +62,14 @@ Then run the `board.move_task()` calls to land the selected items in Ready.
 
 ## Committing
 
-The board edit and the replenishment report are one change. Commit them together on the same branch, and both merge in that one PR (see `@.claude/rules/shared/board-in-pr.md`):
+**On `github`** the `board.move_task()` calls above already took effect — the Ready column is live the moment they ran, and the next agent sees it regardless of what is committed. Commit the report alone:
+
+```bash
+git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md
+git commit -m "[{TASK-ID}] @Atlas: Replenish board — {n} items to Ready"
+```
+
+**On `markdown`** the board edit and the report are one change. Commit them together on the same branch, and both merge in that one PR (see `@.claude/rules/shared/board-in-pr.md`):
 
 ```bash
 git add docs/artifacts/replenishment/{YYYY-MM-DD}-Replenishment.md board-context.md

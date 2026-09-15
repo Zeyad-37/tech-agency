@@ -54,8 +54,12 @@ Produce a status report in this format:
 [Suggest concrete next steps: unblock X, reassign Y, pull Z into Ready.]
 ```
 
-After producing the report, update `board-context.md` to reflect any status changes discovered during the sync.
+After producing the report, apply any status changes discovered during the sync via `board.update_task()` / `board.move_task()` — resolve through the backend in `.claude/settings.json`, never by editing a board file directly.
 
-Each correction is committed on the branch of the task it describes, not centrally by Atlas and never on `main` (see `@.claude/rules/shared/board-in-pr.md`). A sync only *reviews* board accuracy — where a task's real state differs from the board, the owning agent commits the transition on that task's branch. If a correction has no branch to ride with (a task whose branch is already merged, say), record it in the sync report and raise it with the owning agent rather than committing it on `main`.
+**On `github`** each correction is an API write that takes effect immediately. There is nothing to commit and no branch to attach it to.
 
-Note that the merged board under-reports in-flight work: In Progress and Blocked entries live on unmerged branches. Cross-check the counts above against open PRs and branches (`gh pr list`, `git branch -r`) — see `board-in-pr.md` § "What the Committed Board Records".
+**On `markdown`** each correction is committed on the branch of the task it describes, not centrally by Atlas and never on `main` (see `@.claude/rules/shared/board-in-pr.md`). A sync only *reviews* board accuracy — where a task's real state differs from the board, the owning agent commits the transition on that task's branch. If a correction has no branch to ride with (a task whose branch is already merged, say), record it in the sync report and raise it with the owning agent rather than committing it on `main`.
+
+**On `github` the counts above are exact** — every transition is an API write, so the board is live by construction and needs no cross-check.
+
+**On `markdown` they are a lower bound.** In Progress and Blocked entries live on unmerged branches, so the merged board under-reports in-flight work. Cross-check against open PRs and branches (`gh pr list`, `git branch -r`) — see `board-in-pr.md` § "What the Committed Board Records". Migrating to `github` with `/migrate-board` removes this caveat entirely.

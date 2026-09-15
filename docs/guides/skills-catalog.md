@@ -2,18 +2,18 @@
 
 Skills are repeatable prompt routines with defined triggers, inputs, and output formats. There are two kinds:
 
-1. **Slash commands** (`.claude/skills/*/SKILL.md`) — **48 skills**, invoked with `/command-name`: 34 first-party Tech Agency workflows plus 14 skills vendored from Google (`android-*`) and JetBrains (`kotlin-*`). See [`prompts/commands-reference.md`](prompts/commands-reference.md) for full documentation of the first-party workflows, and [`../.claude/skills/VENDORED-SKILLS.md`](../.claude/skills/VENDORED-SKILLS.md) for the vendored set's provenance and licensing.
+1. **Slash commands** (`.claude/skills/*/SKILL.md`) — **49 skills**, invoked with `/command-name`: 35 first-party Tech Agency workflows plus 14 skills vendored from Google (`android-*`) and JetBrains (`kotlin-*`). See [`prompts/commands-reference.md`](prompts/commands-reference.md) for full documentation of the first-party workflows, and [`../.claude/skills/VENDORED-SKILLS.md`](../.claude/skills/VENDORED-SKILLS.md) for the vendored set's provenance and licensing.
 2. **Agent skills** — inline skills defined in each agent file (`.claude/agents/`). These are triggered by natural-language prompts and run within the agent's domain. **This catalog lists these.**
 
 ## Slash Commands at a Glance
 
-The 34 first-party commands, grouped by what they are for. Each is documented in
+The 35 first-party commands, grouped by what they are for. Each is documented in
 [`prompts/commands-reference.md`](prompts/commands-reference.md).
 
 | Group | Commands |
 |---|---|
 | Planning & requirements | `/new-product`, `/new-feature`, `/write-prd`, `/tech-task`, `/rfc` |
-| Board & flow | `/kick-off`, `/daily-sync`, `/pick-up-task`, `/update-board`, `/replenish`, `/sprint-report`, `/retro` |
+| Board & flow | `/kick-off`, `/daily-sync`, `/pick-up-task`, `/update-board`, `/migrate-board`, `/replenish`, `/sprint-report`, `/retro` |
 | Parallel execution | `/dispatch`, `/dispatch-task` |
 | Ship a change | `/ship-it`, `/ship-pr`, `/create-pr`, `/code-review`, `/review-and-address`, `/address-feedback`, `/capture-screenshots`, `/lint-changed` |
 | Diagnose & respond | `/investigate-bug`, `/investigate-crash`, `/postmortem`, `/hotfix`, `/health-check` |

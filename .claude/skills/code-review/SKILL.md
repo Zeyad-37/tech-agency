@@ -22,7 +22,8 @@ Prompt to the subagent:
   1. Resolve the review target and its ACTUAL base branch (Step 1). Never
      assume `main`: read the base from `gh pr view --json baseRefName` and
      diff with `gh pr diff` / `origin/$BASE...HEAD`.
-  2. Read board-context.md to find the task ID and acceptance criteria.
+  2. board.read_task({task-id}) for the acceptance criteria — resolve via
+     the backend in .claude/settings.json, never by reading a board file.
   3. Locate the task's docs by the canonical convention
      docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md — the doc TYPE is the
      folder (docs/artifacts/prd/, docs/artifacts/brd/, docs/artifacts/adr/, docs/artifacts/rfc/, docs/artifacts/design-spec/).
@@ -107,7 +108,7 @@ If no PR exists for the branch yet, note it — Step 8 explains the fallback (cr
 Then gather project context:
 
 1. **Identify the story/task**: Extract the story ID from commit messages (e.g., `[US-042]`). The accepted commit format is `[ID] @Agent: description` with the agent tag **optional** — `[TECH] Do the thing` is valid; do not flag a missing `@Agent` as a violation.
-2. **Read the acceptance criteria**: Check `board-context.md` for the task description and criteria
+2. **Read the acceptance criteria**: `board.read_task({task-id})` for the description and criteria (`@.claude/rules/shared/board-adapter.md`). On `github` this is `gh issue list --search "[{task-id}] in:title"` then `gh issue view`; on `markdown` it parses the board files. Never read a board file directly — on a GitHub-backed repo those files are frozen history.
 3. **Read the task's docs**: PRD, BRD, ADR, RFC, design specs live at the canonical path `docs/{doc-type}/{Task-Id}-{Doc Type}-Title.md` (per `@.claude/rules/shared/handoff-protocol.md`) — the *doc type* is the folder:
 
    ```bash

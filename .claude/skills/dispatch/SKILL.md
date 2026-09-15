@@ -176,11 +176,11 @@ git branch --show-current
 git add -A
 git commit -m "[STORY-ID] @AgentName: description"
 
-# 2. Update the board and commit it on this branch
+# 2. Move the task to Review
 #    Run /update-board {TASK-ID} → Review
-#    This ensures the board change is included in the merge commit
-git add board-context.md
-git commit -m "[STORY-ID] @AgentName: Update board — {TASK-ID} → Review"
+#    On `github` this is an API write and is already live — nothing to commit.
+#    On `markdown` /update-board stages and commits board-context.md itself so
+#    the board change is included in the merge commit.
 
 # 3. Prepare the PR using /create-pr
 #    Run /create-pr
@@ -270,7 +270,7 @@ Spawn all agent `Task` invocations simultaneously. Each agent gets its own workt
 1. **One agent per worktree** — never assign two agents to the same worktree
 2. **No cross-worktree file access** — agents must not read or write files outside their worktree. This is the most common source of bugs — an agent that doesn't `cd` into its worktree will operate in the main repo or the previous agent's worktree
 3. **Shared dependencies** — if two tasks touch the same files (e.g., shared module, build config), flag this to the user before dispatching. Suggest sequencing them instead of parallelizing
-4. **Board updates** — each agent updates `board-context.md` inside its own worktree and commits the change on its own task branch, so the board update merges with that agent's PR. There is no central @Atlas writer in the main checkout, and no board-only PR (see `@.claude/rules/shared/board-in-pr.md`). Parallel branches editing the board will conflict on the second merge — resolve by keeping every task movement from both sides
+4. **Board updates** — each agent moves its own task through `board.move_task()` (`@.claude/rules/shared/board-adapter.md`). On `github` that is an API write, so parallel agents never contend. On `markdown` it edits `board-context.md` inside the agent's own worktree and commits on its own task branch, so the board update merges with that agent's PR. There is no central @Atlas writer in the main checkout, and no board-only PR (see `@.claude/rules/shared/board-in-pr.md`). Parallel branches editing the board will conflict on the second merge — resolve by keeping every task movement from both sides
 5. **Verify directory before every git operation** — if in doubt, run `pwd` and `git branch --show-current` to confirm you're in the right place
 
 ## When NOT to Use Dispatch

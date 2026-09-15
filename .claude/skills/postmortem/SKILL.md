@@ -251,7 +251,7 @@ After the post-mortem and tasks are created:
 - Notify @Atlas to schedule a brief retro focused on the systemic root cause
 - If the incident is P0/P1 → recommend sharing the post-mortem with the full team
 
-The board edits from Step 6 ship inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…` and `docs/artifacts/post-mortem/INDEX.md`. Never open a board-only PR and never commit the board on `main`.
+**On `github`** the Step 6 prevention tasks were created via `board.create_task()` and are already live; commit the post-mortem document and `INDEX.md` on their own. **On `markdown`** the board edits ship inside the PR that carries the post-mortem (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…` and `INDEX.md`, never as a board-only PR and never on `main`.
 
 ## When to Use This Skill
 

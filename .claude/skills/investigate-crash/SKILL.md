@@ -110,6 +110,6 @@ Every "Prevention Action Points" row in the post-mortem MUST become a tracked ta
 
 3. If this incident is a recurrence (check `docs/artifacts/post-mortem/INDEX.md`), flag it explicitly in the post-mortem under "Contributing Factors" and add a P0 task: "Investigate why previous prevention actions did not prevent recurrence — @Atlas".
 
-The board edit ships inside the PR that carries the post-mortem document (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…`, never as a board-only PR and never on `main`.
+**On `github`** the task was created via `board.create_task()` and is already live; commit the post-mortem document alone. **On `markdown`** the board edit ships inside the PR that carries the post-mortem (`@.claude/rules/shared/board-in-pr.md`) — commit `board-context.md` on the same branch as `docs/artifacts/post-mortem/…`, never as a board-only PR and never on `main`.
 
 This step ensures that post-mortem lessons become real work items with owners and SLAs, not just documentation. Reference `docs/guides/incident-response.md` for the full feedback loop closure policy.

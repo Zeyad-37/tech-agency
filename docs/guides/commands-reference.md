@@ -1,8 +1,8 @@
 # Commands Reference
 
-These are the **34 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
+These are the **35 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
 
-The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 48 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
+The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 49 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
 
 > Installing the plugin is not the whole setup. Run `/setup-repo` once per project to bootstrap the shared policy rules, the board, the git hooks, and `.claude/settings.json`. See `../setup-guide.md`.
 
@@ -412,6 +412,28 @@ Supports all lifecycle transitions: Ready → In Progress, In Progress → Block
 
 ---
 
+### `/migrate-board`
+
+Migrates a project's task tracking from the markdown board (`board-context.md` + `docs/board/`) to GitHub Issues, with a repo-scoped Projects v2 board when the token carries the `project` scope. Sets `board_backend` to `github` when it finishes.
+
+Runs in nine steps: preflight → repair and parse → create labels → create issues → link epics as sub-issues → create the project → verify → freeze the markdown → report. It **repairs table corruption first** (markdown boards corrupt silently on merge, and nothing else detects it), **dry-runs before writing**, and **never deletes** the markdown files — they are frozen with a banner and kept as history.
+
+Safe to re-run: every create is preceded by a search for the task's `[TASK-ID]` title prefix, so an interrupted run resumes by running it again.
+
+Projects v2 needs a scope that `repo` does not include. When it is missing the migration runs label-only rather than failing — that is a supported mode, and `gh auth refresh -s project` unlocks the board view later.
+
+**When to use:** Once per repo, when the markdown board stops scaling — context cost per task, merge conflicts on a single file, or live state not reaching `main`.
+
+**Example triggers:**
+- "migrate board"
+- "move to github issues"
+- "switch board backend"
+- "the markdown board is not scaling"
+
+**Arguments:** None.
+
+---
+
 ### `/create-pr`
 
 Creates a pull request with a standardized format. The PR title includes the task ID (e.g., `[US-042] Add email validation`), and the body lists the primary authoring agent and all participating agents, a summary of changes, related docs, a test plan, and a review checklist. Suggests reviewers based on the code review matrix. The PR base is resolved dynamically (Pre-flight 0): `--base <branch>` if passed, else auto-detected (an `epic/*` integration branch the current branch was cut from, confirmed with you), else `main` — and the branch is rebased onto that base before the PR opens.
@@ -599,6 +621,7 @@ Mirrors edits to `.claude/rules/` between a consumer project and the canonical t
 | `/dispatch` | Dispatch parallel tasks via git worktrees (dynamic base: `--base` / epic branch / main) | As needed |
 | `/dispatch-task` | Plan (tech-task/new-feature/bug/crash chain) then dispatch to parallel worktrees | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
+| `/migrate-board` | Markdown board → GitHub Issues + Projects v2; repairs, dry-runs, never deletes | Once per repo |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |
 | `/ship-it` | End-to-end: kickoff → implement → `/ship-pr` (PR → review → merge); `--auto-merge` flag | Per task |
 | `/ship-pr` | Ready branch → PR → review-and-address → merge; `--auto-merge` flag | Per ready branch |
@@ -608,4 +631,4 @@ Mirrors edits to `.claude/rules/` between a consumer project and the canonical t
 | `/sync-rule` | Mirror `.claude/rules/` edits between consumer and tech-agency | After any rule edit |
 | `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
 
-All 34 first-party commands are listed above.
+All 35 first-party commands are listed above.

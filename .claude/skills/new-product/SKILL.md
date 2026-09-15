@@ -79,7 +79,9 @@ New tasks land in Backlog: | Task ID | Priority | Description | Requested By |
 
 This populates the board and the team is ready to start pulling work.
 
-The board edit ships with the planning documents that produced it: commit `board-context.md` on the same branch as the PRD, BRD and ADRs, and merge them in one PR (`@.claude/rules/shared/board-in-pr.md`). Do not leave it uncommitted — the first agent to pick up a task works in a worktree cut from `origin/main` and would see neither the board tasks nor the docs.
+**On `github`** the tasks were created via `board.create_task()` and are already live; commit the PRD, BRD and ADRs on their own.
+
+**On `markdown`** the board edit ships with the planning documents that produced it: commit `board-context.md` on the same branch as the PRD, BRD and ADRs and merge them in one PR (`@.claude/rules/shared/board-in-pr.md`). Do not leave it uncommitted — the first agent to pick up a task works in a worktree cut from `origin/main` and would see neither the board tasks nor the docs.
 
 ## After Kickoff
 

@@ -236,7 +236,9 @@ Collect the following from the current branch and task context:
 ```bash
 # Gather context
 BRANCH=$(git branch --show-current)
-TASK_ID=$(echo "$BRANCH" | grep -oE '^[A-Z]+-[0-9]+' || echo "$BRANCH" | cut -d'/' -f1)
+# The dotted suffix matters: without it, T-016.1 resolves to its epic T-016,
+# and the Closes line below would close the epic instead of the story.
+TASK_ID=$(echo "$BRANCH" | grep -oE '^[A-Za-z]+-[0-9]+(\.[0-9]+)?' || echo "$BRANCH" | cut -d'/' -f1)
 
 # Get all participating agents from commit messages
 AGENTS=$(git log --format='%s' "origin/$BASE"..HEAD | grep -oE '@[A-Za-z]+' | sort -u | tr '\n' ', ' | sed 's/,$//')
@@ -248,6 +250,32 @@ PRIMARY=$(git log --format='%s' "origin/$BASE"..HEAD | grep -oE '@[A-Za-z]+' | s
 COMMIT_COUNT=$(git rev-list --count "origin/$BASE"..HEAD)
 FILES_CHANGED=$(git diff --stat "origin/$BASE"..HEAD | tail -1)
 ```
+
+### Step 1b: Resolve the task's issue (`github` backend only)
+
+On the `github` board backend, `Closes #{issue}` in the PR body **is** the `→ Done` transition — GitHub
+closes the issue when the merge lands, and nothing else does (`@.claude/rules/shared/board-in-pr.md`).
+This step is what produces that line. On `markdown` (and when `board_backend` is absent — absence
+resolves to `markdown`, see `@.claude/rules/shared/board-adapter.md` § Configuration) it adds nothing.
+
+```bash
+BOARD_BACKEND=$(jq -r '.board_backend // "markdown"' .claude/settings.json 2>/dev/null || echo markdown)
+ISSUE=""
+if [ "$BOARD_BACKEND" = "github" ]; then
+  # board.read_task(TASK_ID). The search narrows the candidates; the exact
+  # "[TASK-ID] " title-prefix match decides, so [T-016] never matches [T-016.4].
+  ISSUE=$(gh issue list --state open --limit 100 --search "$TASK_ID in:title" --json number,title \
+    | jq -r --arg p "[$TASK_ID] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+  if [ -z "$ISSUE" ]; then
+    echo "WARNING: board_backend is github but no open issue titled '[$TASK_ID] …' was found."
+    echo "         The PR body will have NO Closes line, so merging it will NOT move the task to Done."
+  fi
+fi
+```
+
+- **Issue found** → the PR body carries `Closes #$ISSUE` (Step 3 template).
+- **No issue found** → omit the line, and repeat the warning in the Step 7 report so it cannot be
+  missed. Do not invent a number, and do not close an issue by hand.
 
 ## Step 2: Build the PR Title
 
@@ -276,6 +304,8 @@ Rules for the title:
 Use this template exactly:
 
 ```markdown
+Closes #{ISSUE}
+
 ## Summary
 
 {2-4 bullet points describing what changed and why. Focus on the "why" not the "what".}
@@ -338,6 +368,10 @@ Use this template exactly:
 - **Files changed:** {FILES_CHANGED summary}
 - **Branch:** `{BRANCH}` → `{BASE}`
 ```
+
+**The `Closes #{ISSUE}` line** is present only when Step 1b resolved an issue on the `github`
+backend. On `markdown`, or when no issue was found, delete the line entirely — never leave a
+placeholder, and never write `Closes #` with no number.
 
 ## Step 3b: Check for UI Changes and Capture Visual Evidence (Mandatory)
 
@@ -492,6 +526,8 @@ git push -u origin "$BRANCH"
 gh pr create \
   --title "[{TASK-ID}] {Short description}" \
   --body "$(cat <<'EOF'
+Closes #{ISSUE}   ← github backend with a resolved issue only; delete this line otherwise
+
 ## Summary
 
 - {bullet 1}
@@ -605,6 +641,8 @@ PR created: #{pr_number}
   Author: @{PrimaryAgent}
   Participants: @{Agent1}, @{Agent2}
   Copilot review: requested (or "not requested — {reason}")
+  Closes: #{ISSUE}  (github backend; "n/a — markdown backend" on markdown;
+          "NONE — WARNING: no [{TASK-ID}] issue found, merging will not move the task to Done")
   URL: {pr_url}
 
 Next: Run `/code-review` to get a structured review, or tag a specific agent for review.
@@ -676,5 +714,9 @@ gh pr edit {PR_NUMBER} --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+When rewriting the body, keep its `Closes #{issue}` line. `gh pr edit --body` replaces the whole body,
+so a rewrite that drops the line silently un-links the issue and the merge will no longer move the
+task to Done on the `github` backend.
 
 Do NOT force-push or amend existing commits on a PR that's under review — create new commits so reviewers can see what changed.

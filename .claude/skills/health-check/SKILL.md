@@ -224,7 +224,14 @@ Report:
 
 ```bash
 # Check when key docs were last modified
-for doc in CLAUDE.md board-context.md docs/guides/setup-guide.md docs/guides/migration-guide.md; do
+# board-context.md is only a live doc on the `markdown` backend. After
+# /migrate-board it is frozen history and will always read as stale, so it is
+# excluded unless that backend is configured.
+DOCS="CLAUDE.md docs/guides/setup-guide.md docs/guides/migration-guide.md"
+grep -q '"board_backend": *"markdown"' .claude/settings.json 2>/dev/null \
+  && DOCS="$DOCS board-context.md"
+
+for doc in $DOCS; do
   if [ -f "$doc" ]; then
     mod_date=$(git log -1 --format="%ai" -- "$doc" 2>/dev/null || echo "untracked")
     echo "$doc: last modified $mod_date"
@@ -329,11 +336,11 @@ Compile the full report:
 
 ## Step 9: Create Board Tasks
 
-For every P0 and P1 action item, create a task in `board-context.md`:
+For every P0 and P1 action item, create a task via `board.create_task()` (`@.claude/rules/shared/board-adapter.md`):
 
-- P0 items → add to Ready column immediately with appropriate assignee
-- P1 items → add to Backlog with priority marker
-- P2/P3 items → add to `docs/guides/tech-debt/backlog.md`
+- P0 items → Ready column immediately, with `board.assign_task()` to the appropriate agent
+- P1 items → Backlog with a priority marker
+- P2/P3 items → also `board.create_task()`, labelled `tech-debt` with the severity. On `github` tech debt lives on the board like any other work, which is what lets `/replenish` pull it by label. Only on `markdown` does it go to `docs/guides/tech-debt/backlog.md`.
 
 Tag @Atlas to review the new tasks at the next daily sync.
 

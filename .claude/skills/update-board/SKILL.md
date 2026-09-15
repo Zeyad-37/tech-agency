@@ -5,9 +5,11 @@ description: "Update the Kanban board when a task changes status and commit the 
 
 # Update Board — Task Lifecycle Transitions
 
-This skill updates `board-context.md` when a task changes status and commits the change so the board state is always part of the branch history. This means when a PR merges, the board update merges with it — keeping the board in sync with the code.
+This skill moves a task through its lifecycle transitions. **Read `board_backend` from `.claude/settings.json` first** — the two backends behave differently, and doing the wrong one is silently wrong rather than an error.
 
-**Board edits never get their own PR.** Every transition commits on the branch that carries the change it describes, and lands in that change's PR. Never commit `board-context.md` on `main`, and never open a PR whose only change is the board. Full policy: `@.claude/rules/shared/board-in-pr.md`.
+**On `github` (default for new setups):** a transition is an API write through the adapter. It takes effect immediately, there is no file to commit, and Step 3 is skipped entirely. `→ Done` is not written by this skill at all — `Closes #{issue}` in the PR body does it when the merge lands.
+
+**On `markdown`:** a transition edits `board-context.md`, which is then committed on the branch carrying the change it describes so it lands in that change's PR. Board edits never get their own PR, and never a commit on `main`. Full policy: `@.claude/rules/shared/board-in-pr.md`.
 
 ## When to Use
 
@@ -21,7 +23,9 @@ Call `/update-board` at every task lifecycle transition:
 | Task sent to review | In Progress → Review | Agent finishes implementation |
 | Task completed | Review → Done | Checks green and merge approved — **before** the merge runs |
 
-`→ Done` is the last commit pushed to the PR branch before `gh pr merge`, so it merges together with the change. It is not written at code-review-approval time (checks may still fail) and never after the merge (that would be a board change outside the PR). If the merge gate is declined, the task stays in Review and no Done commit is made.
+**On `github`,** `→ Done` needs no action here: `Closes #{issue}` in the PR body closes the issue when the merge lands, atomically and only if the merge actually happens. `/create-pr` Step 1b writes the line (resolving the issue with `board.read_task()`), and `/address-feedback` Step 8 verifies it is present before merging — adding it with `gh pr edit` if it is missing. A PR opened or merged outside those skills must carry the line by hand.
+
+**On `markdown`,** `→ Done` is the last commit pushed to the PR branch before `gh pr merge`, so it merges together with the change. It is not written at code-review-approval time (checks may still fail) and never after the merge (that would be a board change outside the PR). If the merge gate is declined, the task stays in Review and no Done commit is made.
 
 ## Step 1: Identify the Transition
 
@@ -45,7 +49,27 @@ If the user doesn't specify the task ID, infer it from:
 
 Use the board adapter operations (see `@.claude/rules/shared/board-adapter.md`). Read `board_backend` from `.claude/settings.json` first (absent → `markdown`).
 
-**Every column has its own schema.** A transition is not a row move — it is a delete from one table and an insert into another, with different columns. On the `markdown` backend, write exactly these headers:
+### On `github`
+
+Each transition is one adapter call — swap the `status:` label, and close the issue for Done:
+
+```bash
+gh issue edit {n} --remove-label "status:{from}" --add-label "status:{to}"
+```
+
+Resolve `{n}` from the Task ID with `board.read_task()` — the search narrows candidates, an exact `[{TASK-ID}] ` title-prefix match decides, so `[T-016]` never resolves to `[T-016.4]`:
+
+```bash
+n=$(gh issue list --state all --limit 100 --search "{TASK-ID} in:title" --json number,title \
+  | jq -r --arg p "[{TASK-ID}] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+```
+ When the `project` scope is available, the adapter also moves the Projects v2 `Status` field; when it is not, the labels alone are the board — that is a supported mode, not a failure (`@.claude/rules/shared/board-adapter.md`).
+
+There is no row schema to get right, no placeholder rows, and no conflict handling — skip to Step 4.
+
+### On `markdown`
+
+**Every column has its own schema.** A transition is not a row move — it is a delete from one table and an insert into another, with different columns. Write exactly these headers:
 
 | Column | Schema |
 |---|---|
@@ -93,12 +117,14 @@ board.add_comment(task_id, "PR: #{pr_number} — ready for review")
 
 ### Review → Done
 
-Only at the merge gate — checks green and merge approved, immediately before `gh pr merge`:
+**On `github`: do nothing.** `Closes #{issue}` in the PR body performs this transition when the merge lands. If that line is missing, add it to the PR body (`gh pr edit {pr} --body …`) rather than closing the issue by hand — closing it manually decouples the board from the merge, which is exactly the failure this design avoids.
+
+**On `markdown`:** only at the merge gate — checks green and merge approved, immediately before `gh pr merge`:
 ```
 board.move_task(task_id, "Review", "Done")
 board.update_task(task_id, { output: "PR #{pr_number}", completed: "YYYY-MM-DD" })
 ```
-On the markdown backend this touches **two** files: the row leaves `board-context.md` and is appended to `docs/board/done-{YYYY}-Q{N}.md` (created on the quarter's first completion). Stage both in the same commit — a Done row that lands without leaving the live board double-counts the task. See `@.claude/rules/shared/board-adapter.md`.
+This touches **two** files: the row leaves `board-context.md` and is appended to `docs/board/done-{YYYY}-Q{N}.md` (created on the quarter's first completion). Stage both in the same commit — a Done row that lands without leaving the live board double-counts the task. See `@.claude/rules/shared/board-adapter.md`.
 
 Push right after committing (see Step 3), then let the pushed commit's required checks go green before merging — the board commit is a new head and re-triggers CI.
 
@@ -110,7 +136,9 @@ Push right after committing (see Step 3), then let the pushed commit's required 
 
 Bounded by the same **3-iteration cap** as `/address-feedback` Step 7c — on the third failed run, stop and surface it to the user instead of looping again.
 
-## Step 3: Commit the Board Change
+## Step 3: Commit the Board Change (`markdown` only)
+
+**On `github` there is nothing to commit** — the transition is already live. Skip to Step 4.
 
 After updating `board-context.md`, commit it on the current branch so the board state travels with the code:
 
@@ -137,7 +165,9 @@ git commit -m "[{TASK-ID}] @{AgentName}: Update board — {task_id} → Done"
 git push
 ```
 
-## Planning-Only Board Edits
+## Planning-Only Board Edits (`markdown` only)
+
+*(On `github`, planning writes go straight to the API. There is no carrier requirement, and the tasks are visible to the next agent the moment they are created — regardless of what is committed.)*
 
 Some board edits have no code change to accompany: `/replenish` moving Backlog → Ready, `/new-feature` or `/tech-task` creating tasks, `/retro` filing action items.
 
@@ -184,7 +214,7 @@ This skill is automatically invoked by:
 - `/kick-off` — after the task pickup step (→ In Progress)
 - `/tech-task` — after creating and assigning a task (→ In Progress)
 - `/code-review` — only when the verdict is BLOCKED (→ Blocked). An APPROVED verdict leaves the task in Review; Done comes at the merge gate
-- `/address-feedback` — at the merge gate, after approval and before `gh pr merge` (→ Done)
+- `/address-feedback` — at the merge gate, after approval and before `gh pr merge` (→ Done, `markdown` only; on `github` it verifies the `Closes #{issue}` line instead)
 - `/dispatch` — after each dispatched agent completes work (→ Review)
 
 Agents can also invoke it directly at any time by saying "update board" or "move task to [column]".

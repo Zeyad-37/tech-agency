@@ -23,8 +23,8 @@ need to read them explicitly — they are already in your context.
 |---|---|
 | `agent-preamble.md` | The start-of-task and end-of-task checklist every agent runs |
 | `worktree-first.md` | Every task runs in its own git worktree; branch naming; base-branch resolution |
-| `board-in-pr.md` | Board edits ship inside the PR carrying the change they describe |
-| `board-adapter.md` | Platform-agnostic board operations (markdown / Jira / Linear / Asana) |
+| `board-in-pr.md` | On the `markdown` backend, board edits ship inside the PR carrying the change they describe; on `github`, `Closes #{issue}` in the PR body is the Done transition |
+| `board-adapter.md` | Platform-agnostic board operations and the `board_backend` setting (github / markdown / Jira / Linear / Asana; absent → markdown) |
 | `shared-standards.md` | Communication, quality gates, git + push policy, security/observability/testing baselines, Kanban protocol |
 | `operational-standards.md` | API versioning, dependency management, feature flags, DB change safety, SLOs, incident severity |
 | `handoff-protocol.md` | The 19 agent-to-agent handoff templates and the `docs/artifacts/{doc-type}/` filing convention (closed type list) |
