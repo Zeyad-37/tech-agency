@@ -218,7 +218,9 @@ Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **o
 
 - **`on_board: true`** — the item is already on the board, and `board_task` names the task: either
   the debt's own ID (some repos pull debt onto the board under that ID) or the one live task its
-  `Board Task` column names. Label **that task's issue**; do not create an issue for the debt. A
+  `Board Task` column names. IDs are matched by number — `TD-002` is the board's `TD-2`, `T-02` is
+  `T-2`, but `T-053.10` is not `T-053.1` — and `board_task` is the ID **as written on the board**,
+  the title prefix its issue carries. Label **that task's issue**; do not create an issue for the debt. A
   second issue would either collide with `[TD-n]` — the search-before-create guard silently skips
   whichever came second — or sit unlinked beside the task that resolves it. Several debt items may
   share one task; the issue then carries **one** `severity:` label, `issue_severity` — the highest

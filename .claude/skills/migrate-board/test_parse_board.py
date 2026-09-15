@@ -513,6 +513,40 @@ class TechDebtParsing(DebtDir):
         self.assertEqual((item["on_board"], item["board_task"]), (False, None))
         self.assertTrue(any("TD-002" in n and "T-005" in n and "Done" in n for n in debt["notes"]), debt["notes"])
 
+    def test_own_id_matches_the_board_task_by_number(self) -> None:
+        # Backlog TD-002 and a board row TD-2 are one task: merge onto the board's spelling.
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-2"), REVIEW, BLOCKED))
+        got = self.items(DEBT_STEADY)
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (True, "TD-2"))
+
+    def test_merge_by_number_is_not_counted_as_via_the_board_task_column(self) -> None:
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-2"), REVIEW, BLOCKED))
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pb.main(["--check", "--include-tech-debt", "--root", self.root]), 0)
+        self.assertIn("1 already on the board (0 via the Board Task column)", out.getvalue())
+
+    def test_board_task_column_matches_by_number(self) -> None:
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "T-2"), REVIEW, BLOCKED))
+        got = self.items(DEBT_STEADY.replace("| T-002 |", "| T-02 |"))
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (True, "T-2"))
+
+    def test_dotted_suffix_is_compared_as_a_number_not_a_prefix(self) -> None:
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "T-053.1"), REVIEW, BLOCKED))
+        got = self.items(DEBT_STEADY.replace("| T-002 |", "| T-053.10 |"))
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (False, None))
+
+    def test_done_board_task_note_matches_by_number(self) -> None:
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY.replace("| T-002 |", "| T-05 |"))  # T-005 is Done
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        item = {d["task_id"]: d for d in debt["items"]}["TD-002"]
+        self.assertEqual((item["on_board"], item["board_task"]), (False, None))
+        self.assertTrue(any("TD-002" in n and "Done" in n for n in debt["notes"]), debt["notes"])
+
+    def test_active_debt_whose_board_task_is_done_matches_by_number(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("T-005", "TD-0337"))
+        self.assertDebtProblem(DEBT_STEADY, "board task is Done")
+
     def test_board_task_naming_two_live_tasks_is_a_problem(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("| T-002 |", "| T-001 / T-002 |"),
                                "names 2 live board tasks")
