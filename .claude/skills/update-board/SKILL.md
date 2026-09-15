@@ -7,7 +7,7 @@ description: "Update the Kanban board when a task changes status and commit the 
 
 This skill moves a task through its lifecycle transitions. **Read `board_backend` from `.claude/settings.json` first** — the two backends behave differently, and doing the wrong one is silently wrong rather than an error.
 
-**On `github` (default):** a transition is an API write through the adapter. It takes effect immediately, there is no file to commit, and Step 3 is skipped entirely. `→ Done` is not written by this skill at all — `Closes #{issue}` in the PR body does it when the merge lands.
+**On `github` (default for new setups):** a transition is an API write through the adapter. It takes effect immediately, there is no file to commit, and Step 3 is skipped entirely. `→ Done` is not written by this skill at all — `Closes #{issue}` in the PR body does it when the merge lands.
 
 **On `markdown`:** a transition edits `board-context.md`, which is then committed on the branch carrying the change it describes so it lands in that change's PR. Board edits never get their own PR, and never a commit on `main`. Full policy: `@.claude/rules/shared/board-in-pr.md`.
 

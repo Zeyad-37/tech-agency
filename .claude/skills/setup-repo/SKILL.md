@@ -148,8 +148,10 @@ echo "--- Board ---"
 grep -q '"board_backend"' .claude/settings.json 2>/dev/null \
   && echo "[✓] board_backend set: $(grep -o '"board_backend"[^,}]*' .claude/settings.json)" \
   || echo "[✗] board_backend not set in .claude/settings.json"
-# board-context.md is only expected on the markdown backend.
-grep -q '"board_backend": *"markdown"' .claude/settings.json 2>/dev/null && {
+# board-context.md is only expected on the markdown backend — which includes an
+# absent key (absent resolves to markdown; see board-adapter.md § Configuration).
+grep -q '"board_backend": *"markdown"' .claude/settings.json 2>/dev/null \
+  || ! grep -q '"board_backend"' .claude/settings.json 2>/dev/null && {
   test -f board-context.md && echo "[✓] board-context.md exists" || echo "[✗] board-context.md missing"
 }
 
@@ -493,16 +495,37 @@ Write a `CLAUDE.md` that states:
 
 Present it to the user for review — it is the one file they will edit most.
 
-### 6e. Board (if missing)
+### 6e. Board backend (runs unconditionally), then the board (if missing)
 
-**First pick the backend** and write it to `.claude/settings.json`. This is the single most
-consequential setup choice for the board, and leaving it unset makes every board-touching skill
-guess (see `@.claude/rules/shared/board-adapter.md`):
+**First pick the backend and write it to `.claude/settings.json` — on every run, new and existing
+repos alike.** This is the single most consequential setup choice for the board. An absent key
+resolves to `markdown` (see `@.claude/rules/shared/board-adapter.md` § Configuration), so a repo
+only ever reaches `github` through an explicit write here or by `/migrate-board`.
 
-| `GITHUB_REMOTE` from Step 1 | `board_backend` | What gets scaffolded |
-|---|---|---|
-| `true` | `"github"` **(default)** | Labels only. No `board-context.md`. |
-| `false` | `"markdown"` | `board-context.md` + `docs/board/` as below |
+If `board_backend` is **already set**, leave it exactly as it is and report its value — never flip
+an existing choice. Otherwise decide from both Step 1 signals; this table is the whole decision:
+
+| `GITHUB_REMOTE` | `BOARD_EXISTS` | Write `board_backend` | What gets scaffolded |
+|---|---|---|---|
+| `true` | `false` | `"github"` **(default for new setups)** | Labels only. No `board-context.md`. |
+| `true` | `true` | `"markdown"` | Nothing — the existing board stays live. Tell the user `/migrate-board` moves it to GitHub: it repairs, dry-runs, never deletes, and is safe to re-run. |
+| `false` | either | `"markdown"` | `board-context.md` + `docs/board/` as below, if missing |
+
+An existing markdown board is **never** converted by `/setup-repo`. Writing `github` over a live
+`board-context.md` would make every board skill read an empty issue list while the real board sits
+in the file.
+
+```bash
+if grep -q '"board_backend"' .claude/settings.json 2>/dev/null; then
+  echo "Kept (already set): $(grep -o '"board_backend"[^,}]*' .claude/settings.json)"
+elif [ "$GITHUB_REMOTE" = "true" ] && [ "$BOARD_EXISTS" = "false" ]; then
+  BOARD_BACKEND=github
+else
+  BOARD_BACKEND=markdown
+fi
+# Merge {"board_backend": "$BOARD_BACKEND"} into .claude/settings.json (create the file if absent);
+# never overwrite other keys.
+```
 
 ```json
 // .claude/settings.json
@@ -526,10 +549,6 @@ There is no `status:done` label by design — Done is the issue being closed, wh
 
 `docs/board/decisions-log.md` is still created on **both** backends — it is a versioned document,
 not tracked work.
-
-**An existing repo that already has a markdown board** is not converted here. Say that
-`/migrate-board` performs that migration — it repairs, dry-runs, never deletes, and is safe to
-re-run — and leave `board_backend` as `"markdown"` until the user runs it.
 
 **On `markdown`**, `board-context.md` is project state, not plugin payload. Generate an empty board
 with the canonical column schema:

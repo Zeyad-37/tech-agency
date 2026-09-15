@@ -13,12 +13,18 @@ The board backend is configured per-project in `.claude/settings.json` via the `
 
 | Value | Backend | When |
 |---|---|---|
-| `"github"` | GitHub Issues + Projects v2, driven by `gh` | **Default.** Any repo with a GitHub remote |
-| `"markdown"` | `board-context.md` + `docs/board/` | Repos with no GitHub remote, or an explicit opt-out |
+| `"github"` | GitHub Issues + Projects v2, driven by `gh` | **Default for new setups.** What `/setup-repo` writes for a repo with a GitHub remote and no existing board |
+| `"markdown"` | `board-context.md` + `docs/board/` | Repos with no GitHub remote, repos with an existing markdown board not yet migrated, or an explicit opt-out |
 | `"jira"` / `"linear"` / `"asana"` / … | External tool over MCP | Teams already living in that tool |
 
-If the field is missing, default to `"github"` when `gh repo view` succeeds, and to `"markdown"`
-otherwise. `/setup-repo` writes the value explicitly so this fallback is never load-bearing.
+**If the field is missing, the backend is `"markdown"` — unconditionally.** Do not probe for a
+GitHub remote and do not infer anything else. A missing key means the repo was set up before this
+field existed, and every such repo keeps its board in `board-context.md`. Resolving it to `github`
+would make every board skill read an empty issue list while the real board sits in the file, and
+`board.create_task()` would start writing issues next to it.
+
+`/setup-repo` always writes the key explicitly — on new and existing repos alike — so a repo moves to
+`github` only by an explicit write: `/setup-repo` on a repo with no board, or `/migrate-board`.
 
 Migrating an existing markdown board to GitHub is what `/migrate-board` does. It never deletes the
 markdown files — it freezes them as history.
@@ -51,7 +57,7 @@ Every skill that interacts with the board MUST use these abstract operations. Th
 
 ## Backend Translations
 
-### `"github"` (default)
+### `"github"` (default for new setups)
 
 Tasks are GitHub Issues. Columns are a Projects v2 `Status` field, mirrored to `status:` labels so
 the board still works when Projects v2 is unavailable. Epics are native sub-issues.
@@ -88,7 +94,7 @@ limit query the label, so assignee stays meaningful for notifications.
 |-----------|-------------|
 | `board.read_all()` | One `gh issue list` per column (see the degradation note on fanning out) |
 | `board.read_column(column)` | `gh issue list --label "status:{column}" --json number,title,labels,assignees` — `Done` is `gh issue list --state closed` |
-| `board.read_task(task_id)` | `gh issue list --search "[{task_id}] in:title" --json number,title,body,labels,state`, then `gh issue view {n} --json …` |
+| `board.read_task(task_id)` | `gh issue list --state all --search "{task_id} in:title" --json number,title` piped to `jq -r --arg p "[{task_id}] " 'map(select(.title \| startswith($p))) \| .[0].number // empty'`, then `gh issue view {n} --json …`. The search only narrows candidates; the exact prefix match decides, so `[T-016]` never resolves to `[T-016.4]` |
 | `board.read_agent_wip(agent)` | `gh issue list --label "agent:{agent},status:in-progress" --json number,title` |
 | `board.search(query)` | `gh issue list --search "{query}" --state all` |
 | `board.move_task(id, from, to)` | `gh issue edit {n} --remove-label "status:{from}" --add-label "status:{to}"`; `→ Done` is `gh issue close {n}`; when Projects v2 is available also `gh project item-edit --id {item} --field-id {status} --single-select-option-id {opt}` |
