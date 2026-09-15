@@ -118,13 +118,14 @@ expects. The classes seen on real boards, and what fixes each:
 | `Backlog header is \| Task ID \| Priority \| Description \|` | An older 3-column schema | Add the `Requested By` column to the header and every row |
 | `row(s) starting at 'X' are cut off from their table` | A blank line or `---` split one table in two | Delete the blank line / `---` so the rows rejoin their table |
 | `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Put a backslash before it, `\\|` — the parser splits only on unescaped pipes and reads `\\|` back as a literal `\|` |
+| `T-049 appears 2 times — each row would become an issue with the same [T-049] title` | One ID reused for different work, or a live row repeating a task already in Done | **A human decides** which item keeps the ID. Give the other a new number with a *(was T-049 — …)* note, and move citations that meant it. A live row that only repeats finished work is removed. Under `DONE_MODE=freeze`, repeats inside the Done archive are ignored |
 | `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell of a row that will be migrated (any live column; Done under `DONE_MODE=issues`) | Move the commentary into the description |
 | `table under 'X' is missing an '#' or 'ID' column` | A debt table keyed by `Task ID` or similar | Rename that header cell to `ID` |
 | `table under 'X' is missing a Description column` | A debt table with the text under another name (`Title`, `Item`) | Rename that header cell to `Description` |
 | `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
 | `table under 'X' is missing a Severity column` | A debt table that may be open work or history | **A human decides**: add a Severity column if it is open, or put it under a resolved heading if it is finished (see *Resolved headings* below). A table under a resolved heading is history whatever its columns |
 
-The two "a human decides" rows are different in kind: the rest are mechanical, but a duplicated,
+The "a human decides" rows are different in kind: the rest are mechanical, but a duplicated,
 contradictory or unclassifiable debt item is a question about what is actually true, so surface it
 rather than resolving it.
 
@@ -182,7 +183,8 @@ done
 There is deliberately no `status:done` label — Done is the issue being **closed**, which is what
 makes `Closes #N` in a PR body perform the transition (`@.claude/rules/shared/board-in-pr.md`).
 
-`agent:{name}` labels are not in this list because the agent names come from the board itself. Step 4
+`agent:@Name` labels are not in this list because which agents appear depends on the board: the
+parser keeps the agency agents each row names (see Step 4). Step 4
 creates each one — idempotently, with `--force` — immediately before the first issue that uses it,
 so no `gh issue create` ever references a label that does not exist.
 
@@ -202,44 +204,74 @@ than a malformed `--label "priority:"`. On a board whose In Progress / Review / 
 schemas have no `Priority` column, that is every task in those columns.
 
 ```bash
+# Exact "[ID] " title-prefix lookup, decided client-side. Steps 4b and 5 define it
+# again: a resumed step runs in a new shell, where a missing function would turn the
+# guard below into "always create".
+issue_for() {
+  gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
+    | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
+}
+
 # Tasks are read on fd 3 so no gh call inside the loop can swallow the list from stdin.
 while read -r task <&3; do
   TASK_ID=$(jq -r '.task_id' <<<"$task")
   COLUMN=$(jq -r '.column' <<<"$task")
-  DESCRIPTION=$(jq -r '.description' <<<"$task")
-  AGENT=$(jq -r '.agent // ""' <<<"$task")
-  PRIORITY=$(jq -r '.priority // ""' <<<"$task")
-  # Extend BODY with the row's remaining fields per the bullets below the block.
-  BODY="Migrated from $(jq -r '.source' <<<"$task") on $(date +%F)."
+  TITLE=$(jq -r '.title' <<<"$task")                   # "[ID] description", cut to 256 chars
+  PRIORITY=$(jq -r '.priority_label' <<<"$task")        # P0–P3, or empty
+  # Body: every field of the row (the full description included — the title may be
+  # cut), already capped under GitHub's 65,536-character limit by the parser.
+  BODY="$(jq -r '.body' <<<"$task")"$'\n\n'"Migrated from $(jq -r '.source' <<<"$task") on $(date +%F)."
 
   # Idempotency guard: exact "[TASK-ID] " prefix, decided client-side.
-  existing=$(gh issue list --state all --limit 100 --search "$TASK_ID in:title" \
-               --json number,title \
-             | jq -r --arg p "[$TASK_ID] " \
-                 'map(select(.title | startswith($p))) | .[0].number // empty')
+  existing=$(issue_for "$TASK_ID")
   if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
 
   labels=()
   # Done has no status label — Done is the issue being closed.
   [ "$COLUMN" != "done" ] && labels+=(--label "status:$COLUMN")
-  if [ -n "$AGENT" ]; then
-    gh label create "agent:$AGENT" --color "bfdadc" --force >/dev/null   # idempotent
-    labels+=(--label "agent:$AGENT")
-  fi
+  while read -r agent; do   # one agent:@Name label per agent the row names
+    [ -n "$agent" ] || continue
+    gh label create "agent:$agent" --color "bfdadc" --force >/dev/null   # idempotent
+    labels+=(--label "agent:$agent")
+  done < <(jq -r '.agents[]' <<<"$task")
   [ -n "$PRIORITY" ] && labels+=(--label "priority:$PRIORITY")
 
-  url=$(gh issue create --title "[$TASK_ID] $DESCRIPTION" --body "$BODY" "${labels[@]}")
+  url=$(gh issue create --title "$TITLE" --body "$BODY" "${labels[@]}")
   if [ "$COLUMN" = "done" ]; then
     gh issue close "${url##*/}" --reason completed
   fi
 done 3< <(jq -c '.[]' "$BOARD_JSON")
 ```
 
-- **Title** carries the Task ID prefix. That prefix is the identity — branch names, commit
-  prefixes and artifact filenames all key off it, and `board.read_task()` resolves by searching it.
-- **Body** carries whatever the row could not: acceptance criteria, links to
-  `docs/artifacts/…`, the original `Started` / `Waiting Since` date, and a
-  `Migrated from board-context.md on {date}` line for provenance.
+- **Title** is the parser's `title`: `[TASK-ID] description`, cut to GitHub's 256-character cap.
+  Board descriptions are often paragraphs, and `gh issue create` rejects a longer title outright.
+  - The cut prefers a word boundary, but hard-cuts a long URL or path rather than dropping it.
+  - It avoids splitting common character clusters: accents, Indic conjuncts, emoji sequences, flags.
+  - The prefix is the identity. Branch names, commit prefixes and artifact filenames all key off it,
+    and `board.read_task()` resolves by searching it.
+- **Labels** come from normalised fields, never the raw cells.
+  - `agents` holds each **agency agent** the Agent cell names, spelled canonically. `@Kai (with @Link)`
+    gives two labels. With no agent @mention, capitalised agent names count: `Kai / Link`,
+    `Shield (review)`. Lower-case prose such as "link to PR" does not.
+  - The agents are the files in the plugin's `agents/` directory, plus Claude.
+  - `TBD`, `N/A`, email addresses and humans (`@Zeyad`) give no agent label. The human owner is the
+    assignee. `--check` lists every such cell, grouped by value, so none is dropped silently.
+  - `priority_label` is `P0`–`P3` or empty: `**P1**` gives `P1`.
+  - A raw cell would give a label nobody queries, or one Step 3 never created, and the create
+    would fail.
+- **Synthetic epics.** When stories name a stem that has no row anywhere (`T-054.1`, `T-054.2`,
+  but no `T-054`) — one story is enough, and under `DONE_MODE=issues` Done stories count too — the
+  parser emits a placeholder task for the stem, marked `synthetic: true`, placed before its stories.
+  - It takes the column most of its **open** stories are in. Ties go to the further-along column,
+    and Blocked never wins a tie.
+  - It is Done only when every story is Done, so an epic is never closed over open work.
+  - It becomes an ordinary issue, so Step 5 has a parent to link to and Step 7 expects it.
+- **Body** is the parser's `body`: every field of the row, with the full description, links,
+  and the original `Started` / `Waiting Since` date, then a `Migrated from … on {date}` line for
+  provenance. It is capped under GitHub's 65,536-character limit.
+  - An over-long field is cut, with a note naming the markdown file that keeps the full text.
+  - If even the longest field cannot absorb the excess (thousands of fields), the whole body is cut
+    instead, with the same note.
 - **Assignee** is the human owner (`gh repo view --json owner`), never the agency agent — @Kai and
   @Atlas have no GitHub accounts. The agent is the `agent:` label.
 - **Done rows** exist in `$BOARD_JSON` only when `DONE_MODE=issues`. They are created and then
@@ -267,7 +299,7 @@ Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **o
   get their own issue, and the parser lists them in `notes` for the report.
 
 ```bash
-# Exact "[ID] " title-prefix lookup, decided client-side (see Step 4).
+# Exact "[ID] " title-prefix lookup, as in Step 4 — defined here too, for a resumed run.
 issue_for() {
   gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
     | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
@@ -301,9 +333,8 @@ while read -r item <&3; do
   existing=$(issue_for "$TASK_ID")
   if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
 
-  # Body: every field of the row, so the prose transfers intact.
-  BODY=$(jq -r '.fields | to_entries | map("**\(.key):** \(.value)") | join("\n\n")' <<<"$item")
-  BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
+  # Body: every field of the row, so the prose transfers intact — capped by the parser.
+  BODY="$(jq -r '.body' <<<"$item")"$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
   # .title is "[TD-n] description", already cut to GitHub's 256-character cap.
   gh issue create --title "$(jq -r '.title' <<<"$item")" --body "$BODY" \
     --label status:backlog --label tech-debt --label "severity:$ISSUE_SEVERITY"
@@ -316,7 +347,7 @@ fi
 ```
 
 Descriptions are often long, and GitHub caps titles at 256 characters. The parser's `title` field
-is already cut at a word boundary (ending in `…`) to fit, and keeps the `[TD-n] ` prefix the
+is already cut to fit (ending in `…`), exactly as for board tasks in Step 4, and keeps the `[TD-n] ` prefix the
 search-before-create guard matches on; the body carries the full description.
 
 Resolved tables (`not_migrated` in the JSON) are never imported — an issue is open work, and those
@@ -331,8 +362,30 @@ directly — no GraphQL, and only the `repo` scope, so this works even when Step
 gh issue edit "$PARENT_NUM" --add-sub-issue "$CHILD_NUM"
 ```
 
-If the stem has no issue of its own, create one first as the epic, labelled with the column its
-children mostly sit in. Re-running is safe: adding an existing sub-issue is a no-op.
+Every parent a live story needs is in `$BOARD_JSON`: a real row, or a `synthetic` epic the parser
+added (Step 4 created both). Link each story to its parent:
+
+```bash
+# Exact "[ID] " title-prefix lookup, as in Step 4 — defined here too, for a resumed run.
+issue_for() {
+  gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
+    | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
+}
+
+while read -r pair <&3; do
+  child=$(issue_for "${pair%% *}"); parent=$(issue_for "${pair##* }")
+  if [ -z "$child" ] || [ -z "$parent" ]; then
+    # GitHub search indexes new issues with a delay. Re-running Step 4 now would miss
+    # them in its own guard and create duplicates — wait, then re-run THIS step.
+    echo "STOP: no issue found yet for $pair. Wait a minute for search to catch up, then re-run Step 5."
+    echo "      If it persists, check the issue exists before touching Step 4."
+    exit 1
+  fi
+  gh issue edit "$parent" --add-sub-issue "$child"
+done 3< <(jq -r '.[] | select(.parent != null and (.parent_frozen | not)) | "\(.task_id) \(.parent)"' "$BOARD_JSON")
+```
+
+Re-running is safe: adding an existing sub-issue is a no-op.
 
 **Except when `parent_frozen` is true.** Under `DONE_MODE=freeze`, a story whose epic is a Done row
 has no epic issue on purpose — creating one would resurrect finished work as an open issue. Leave
@@ -365,12 +418,15 @@ against GitHub **in both directions**, over a fully paginated issue list — no 
   a close as *not planned* is not Done).
 - **EXTRA** — an issue in that column whose Task ID is not in the markdown.
 - **DUPLICATE** — a Task ID with more than one issue, the exact failure Step 4's guard exists to
-  prevent. Closing the extras as *not planned* resolves it.
+  prevent. (A Task ID repeated in the *markdown* never gets this far: Step 2's `--check` refuses
+  it.) Closing the extras as *not planned* resolves it.
 - **NO TABLE** — a column's source file exists but no table for that column was found in it, so a
   wholly dropped column cannot pass as an empty one. A table holding only the `—` placeholder is a
   genuinely empty column and passes.
 
-Under `DONE_MODE=freeze` the Done line reads `frozen` and is not compared. With
+Placeholder epics count like any other task. The `synthetic` tasks Step 4 created are expected in
+their column, so a missing placeholder is reported as MISSING, not ignored. Under `DONE_MODE=freeze`
+the Done line reads `frozen` and is not compared. With
 `--include-tech-debt`, a `tech-debt` line checks every active item is an **open** issue carrying
 `tech-debt` and exactly one `severity:` label, `issue_severity` (the highest among every item on that
 issue) — its own issue, or the board task it was merged onto:
