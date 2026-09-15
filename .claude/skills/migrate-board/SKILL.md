@@ -118,9 +118,11 @@ Then parse:
 ```bash
 BOARD_JSON=$(mktemp "${TMPDIR:-/tmp}/board-XXXXXX.json")
 python3 .claude/skills/migrate-board/parse_board.py --json --done "$DONE_MODE" > "$BOARD_JSON"
-# When DEBT=yes:
-DEBT_JSON=$(mktemp "${TMPDIR:-/tmp}/debt-XXXXXX.json")
-python3 .claude/skills/migrate-board/parse_board.py --tech-debt > "$DEBT_JSON"
+# Only when migrating debt — DEBT_FLAG is set in Step 1:
+if [ -n "$DEBT_FLAG" ]; then
+  DEBT_JSON=$(mktemp "${TMPDIR:-/tmp}/debt-XXXXXX.json")
+  python3 .claude/skills/migrate-board/parse_board.py --tech-debt > "$DEBT_JSON"
+fi
 ```
 
 Show the user the counts per column, the Done mode, and — when migrating debt — the active item
@@ -212,7 +214,7 @@ done 3< <(jq -c '.[]' "$BOARD_JSON")
   `freeze` there are no Done rows to create — they stay in the frozen `docs/board/done-*.md`.
 - **Blocked rows** get the blocker reason as a comment, not squeezed into the title.
 
-## Step 4b: Import tech debt (skip when `DEBT=no`)
+## Step 4b: Import tech debt (skip when `DEBT_FLAG` is empty)
 
 Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **one of two paths**:
 
