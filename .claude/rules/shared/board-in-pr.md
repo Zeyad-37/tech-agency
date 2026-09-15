@@ -100,14 +100,15 @@ The split introduced by `board-adapter.md` makes these conflicts rarer and easie
 
 ## What the Committed Board Records
 
-*(`markdown` only. On `github` the board is live, and the tech-debt item tracking the gap below is
-retired — see `@.claude/rules/shared/board-adapter.md` § Known Limitation.)*
+*(`markdown` only. On `github` the board is live and the gap below does not exist; the tech-debt
+item tracking it is scoped to `markdown` and stays open — see `@.claude/rules/shared/board-adapter.md`
+§ Known Limitation.)*
 
 Because every transition merges with the change it describes, the archives on `main` are an accurate record of **completed** work — `docs/board/done-*.md`, the decisions log, and the task inventory. `board-context.md` is not a live view of in-flight work: a task's `→ In Progress` or `→ Blocked` commit sits on an unmerged branch until that branch's PR lands, so a checkout of `main` shows an empty or stale In Progress column.
 
 Live state is therefore **derived**, not read: open PRs and their branches are the source of truth for what is In Progress, in Review, or Blocked (`gh pr list`, `git branch -r`, and each branch's own `board-context.md`).
 
-Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked in `docs/guides/tech-debt/backlog.md` and is out of scope for this rule.
+Known limitation: the consumers that report live state — `/pick-up-task`'s 2-item WIP check and `/daily-sync`'s In Progress count, WIP violations, blockers, and cycle-time alerts — still read those columns straight from the merged file, and will therefore under-report in-flight work. Reworking them onto the derived source is tracked as item #3 in `docs/guides/tech-debt/backlog.md` and is out of scope for this rule.
 
 ## What This Rule Forbids
 

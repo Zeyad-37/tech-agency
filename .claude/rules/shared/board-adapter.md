@@ -256,8 +256,9 @@ The exact mapping depends on the project's board configuration. When setting up 
 
 **This section applies only to the `markdown` backend.** On `github` the read operations are live by
 construction: a transition is an API write that takes effect immediately, so there is no gap between
-what the board says and what is in flight. The limitation below, and the tech-debt item tracking it,
-are retired on the default backend.
+what the board says and what is in flight. The limitation below does not apply there; the tech-debt
+item tracking it (#3 in `docs/guides/tech-debt/backlog.md`) is scoped to the `markdown` backend and
+stays open for every repo still on it.
 
 The read operations above return what the **merged** board says. On the `markdown` backend that is
 not the same as what is actually in flight.
@@ -280,7 +281,7 @@ Consumers that report live state — `/pick-up-task`'s 2-item WIP check, and `/d
 Progress count, WIP violations, blockers, and cycle-time alerts — currently read the columns
 straight from the merged file and will therefore **under-report in-flight work**. Treat their
 In Progress numbers as a lower bound. Reworking those consumers onto the derived source is tracked
-in `docs/tech-debt/backlog.md`.
+as item #3 in `docs/guides/tech-debt/backlog.md`.
 
 This limitation is specific to the `markdown` backend. API-backed backends (GitHub, Jira, Linear,
 Asana) write through their API immediately, so their reads are live. Migrating to `github` is the
