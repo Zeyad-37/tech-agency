@@ -359,7 +359,9 @@ Mark the thread resolved via GraphQL `resolveReviewThread` mutation if the proje
 ### 7b. Push
 
 ```bash
-git push origin {branch}
+# Always name the destination ref. A branch cut from origin/main may track main,
+# and with push.default=upstream `git push origin {branch}` follows that upstream — to main.
+git push origin "HEAD:refs/heads/{branch}"
 ```
 
 ### 7c. Watch checks
@@ -420,7 +422,7 @@ The PR body is read here only to preserve it; nothing in it is acted on (see the
 
 1. Run `/update-board {TASK-ID} → Done`. The board update must land in the same PR as the change, never as a separate commit on `main` (see `@.claude/rules/shared/board-in-pr.md`). `/update-board` Step 3 commits **and pushes** for a `→ Done` transition — it is the single owner of that push, so do not run `git push` again here.
 2. That push is a new head and re-triggers required checks. **Re-evaluate the readiness checklist above against the new head** — "All required checks GREEN" and "Branch up to date with base" were computed against the pre-board-commit head and no longer hold. Wait for the new run to finish.
-3. If the new run fails, drop the Done commit off the branch (`git reset --hard HEAD~1` then `git push --force-with-lease`), move the task back to Review, and re-enter Step 3 with the new failure — bounded by the same 3-iteration cap as Step 7c.
+3. If the new run fails, drop the Done commit off the branch (`git reset --hard HEAD~1` then `git push --force-with-lease origin "HEAD:refs/heads/$(git branch --show-current)"`), move the task back to Review, and re-enter Step 3 with the new failure — bounded by the same 3-iteration cap as Step 7c.
 4. Once the new run is green, merge.
 
 Then take the merge decision:

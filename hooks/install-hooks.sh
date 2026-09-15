@@ -116,4 +116,4 @@ echo "  commit-msg  — Subject format: [TAG] @Agent: description (@Agent option
 echo "  pre-push    — Branch naming (warning), refspec-aware main protection,"
 echo "                commit format, tests, build verification"
 echo ""
-echo "To bypass in emergencies: git commit --no-verify / git push --no-verify"
+echo "To bypass in emergencies: git commit --no-verify / git push --no-verify origin \"HEAD:refs/heads/\$(git branch --show-current)\""

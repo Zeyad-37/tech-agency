@@ -508,7 +508,7 @@ If a gate fails, the push is aborted. Do not bypass.
   Verification gate: passed
 
 To push and open the PR yourself:
-  git push -u origin {branch}
+  git push -u origin HEAD:refs/heads/{branch}
   gh pr create --base {BASE} --title "[{TASK-ID}] {short description}" --body-file <file>
 
 Or re-run `/create-pr` without --no-push to do both automatically.
@@ -519,8 +519,11 @@ Print the prepared body so the human can paste or redirect it to a file. Then sk
 Otherwise (auto-push, the default), proceed:
 
 ```bash
-# 1. Push the branch (set upstream if first push)
-git push -u origin "$BRANCH"
+# 1. Push the branch to ITS OWN ref, and set that as the upstream.
+#    Never `git push -u origin "$BRANCH"`: a branch cut from origin/main may track main,
+#    and with push.default=upstream that sends the commits to main. The explicit refspec
+#    cannot, whatever the branch tracks or the repo's push.default says.
+git push -u origin "HEAD:refs/heads/$BRANCH"
 
 # 2. Create the PR
 gh pr create \
@@ -706,7 +709,7 @@ If the PR already exists and you need to update it (e.g., after code review chan
 2. Push immediately — `/create-pr` carries push authorization:
 
 ```bash
-git push
+git push origin "HEAD:refs/heads/$(git branch --show-current)"
 
 # Update the PR body if needed
 gh pr edit {PR_NUMBER} --body "$(cat <<'EOF'

@@ -55,6 +55,8 @@ PLACEHOLDER = "—"
 SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
 TASK_ID = re.compile(r"^[A-Za-z]+-\d+(\.\d+)?$")
 TITLE_ID = re.compile(r"^\[([A-Za-z]+-\d+(?:\.\d+)?)\] ")
+# The ID a legacy Done cell starts with — `T-013 (Phase 3 pilot)` is still epic T-013.
+LEADING_ID = re.compile(r"^[A-Za-z]+-\d+(?:\.\d+)?(?![\w.])")
 
 # Tech debt: the current location first, then the pre-reorganisation one that
 # older consumers still use. Both present is an error, not a preference — importing
@@ -266,8 +268,13 @@ def column_tables(root: str, col: str) -> list[dict]:
     return found
 
 
-def check(root: str) -> list[str]:
-    """Every reason the board is not safe to migrate. Empty list == valid."""
+def check(root: str, done_mode: str = "issues") -> list[str]:
+    """Every reason the board is not safe to migrate. Empty list == valid.
+
+    Under `freeze` a Done row is never migrated, so its ID is not validated: a
+    legacy cell like `T-013 (Phase 3 pilot)` stays readable history rather than
+    forcing an edit to a closed quarter. Its table structure still is — a cut-off
+    row or a wrong header corrupts the frozen archive just as surely."""
     problems: list[str] = []
     seen: set[str] = set()
     for sources, _ in COLUMNS.values():
@@ -292,6 +299,8 @@ def check(root: str) -> list[str]:
                     continue  # a stray header row; reported structurally
                 if len(c) != len(t["header"]):
                     problems.append(f"{t['source']}:{n}: row has {len(c)} cells, {HEADING[col]} expects {len(t['header'])}")
+                elif col == "done" and done_mode == "freeze":
+                    continue
                 elif c[0] != PLACEHOLDER and not TASK_ID.match(c[0]):
                     problems.append(f"{t['source']}:{n}: '{c[0]}' is not a Task ID — the row would be dropped")
 
@@ -305,6 +314,13 @@ def check(root: str) -> list[str]:
                     f"{LIVE}: '## {heading}' must not be in the live board — it belongs in "
                     f"{home} (board-adapter.md)")
     return problems
+
+
+def done_task_ids(board: list[dict]) -> set[str]:
+    """The Task IDs the Done archive records. A legacy cell names its task by its
+    leading ID — `T-013 (Phase 3 pilot)` is T-013 — and a cell with none (`T-PICKER-THEME`)
+    names no task another row could refer to."""
+    return {m.group(0) for t in board if t["column"] == "done" and (m := LEADING_ID.match(t["task_id"]))}
 
 
 def notices(root: str) -> list[str]:
@@ -321,9 +337,9 @@ def notices(root: str) -> list[str]:
     return found
 
 
-def parse(root: str) -> list[dict]:
+def parse(root: str, done_mode: str = "issues") -> list[dict]:
     """Tasks in migration order (COLUMNS order). Raises BoardError on a corrupt board."""
-    problems = check(root)
+    problems = check(root, done_mode)
     if problems:
         raise BoardError("\n".join(problems))
     tasks: list[dict] = []
@@ -506,7 +522,7 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
     for num in sorted(set(active) & set(resolved)):
         both = " / ".join(dict.fromkeys(active[num] + resolved[num]))
         problems.append(f"{rel}: {both} is listed as both active and resolved — decide which is true")
-    done = id_index({t["task_id"] for t in board if t["column"] == "done"})
+    done = id_index(done_task_ids(board))
     for tid in sorted(i for ids in active.values() for i in set(ids) if task_key(i) in done):
         as_written = "" if done[task_key(tid)] == tid else f" (on the board as {done[task_key(tid)]})"
         problems.append(f"{rel}: {tid} is active debt but its board task is Done{as_written} — mark the "
@@ -578,7 +594,7 @@ def parse_debt(root: str, board: list[dict]) -> dict:
     if rel is None:
         return result
     live_ids = {t["task_id"] for t in board if t["column"] != "done"}
-    done_ids = {t["task_id"] for t in board if t["column"] == "done"}
+    done_ids = done_task_ids(board)
     for t in debt_tables(root, rel):
         if t["kind"] not in ("active", "resolved"):
             continue  # debt_check has already refused these
@@ -622,8 +638,10 @@ def board_tasks(root: str, done_mode: str) -> list[dict]:
     """parse(), shaped for migration. Under `freeze`, Done rows stay markdown
     history; a live story whose epic is one of them is flagged `parent_frozen`,
     because creating that epic would resurrect finished work as an open issue."""
-    tasks = parse(root)
-    done_ids = {t["task_id"] for t in tasks if t["column"] == "done"}
+    tasks = parse(root, done_mode)
+    # A task still live is not frozen, even if an earlier phase of it sits in Done:
+    # it becomes an issue, and its stories must link to it.
+    done_ids = done_task_ids(tasks) - {t["task_id"] for t in tasks if t["column"] != "done"}
     if done_mode == "freeze":
         tasks = [t for t in tasks if t["column"] != "done"]
     for t in tasks:
@@ -657,7 +675,7 @@ def issue_column(issue: dict) -> str | None:
 
 
 def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> int:
-    tasks = parse(root)
+    tasks = parse(root, done_mode)
     debt = parse_debt(root, tasks) if include_debt else None
     issues = fetch_issues()
     failures = 0
@@ -678,7 +696,14 @@ def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> 
         if n > 1:
             print(f"  DUPLICATE on GitHub: [{tid}] appears {n} times — close the extras as not planned")
             failures += 1
-    for tid, n in sorted(Counter(t["task_id"] for t in tasks).items()):
+    # Under freeze a task done twice in the archive creates nothing on GitHub, so
+    # Done-vs-Done repeats are history. A Done row repeating a LIVE task is still a
+    # contradiction — the task cannot be both finished and in flight.
+    live_ids = {t["task_id"] for t in tasks if t["column"] != "done"}
+    counted = [t for t in tasks if not (done_mode == "freeze" and t["column"] == "done")]
+    if done_mode == "freeze":
+        counted += list({t["task_id"]: t for t in tasks if t["column"] == "done" and t["task_id"] in live_ids}.values())
+    for tid, n in sorted(Counter(t["task_id"] for t in counted).items()):
         if n > 1:
             print(f"  DUPLICATE in markdown: {tid} appears {n} times")
             failures += 1
@@ -772,7 +797,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if a.check:
-            tasks = parse(a.root)
+            tasks = parse(a.root, a.done)
             for note in notices(a.root):
                 print(f"  note: {note}")
             print(f"Board is structurally valid. {len(tasks)} task(s) parsed.")
@@ -794,7 +819,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(board_tasks(a.root, a.done), indent=2, ensure_ascii=False))
             return 0
         if a.tech_debt:
-            print(json.dumps(parse_debt(a.root, parse(a.root)), indent=2, ensure_ascii=False))
+            print(json.dumps(parse_debt(a.root, parse(a.root, a.done)), indent=2, ensure_ascii=False))
             return 0
         return verify(a.root, a.done, a.include_tech_debt)
     except BoardError as e:

@@ -77,9 +77,9 @@ BASE="main"                      # from Step 1b — may be an epic integration b
 WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${BRANCH//\//-}"
 # Always branch from the resolved base on the remote — never from whatever happens to be checked out.
 git fetch origin "$BASE"
-git worktree add -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
+git worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "origin/$BASE"
 # Hotfix exception: branch from the release tag instead:
-#   git worktree add -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
+#   git worktree add --no-track -b "$BRANCH" "$WORKTREE_DIR" "v{X.Y.Z}"
 
 # Copy local.properties (gitignored) into the worktree so Gradle can resolve
 # sdk.dir, Android SDK paths, and any other host-machine config. Without this,
@@ -252,7 +252,7 @@ do
   base="${pair##*:}"
   WORKTREE_DIR="${MAIN_REPO}/../$(basename "$MAIN_REPO")-worktrees/${branch//\//-}"
   git fetch origin "$base"
-  git worktree add -b "$branch" "$WORKTREE_DIR" "origin/$base"
+  git worktree add --no-track -b "$branch" "$WORKTREE_DIR" "origin/$base"
   [ -f "${MAIN_REPO}/local.properties" ] && cp "${MAIN_REPO}/local.properties" "${WORKTREE_DIR}/local.properties"
 done
 

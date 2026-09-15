@@ -986,6 +986,82 @@ class ParserResolution(unittest.TestCase):
         self.assertIn("parse_board.py not found", out)
 
 
+class FrozenDoneIds(BoardDir):
+    """Under --done freeze, Done rows are never migrated, so their IDs must not
+    block a migration they take no part in. Table structure is still validated."""
+
+    LEGACY = DONE_FILE.replace("| T-005 |", "| T-013 (Phase 3 pilot) |")
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", self.LEGACY)
+
+    def test_freeze_accepts_a_non_standard_done_id(self) -> None:
+        self.assertEqual(pb.check(self.root, "freeze"), [])
+        self.assertIn("T-013 (Phase 3 pilot)", {t["task_id"] for t in pb.parse(self.root, "freeze")})
+
+    def test_issues_mode_still_rejects_it(self) -> None:
+        self.assertTrue(any("is not a Task ID" in p for p in pb.check(self.root, "issues")))
+        with self.assertRaises(pb.BoardError):
+            pb.board_tasks(self.root, "issues")
+
+    def test_freeze_still_validates_done_table_structure(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", self.LEGACY.replace("| PR #5 |", "| PR #5 | extra |"))
+        self.assertTrue(any("row has 6 cells" in p for p in pb.check(self.root, "freeze")))
+
+    def test_freeze_ignores_duplicate_ids_inside_done(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-005 | @Claude | Same id again | PR #6 | 2026-09-04 |\n")
+        issues = [issue("T-004", status="backlog"), issue("T-001", status="ready"), issue("T-002", status="in-progress"),
+                  issue("T-003", status="review"), issue("T-003.1", status="review")]
+        with mock.patch.object(pb, "fetch_issues", return_value=issues), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            code = pb.verify(self.root, "freeze")
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertNotIn("DUPLICATE in markdown", out.getvalue())
+
+    def test_live_story_under_a_legacy_suffixed_frozen_epic_is_parent_frozen(self) -> None:
+        self.write("board-context.md", live(READY, IN_PROGRESS, REVIEW.replace(
+            "| T-003 | @Swift | Reviewed task | @Zeyad | 2026-09-02 |\n", ""), BLOCKED))
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-003 (phase 1) |"))
+        by_id = {t["task_id"]: t for t in pb.board_tasks(self.root, "freeze")}
+        self.assertTrue(by_id["T-003.1"]["parent_frozen"])
+
+    def test_live_epic_with_a_suffixed_done_row_is_not_frozen(self) -> None:
+        # T-003 is live in Review; its finished phase sits in Done as "T-003 (phase 1)".
+        # The epic still becomes an issue, so its story must link to it.
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-003 (phase 1) |"))
+        by_id = {t["task_id"]: t for t in pb.board_tasks(self.root, "freeze")}
+        self.assertIn("T-003", by_id)
+        self.assertFalse(by_id["T-003.1"]["parent_frozen"])
+
+    def test_freeze_still_flags_a_task_both_live_and_done(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-001 |"))
+        with mock.patch.object(pb, "fetch_issues", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pb.verify(self.root, "freeze"), 1)
+        self.assertIn("DUPLICATE in markdown: T-001", out.getvalue())
+
+    def test_debt_on_a_suffixed_done_task_is_still_noted(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| T-005 (phase 1) |"))
+        os.makedirs(os.path.join(self.root, "docs/tech-debt"), exist_ok=True)
+        self.write("docs/tech-debt/backlog.md", DEBT_STEADY.replace("| T-002 |", "| T-005 |"))
+        debt = pb.parse_debt(self.root, pb.parse(self.root, "freeze"))
+        self.assertTrue(any("TD-002" in n and "Done" in n for n in debt["notes"]), debt["notes"])
+
+    def test_active_debt_listed_as_a_suffixed_done_row_is_a_problem(self) -> None:
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("| T-005 |", "| TD-337 (follow-up) |"))
+        os.makedirs(os.path.join(self.root, "docs/tech-debt"), exist_ok=True)
+        self.write("docs/tech-debt/backlog.md", DEBT_STEADY)
+        problems = pb.debt_check(self.root, pb.parse(self.root, "freeze"))
+        self.assertTrue(any("TD-337" in p and "board task is Done" in p for p in problems), problems)
+
+    def test_cli_check_takes_the_done_mode(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(pb.main(["--check", "--done", "freeze", "--root", self.root]), 0)
+            self.assertEqual(pb.main(["--check", "--root", self.root]), 1)
+
+
 class FetchIssues(unittest.TestCase):
     def test_paginates_instead_of_limiting(self) -> None:
         completed = mock.Mock(returncode=0, stdout='{"title":"[T-1] a","state":"open","state_reason":null,"labels":[]}\n')

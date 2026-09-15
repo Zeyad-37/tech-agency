@@ -96,8 +96,14 @@ Markdown boards corrupt silently — a merge can leave separator rows before the
 sections the schema no longer has, and nothing detects it. Validate before trusting the contents:
 
 ```bash
-python3 "$PARSER" --check $DEBT_FLAG
+python3 "$PARSER" --check --done "$DONE_MODE" $DEBT_FLAG
 ```
+
+`--done` matters here, not only at parse time. Under `freeze` a Done row is never migrated, so its
+ID cell is **not** validated: legacy commentary such as `T-013 (Phase 3 pilot)` stays as written in a
+closed quarter instead of forcing an edit to history. Its table structure still is — a cut-off row or
+a wrong header damages the frozen archive as much as the live board. Under `issues` every Done row
+becomes an issue and must carry a real Task ID.
 
 If it reports problems, **fix them and commit that repair as its own commit** before migrating.
 A repair mixed into the migration commit is invisible in history, and the repair is worth reviewing
@@ -112,7 +118,7 @@ expects. The classes seen on real boards, and what fixes each:
 | `Backlog header is \| Task ID \| Priority \| Description \|` | An older 3-column schema | Add the `Requested By` column to the header and every row |
 | `row(s) starting at 'X' are cut off from their table` | A blank line or `---` split one table in two | Delete the blank line / `---` so the rows rejoin their table |
 | `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Put a backslash before it, `\\|` — the parser splits only on unescaped pipes and reads `\\|` back as a literal `\|` |
-| `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell | Move the commentary into the description |
+| `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell of a row that will be migrated (any live column; Done under `DONE_MODE=issues`) | Move the commentary into the description |
 | `table under 'X' is missing an '#' or 'ID' column` | A debt table keyed by `Task ID` or similar | Rename that header cell to `ID` |
 | `table under 'X' is missing a Description column` | A debt table with the text under another name (`Title`, `Item`) | Rename that header cell to `Description` |
 | `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
@@ -149,7 +155,7 @@ python3 "$PARSER" --json --done "$DONE_MODE" > "$BOARD_JSON"
 # Only when migrating debt — DEBT_FLAG is set in Step 1:
 if [ -n "$DEBT_FLAG" ]; then
   DEBT_JSON=$(mktemp "${TMPDIR:-/tmp}/debt-XXXXXX.json")
-  python3 "$PARSER" --tech-debt > "$DEBT_JSON"
+  python3 "$PARSER" --tech-debt --done "$DONE_MODE" > "$DEBT_JSON"
 fi
 ```
 
