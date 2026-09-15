@@ -125,6 +125,16 @@ class ValidBoard(BoardDir):
         self.assertEqual(by_id["T-001"]["priority"], "P1")
         self.assertEqual(by_id["T-003.1"]["parent"], "T-003")
 
+    def test_cells_split_only_on_unescaped_pipes(self) -> None:
+        self.assertEqual(pb.cells(r'| TD-1 | a \| b | low |'), ['TD-1', 'a | b', 'low'])
+        self.assertEqual(pb.cells('| TD-1 | a | b | low |'), ['TD-1', 'a', 'b', 'low'])
+
+    def test_escaped_pipe_in_a_board_row_is_valid(self) -> None:
+        self.valid_board(live(READY.replace("Ready task", r"Ready \| task"), IN_PROGRESS, REVIEW, BLOCKED))
+        self.assertEqual(pb.check(self.root), [])
+        by_id = {t["task_id"]: t for t in pb.parse(self.root)}
+        self.assertEqual(by_id["T-001"]["description"], "Ready | task")
+
     def test_placeholder_rows_are_not_tasks(self) -> None:
         self.valid_board()
         self.assertNotIn("blocked", {t["column"] for t in pb.parse(self.root)})
@@ -468,6 +478,13 @@ class TechDebtParsing(DebtDir):
     def test_unescaped_pipe_is_rejected(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("Steady low item", "Steady | low item"),
                                "unescaped '|'")
+
+    def test_escaped_pipe_is_accepted_and_unescaped(self) -> None:
+        # The repair the unescaped-pipe message tells users to make must pass.
+        text = DEBT_STEADY.replace("Steady low item", r"uses a \| b")
+        self.put("docs/tech-debt/backlog.md", text)
+        self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+        self.assertEqual(self.items(text)["TD-337"]["description"], "uses a | b")
 
     def test_rows_split_off_by_a_blank_line_are_named_as_such(self) -> None:
         split = DEBT_STEADY.replace("| TD-002 |", "\n| TD-002 |")

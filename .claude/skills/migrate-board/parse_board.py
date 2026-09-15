@@ -70,8 +70,18 @@ class BoardError(Exception):
     """The board is not safe to parse."""
 
 
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+
 def cells(line: str) -> list[str]:
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    """A table row's cells. Splits only on unescaped pipes, as GitHub does, and
+    reads each `\\|` back as a literal `|` inside its cell."""
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    return [c.strip().replace("\\|", "|") for c in UNESCAPED_PIPE.split(row)]
 
 
 def read_lines(path: str) -> list[str]:

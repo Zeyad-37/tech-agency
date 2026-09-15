@@ -84,7 +84,7 @@ expects. The classes seen on real boards, and what fixes each:
 | `'## Done' / '## Decisions Log' must not be in the live board` | Board never got the live/archive split | Move Done rows to `docs/board/done-{YYYY}-Q{N}.md` and the log to `docs/board/decisions-log.md` (`board-adapter.md` § markdown) |
 | `Backlog header is \| Task ID \| Priority \| Description \|` | An older 3-column schema | Add the `Requested By` column to the header and every row |
 | `row(s) starting at 'X' are cut off from their table` | A blank line or `---` split one table in two | Delete the blank line / `---` so the rows rejoin their table |
-| `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Escape it as `\\|` |
+| `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Put a backslash before it, `\\|` — the parser splits only on unescaped pipes and reads `\\|` back as a literal `\|` |
 | `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell | Move the commentary into the description |
 | `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
 
