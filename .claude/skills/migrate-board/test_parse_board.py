@@ -672,6 +672,78 @@ class TechDebtParsing(DebtDir):
         self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")
 
 
+class DebtHeadingHierarchy(DebtDir):
+    """Which headings make a table history. A table with every column is used, so
+    `not resolved` shows up as an imported item and `resolved` as not_migrated."""
+
+    ROW = "| ID | Severity | Description |\n|---|---|---|\n| TD-700 | High | the item |\n"
+
+    def items(self, text: str) -> dict:
+        self.put("docs/tech-debt/backlog.md", text)
+        return {d["task_id"]: d for d in pb.parse_debt(self.root, pb.parse(self.root))["items"]}
+
+    def assertResolved(self, headings: str) -> None:
+        text = DEBT_STEADY + "\n" + headings + "\n\n" + self.ROW
+        self.put("docs/tech-debt/backlog.md", text)
+        self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertNotIn("TD-700", {d["task_id"] for d in debt["items"]}, headings)
+        self.assertEqual(len(debt["not_migrated"]), 2, headings)  # DEBT_STEADY's own + this one
+
+    def assertNotResolved(self, headings: str) -> None:
+        text = DEBT_STEADY + "\n" + headings + "\n\n" + self.ROW
+        self.assertIn("TD-700", self.items(text), headings)
+
+    def test_heading_status_words(self) -> None:
+        cases = {
+            "Resolved": "resolved", "Closed until 2026-06": "resolved", "Resolved under T-027": "resolved",
+            "**Done**": "resolved", "Recently closed": "resolved",
+            "Unresolved": "open", "Not done yet": "open", "Partially resolved": "open",
+            "Active Debt Items": "open", "Still open": "open", "Undone": "open", "To do": "open",
+            "2026 Q2": None, "Archive": None, "Unless noted": None,
+        }
+        for text, want in cases.items():
+            with self.subTest(heading=text):
+                self.assertEqual(pb.heading_status(text), want)
+
+    def test_dated_subheading_under_resolved_is_resolved(self) -> None:
+        self.assertResolved("## Resolved\n\n### 2026 Q2")
+
+    def test_open_subheading_under_resolved_is_not_resolved(self) -> None:
+        self.assertNotResolved("## Resolved\n\n### Still open")
+
+    def test_resolved_under_is_resolved(self) -> None:
+        self.assertResolved("## Resolved under T-027")
+
+    def test_closed_until_is_resolved(self) -> None:
+        self.assertResolved("## Closed until 2026-06")
+
+    def test_real_negations_are_not_resolved(self) -> None:
+        for heading in ("## Not done yet", "## Unresolved", "## Partially resolved"):
+            with self.subTest(heading=heading):
+                self.assertNotResolved(heading)
+
+    def test_active_heading_is_not_resolved(self) -> None:
+        self.assertNotResolved("## Active Debt Items")
+
+    def test_resolved_subheading_under_archive_is_resolved(self) -> None:
+        self.assertResolved("## Archive\n\n### Resolved")
+
+    def test_skipped_heading_level_still_reaches_the_ancestor(self) -> None:
+        self.assertResolved("## Resolved\n\n#### Q2")
+
+    def test_status_is_not_inherited_from_a_previous_section(self) -> None:
+        self.assertNotResolved("## Resolved\n\n### Q1\n\n## Backlog\n\n### Q2")
+
+    def test_heading_inside_a_code_fence_is_not_an_ancestor(self) -> None:
+        self.assertResolved("## Resolved\n\n```\n### Still open\n```")
+
+    def test_not_migrated_names_the_deciding_heading(self) -> None:
+        self.assertResolved("## Resolved\n\n### 2026 Q2")
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertIn("Resolved › 2026 Q2", {nm["heading"] for nm in debt["not_migrated"]})
+
+
 def debt_issue(tid: str, severity: str | None = "low", state: str = "open",
                board_status: str | None = "backlog") -> dict:
     labels = [pb.DEBT_LABEL] + ([f"severity:{severity}"] if severity else [])

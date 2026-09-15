@@ -89,11 +89,29 @@ expects. The classes seen on real boards, and what fixes each:
 | `table under 'X' is missing an '#' or 'ID' column` | A debt table keyed by `Task ID` or similar | Rename that header cell to `ID` |
 | `table under 'X' is missing a Description column` | A debt table with the text under another name (`Title`, `Item`) | Rename that header cell to `Description` |
 | `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
-| `table under 'X' is missing a Severity column` | A debt table that may be open work or history | **A human decides**: add a Severity column if it is open, or put it under a `Resolved` / `Closed` / `Done` heading (any level, no negation — `Not done yet` is open) if it is finished. A table under such a heading is history whatever its columns |
+| `table under 'X' is missing a Severity column` | A debt table that may be open work or history | **A human decides**: add a Severity column if it is open, or put it under a resolved heading if it is finished (see *Resolved headings* below). A table under a resolved heading is history whatever its columns |
 
 The two "a human decides" rows are different in kind: the rest are mechanical, but a duplicated,
 contradictory or unclassifiable debt item is a question about what is actually true, so surface it
 rather than resolving it.
+
+**Resolved headings.** Whether a debt table is history is decided by its headings, not its columns:
+
+- A heading is **open** if it contains an open-marker, a whole word (case-insensitive) from this
+  list: `not`, `unresolved`, `undone`, `unfixed`, `unfinished`, `open`, `active`, `pending`,
+  `outstanding`, `remaining`, `yet`, `todo`, `to do`, `partially`, `partial`. It is a list, not a
+  prefix: `under`, `until` and `unless` are not open-markers.
+- Otherwise it is **resolved** if it contains the whole word `resolved`, `closed` or `done`.
+- Otherwise it has **no status**.
+
+The parser walks the table's enclosing headings nearest-first — the nearest heading above it, then
+the nearest above that of a strictly smaller level, up to `##`; headings inside fenced code do not
+count — and the first heading with a status decides. With no status anywhere, the table is not
+resolved. So `## Resolved` → `### 2026 Q2` is resolved, `## Resolved` → `### Still open` is not,
+`## Resolved under T-027` and `## Closed until 2026-06` are resolved, and `## Not done yet`,
+`## Unresolved` and `## Partially resolved` are not. Words the list does not know, such as
+`Completed`, `Fixed` or `Archived`, give no status — a finished table under one is imported or reported as a
+problem, never silently dropped; rename the heading if it is history.
 
 Then parse:
 

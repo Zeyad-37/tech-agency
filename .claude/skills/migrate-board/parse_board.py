@@ -68,16 +68,56 @@ TITLE_MAX = 256  # GitHub's issue-title cap
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
 LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
-# A section heading that marks its table as finished work. `\b` keeps
-# `Unresolved` from matching; NEGATION keeps `Not done yet` from matching.
-RESOLVED_HEADING = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
-NEGATION = re.compile(r"\b(not|un\w*|open|pending|yet|outstanding|remaining|todo|to\s+do)\b", re.IGNORECASE)
-# Any heading of level 2 or deeper; group 1 is its text.
-HEADING_LINE = re.compile(r"^#{2,}\s+(.*?)\s*#*\s*$")
+# A heading's status decides whether the tables under it are finished work.
+# Open-markers are an explicit whole-word list, never a prefix pattern: `under`,
+# `until` and `unless` are ordinary words, not negations.
+RESOLVED_WORD = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
+OPEN_MARKER = re.compile(
+    r"\b(not|unresolved|undone|unfixed|unfinished|open|active|pending|outstanding|remaining"
+    r"|yet|todo|to\s+do|partially|partial)\b", re.IGNORECASE)
+# Any heading of level 2 or deeper; group 1 is its hashes, group 2 its text.
+HEADING_LINE = re.compile(r"^(#{2,})\s+(.*?)\s*#*\s*$")
 
 
-def is_resolved_heading(heading: str) -> bool:
-    return bool(RESOLVED_HEADING.search(heading)) and not NEGATION.search(heading)
+def heading_status(heading: str) -> str | None:
+    """`open` when the heading carries an open-marker, else `resolved` when it
+    says resolved / closed / done, else None (the heading says nothing)."""
+    if OPEN_MARKER.search(heading):
+        return "open"
+    if RESOLVED_WORD.search(heading):
+        return "resolved"
+    return None
+
+
+def ancestor_headings(lines: list[str], index: int, code: set[int]) -> list[str]:
+    """The headings enclosing line `index`, nearest first: the nearest heading
+    above it, then the nearest above that of a strictly smaller level, and so on
+    up to `##`. Lines inside fenced code are not headings."""
+    found: list[str] = []
+    level = None
+    for i in range(index - 1, -1, -1):
+        if i in code:
+            continue
+        m = HEADING_LINE.match(lines[i])
+        if m and (level is None or len(m.group(1)) < level):
+            found.append(m.group(2))
+            level = len(m.group(1))
+            if level == 2:
+                break
+    return found
+
+
+def table_status(ancestors: list[str]) -> tuple[bool, str]:
+    """Whether a table under these headings (nearest first) is resolved, and the
+    heading to name it by. The nearest heading that has a status decides; with no
+    status anywhere the table is not resolved. The name runs from the deciding
+    heading down to the nearest (`Resolved › 2026 Q2`)."""
+    for depth, heading in enumerate(ancestors):
+        status = heading_status(heading)
+        if status is not None:
+            name = " › ".join(reversed(ancestors[:depth + 1]))
+            return status == "resolved", name
+    return False, ancestors[0] if ancestors else ""
 
 
 class BoardError(Exception):
@@ -346,9 +386,11 @@ def debt_tables(root: str, rel: str) -> list[dict]:
     Every table that looks like debt gets exactly one `kind`; no path skips one
     silently:
 
-    - `resolved` — its heading (the nearest `##`, `###`, …) says resolved /
-      closed / done with no negation. Decided first, whatever the columns: a
-      finished table that kept its Severity column is history, not active debt.
+    - `resolved` — the nearest enclosing heading that has a status (see
+      `heading_status`, walking up `###` → `##`) says resolved / closed / done.
+      Decided first, whatever the columns: a finished table that kept its
+      Severity column is history, not active debt. `## Resolved` → `### 2026 Q2`
+      is resolved; `## Resolved` → `### Still open` is not.
     - `active` — an exact `#`/`ID` column, a Description and a Severity column.
     - `problem` — anything else, with `missing` naming the absent columns. Open
       work is never guessed into history, and rows are never dropped unreported.
@@ -374,14 +416,13 @@ def debt_tables(root: str, rel: str) -> list[dict]:
             or ("description" in lower and ("severity" in lower or "category" in lower)))
         if not looks_like_debt:
             continue
-        heading = next((m.group(1) for i in range(start - 1, -1, -1)
-                        if i not in code and (m := HEADING_LINE.match(lines[i]))), "")
+        resolved, heading = table_status(ancestor_headings(lines, start, code))
         missing = [name for name, present in (("an '#' or 'ID' column", id_col is not None),
                                               ("a Description column", "description" in lower),
                                               ("a Severity column", "severity" in lower)) if not present]
         found.append({
             "source": rel, "line": start + 1, "heading": heading, "header": header,
-            "kind": ("resolved" if is_resolved_heading(heading)
+            "kind": ("resolved" if resolved
                      else "active" if not missing
                      else "problem"),
             "missing": missing,
