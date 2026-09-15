@@ -16,6 +16,7 @@ import io
 import os
 import sys
 import tempfile
+import unicodedata
 import unittest
 from unittest import mock
 
@@ -1077,6 +1078,91 @@ class IssueFields(BoardDir):
         self.assertTrue(t["title"].endswith("…"))
         self.assertEqual(t["description"], long.strip())
 
+    def test_long_unbroken_tail_is_hard_cut_not_dropped(self) -> None:
+        title = pb.issue_title("T-12.3", "word " + "y" * 300)
+        self.assertGreater(len(title), 200)
+        self.assertLessEqual(len(title), pb.TITLE_MAX)
+
+    def test_title_fits_in_utf16_units(self) -> None:
+        title = pb.issue_title("T-1", "\U0001F600" * 300)
+        self.assertLessEqual(len(title.encode("utf-16-le")) // 2, pb.TITLE_MAX)
+        self.assertTrue(title.startswith("[T-1] "))
+
+    def test_cut16_never_ends_mid_cluster_at_any_budget(self) -> None:
+        ri = lambda c: 0x1F1E6 <= ord(c) <= 0x1F1FF  # noqa: E731
+        flag, sub = "\U0001F1EA\U0001F1EC", "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"
+        conjunct = "\u0915\u094D\u0937"  # क्ष
+        for text in ("\U0001F1FA" + flag * 5, flag * 5, "ab" + sub * 3, conjunct * 5,
+                     "\U0001F44D\U0001F3FD" * 5, "\u2764\ufe0f" * 5):
+            for units in range(pb.utf16_len(text) + 1):
+                cut = pb.cut16(text, units)
+                with self.subTest(text=text, units=units):
+                    self.assertLessEqual(pb.utf16_len(cut), units)
+                    self.assertTrue(text.startswith(cut))
+                    rest = text[len(cut):]
+                    if rest:
+                        # Independent of the parser's own predicate, so a gap in it is caught.
+                        cont = (unicodedata.category(rest[0]) in ("Mn", "Mc", "Me")
+                                or rest[0] in "\u200d\ufe0f" or 0x1F3FB <= ord(rest[0]) <= 0x1F3FF
+                                or 0xE0020 <= ord(rest[0]) <= 0xE007F)
+                        self.assertFalse(cont, repr(rest[:2]))
+                        self.assertNotIn(cut[-1:], ("\u200d", "\u094d"))
+                        if cut and ri(cut[-1]) and ri(rest[0]):
+                            # Regional indicators pair from the start of their run (here,
+                            # the start of the text), so a cut inside the run keeps an even count.
+                            run = len(cut) - len(cut.rstrip("".join(chr(c) for c in range(0x1F1E6, 0x1F200))))
+                            self.assertEqual(run % 2, 0)
+
+    def test_title_cut_never_splits_a_character_cluster(self) -> None:
+        flag = "\U0001F1EA\U0001F1EC"
+        title = pb.issue_title("T-1", flag * 200)
+        self.assertEqual(sum(1 for ch in title if 0x1F1E6 <= ord(ch) <= 0x1F1FF) % 2, 0)
+        self.assertTrue(pb.issue_title("T-1", "e\u0301" * 300)[:-1].endswith("\u0301"))
+        family = "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+        cut = pb.issue_title("T-1", family * 100)[:-1]
+        self.assertTrue(cut.endswith("\U0001F467"), repr(cut[-4:]))
+
+    def test_empty_description_gets_a_placeholder_title(self) -> None:
+        self.assertEqual(pb.issue_title("T-001", ""), "[T-001] (no description)")
+
+    def test_body_carries_the_description_once(self) -> None:
+        self.valid_board()
+        body = self.tasks()["T-001"]["body"]
+        self.assertEqual(body.count("Ready task"), 1)
+        self.assertIn("**Priority:** P1", body)
+
+    def test_body_cap_leaves_room_for_the_provenance_line(self) -> None:
+        provenance = "\n\nMigrated from " + "d/" * 300 + "backlog.md on 2026-09-15."
+        self.assertLessEqual(pb.BODY_MAX + pb.utf16_len(provenance), 65536)
+
+    def test_body_cap_terminates_and_fits_in_every_shape(self) -> None:
+        import signal
+        signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError("issue_body hung")))
+        signal.alarm(5)
+        try:
+            for fields, extra in (({"A": "x"}, "E" * 70000),
+                                  ({f"F{i}": "y" * 20 for i in range(3000)}, ""),
+                                  ({f"F{i}": "y" * 100 for i in range(3000)}, ""),
+                                  ({f"F{i}": "y" * 5 for i in range(8000)}, ""),
+                                  ({"K" * 70000: "v"}, "")):
+                body = pb.issue_body(fields, "src.md", extra=extra)
+                self.assertLessEqual(pb.utf16_len(body), pb.BODY_MAX)
+        finally:
+            signal.alarm(0)
+
+    def test_body_cap_counts_utf16_so_non_bmp_text_is_not_over_cut(self) -> None:
+        body = pb.issue_body({"Description": "\U0001F600" * 60000}, "src.md")
+        self.assertLessEqual(pb.utf16_len(body), pb.BODY_MAX)
+        self.assertGreater(pb.utf16_len(body), pb.BODY_MAX - 500)
+
+    def test_body_is_capped_under_githubs_limit(self) -> None:
+        huge = "x " * 40000
+        self.valid_board(live(READY, IN_PROGRESS, REVIEW.replace("Reviewed task", huge.strip()), BLOCKED))
+        body = self.tasks()["T-003"]["body"]
+        self.assertLessEqual(len(body), pb.BODY_MAX)
+        self.assertIn("truncated", body)
+        self.assertIn("board-context.md", body)
+
     def test_short_title_is_untouched(self) -> None:
         self.valid_board()
         self.assertEqual(self.tasks()["T-001"]["title"], "[T-001] Ready task")
@@ -1087,10 +1173,34 @@ class IssueFields(BoardDir):
                            ("@Link/@Kai", ["@Link", "@Kai"]),
                            ("@Link (Claude)", ["@Link"]),
                            ("@Kai / @Kai", ["@Kai"]),
+                           ("@kai / @Kai", ["@Kai"]),  # canonical spelling
+                           ("kai@example.com", []),
+                           ("link to PR", []), ("CI pipeline", []),
+                           ("Kai (pairing w/ @Zeyad)", ["@Kai"]),
+                           ("@Link-owned", ["@Link"]),
+                           ("Kai", ["@Kai"]),
+                           ("Kai / Link", ["@Kai", "@Link"]),
+                           ("Shield (review)", ["@Shield"]),
+                           ("@Claude", ["@Claude"]),
+                           ("someone else", []),
+                           ("TBD", []), ("N/A", []), ("ALL", []), ("Zeyad", []), ("@Zeyad", []),
                            ("—", [])):
             with self.subTest(cell=cell):
                 self.valid_board(live(READY, IN_PROGRESS.replace("| @Kai |", f"| {cell} |"), REVIEW, BLOCKED))
                 self.assertEqual(self.tasks()["T-002"]["agents"], want)
+
+    def test_check_notes_an_agent_cell_naming_no_known_agent(self) -> None:
+        self.valid_board(live(READY, IN_PROGRESS.replace("| @Kai |", "| TBD |"), REVIEW, BLOCKED))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pb.main(["--check", "--done", "freeze", "--root", self.root]), 0)
+        self.assertIn("T-002", out.getvalue())
+        self.assertIn("TBD", out.getvalue())
+
+    def test_unknown_agent_notes_are_grouped_by_cell(self) -> None:
+        tasks = [{"task_id": f"T-{i}", "agent": "TBD", "agents": []} for i in range(5)]
+        notes = pb.agent_notices(tasks)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("5 issue(s)", notes[0])
 
     def test_priority_label_is_normalised(self) -> None:
         for cell, want in (("**P1**", "P1"), ("P0", "P0"), ("P3 (stretch)", "P3"), ("high", ""), ("—", "")):
@@ -1115,6 +1225,23 @@ class IssueFields(BoardDir):
         self.valid_board(live(READY, IN_PROGRESS + "| T-009.3 | @Kai | C | 2026-09-01 | 1 |\n", REVIEW, BLOCKED))
         self.write("docs/board/backlog.md", backlog)
         self.assertEqual(self.tasks()["T-009"]["column"], "backlog")
+
+    def test_synthetic_epic_is_never_done_while_a_story_is_open(self) -> None:
+        self.valid_board(live(READY + "| T-009.2 | P2 | Open story | @Kai |\n", IN_PROGRESS, REVIEW, BLOCKED))
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-009.1 | @Kai | Done story | PR #9 | 2026-09-04 |\n"
+                                                           "| T-009.3 | @Kai | Done story | PR #9 | 2026-09-04 |\n")
+        self.assertEqual(self.tasks("issues")["T-009"]["column"], "ready")
+
+    def test_synthetic_epic_of_only_done_stories_is_done(self) -> None:
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-009.1 | @Kai | Done story | PR #9 | 2026-09-04 |\n")
+        self.assertEqual(self.tasks("issues")["T-009"]["column"], "done")
+
+    def test_blocked_never_wins_a_tie(self) -> None:
+        review = REVIEW + "| T-009.1 | @Kai | Story | @Zeyad | 2026-09-02 |\n"
+        blocked = BLOCKED.replace("| — | — | — | — | — |", "| T-009.2 | @Kai | Waiting | @Zeyad | 2026-09-02 |")
+        self.valid_board(live(READY, IN_PROGRESS, review, blocked))
+        self.assertEqual(self.tasks()["T-009"]["column"], "review")
 
     def test_no_epic_is_synthesised_for_a_live_or_frozen_parent(self) -> None:
         self.valid_board()
@@ -1187,11 +1314,12 @@ exit 0
 """
 
 
-class SkillIssueSteps(BoardDir):
-    """Steps 4 and 5 of SKILL.md, run verbatim against a fake gh, so the skill's
-    bash and the parser's JSON cannot drift apart."""
+class SkillStepsBase(BoardDir):
+    """Runs SKILL.md bash blocks verbatim against a fake gh, so the skill's bash and
+    the parser's JSON cannot drift apart."""
 
-    def run_steps(self, existing: list[dict]) -> list[str]:
+    def run_steps(self, existing: list[dict], blocks: list[str] | None = None,
+                  done_mode: str = "freeze") -> list[str]:
         import json
         import subprocess
         tmp = os.path.join(self.root, ".gh")
@@ -1201,17 +1329,29 @@ class SkillIssueSteps(BoardDir):
         os.chmod(os.path.join(tmp, "gh"), 0o755)
         board = os.path.join(tmp, "board.json")
         with open(board, "w") as fh:
-            json.dump(pb.board_tasks(self.root, "freeze"), fh)
+            json.dump(pb.board_tasks(self.root, done_mode), fh)
         with open(os.path.join(tmp, "existing.json"), "w") as fh:
             json.dump(existing, fh)
         step4 = skill_section_blocks("## Step 4: Create the issues", "## Step 4b")[0]
         step5 = [b for b in skill_section_blocks("## Step 5:", "## Step 6") if "while read" in b][0]
         env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "BOARD_JSON": board,
                "LOG": os.path.join(tmp, "log"), "EXISTING": os.path.join(tmp, "existing.json")}
-        r = subprocess.run(["bash", "-c", step4 + "\n" + step5], env=env, capture_output=True, text=True)
+        debt = os.path.join(tmp, "debt.json")
+        if os.path.exists(os.path.join(self.root, "docs/tech-debt/backlog.md")):
+            with open(debt, "w") as fh:
+                json.dump(pb.parse_debt(self.root, pb.parse(self.root, "freeze")), fh)
+        env["DEBT_JSON"] = debt
+        script = "\n".join(blocks) if blocks is not None else step4 + "\n" + step5
+        # Each block alone is a fresh shell, as the skill warns — nothing carries over.
+        r = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(env["LOG"], encoding="utf-8") as fh:
             return [r.split("\x1f")[:-1] for r in fh.read().split("\x1e") if r]
+
+
+
+class SkillIssueSteps(SkillStepsBase):
+    """Steps 4 and 5 together, as a first run executes them."""
 
     def test_creates_capped_titles_and_clean_labels(self) -> None:
         long = "word " * 80
@@ -1229,15 +1369,52 @@ class SkillIssueSteps(BoardDir):
         bodies = [c[c.index("--body") + 1] for c in creates if c[c.index("--title") + 1].startswith("[T-003] ")]
         self.assertIn(long.strip(), bodies[0])
 
+    def test_issues_mode_closes_done_rows_and_an_all_done_placeholder_epic(self) -> None:
+        self.valid_board()
+        self.write("docs/board/done-2026-Q3.md", DONE_FILE + "| T-009.1 | @Kai | Done story | PR #9 | 2026-09-04 |\n")
+        calls = self.run_steps([], done_mode="issues")
+        closes = [c for c in calls if c[:2] == ["issue", "close"]]
+        creates = [c[c.index("--title") + 1] for c in calls if c[:2] == ["issue", "create"]]
+        self.assertEqual(len(closes), 3, calls)  # T-005, T-009.1 and the placeholder T-009
+        self.assertTrue(all("--reason" in c and "completed" in c for c in closes))
+        self.assertIn("[T-009] Epic T-009 (placeholder — no board row)", creates)
+
     def test_links_every_story_to_its_parent(self) -> None:
         ready = READY + "| T-009.1 | P2 | Story | @Kai |\n"
         self.valid_board(live(ready, IN_PROGRESS, REVIEW, BLOCKED))
         existing = [{"number": n, "title": f"[{tid}] x"}
                     for n, tid in enumerate(["T-003", "T-003.1", "T-009", "T-009.1"], 1)]
         calls = self.run_steps(existing)
+        created = [c[c.index("--title") + 1] for c in calls if c[:2] == ["issue", "create"]]
+        self.assertFalse(any(t.startswith(("[T-003] ", "[T-003.1] ", "[T-009] ", "[T-009.1] ")) for t in created), created)
         self.assertEqual(sorted(tuple(c) for c in calls if "--add-sub-issue" in c),
                          [("issue", "edit", "1", "--add-sub-issue", "2"),
                           ("issue", "edit", "3", "--add-sub-issue", "4")])
+
+
+class SkillStepsInFreshShells(SkillStepsBase):
+    """A resumed step runs in a new shell: every block must define what it uses."""
+
+    def test_step_4b_alone_does_not_recreate_existing_debt(self) -> None:
+        self.valid_board()
+        os.makedirs(os.path.join(self.root, "docs/tech-debt"))
+        self.write("docs/tech-debt/backlog.md", DEBT_STEADY)
+        step4b = skill_section_blocks("## Step 4b", "## Step 5")[0]
+        existing = [{"number": 1, "title": "[TD-337] x"}, {"number": 2, "title": "[T-002] x"}]
+        calls = self.run_steps(existing, [step4b])
+        self.assertFalse([c for c in calls if c[:2] == ["issue", "create"]], calls)
+
+    def test_step_5_alone_links(self) -> None:
+        self.valid_board()
+        step5 = [b for b in skill_section_blocks("## Step 5:", "## Step 6") if "while read" in b][0]
+        existing = [{"number": 1, "title": "[T-003] x"}, {"number": 2, "title": "[T-003.1] x"}]
+        calls = self.run_steps(existing, [step5])
+        self.assertEqual([c for c in calls if "--add-sub-issue" in c],
+                         [["issue", "edit", "1", "--add-sub-issue", "2"]])
+
+    def test_step_5_stop_message_does_not_send_you_back_to_step_4(self) -> None:
+        step5 = [b for b in skill_section_blocks("## Step 5:", "## Step 6") if "while read" in b][0]
+        self.assertNotIn("re-run Step 4", step5)
 
 
 class FetchIssues(unittest.TestCase):

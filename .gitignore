@@ -3,6 +3,10 @@
 *.swo
 *~
 
+# Python bytecode from running the stdlib scripts and their tests.
+__pycache__/
+*.pyc
+
 # Ephemeral Claude Code worktree scratch dirs (created by /dispatch and the
 # claude-code-action GitHub workflow). Actual task worktrees live in
 # ../{repo}-worktrees/ per worktree-first.md, not here.

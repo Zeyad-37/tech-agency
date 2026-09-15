@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from collections import Counter
 
 LIVE = "board-context.md"
@@ -67,7 +68,18 @@ DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
 DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
 SEVERITIES = ("high", "medium", "low")
 TITLE_MAX = 256  # GitHub's issue-title cap
-AGENT = re.compile(r"@[A-Za-z][\w-]*")
+# Room left for the provenance line Step 4 appends.
+BODY_MAX = 65536 - 1024  # GitHub's issue-body cap
+# An @mention, not the domain of an email address; a suffix like "-owned" is not part of it.
+AGENT = re.compile(r"(?<![\w.@])@([A-Za-z][A-Za-z0-9]*)")
+WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9]*\b")
+# The agency's agents, read from the plugin's agents/ directory beside skills/ — the
+# same tree whether this runs from the tech-agency repo or an installed plugin.
+# Fallback for a copy run on its own. `Claude` is the generic agent.
+AGENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "agents")
+KNOWN_AGENTS_FALLBACK = ("Apex Atlas Diana Echo Flux Forge Kai Link Morgan Neuron Nova Pipeline "
+                         "Pixel Pyra Sage Scroll Sentinel Shield Swift").split()
+
 PRIORITY = re.compile(r"\bP([0-3])\b")
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
@@ -325,6 +337,17 @@ def done_task_ids(board: list[dict]) -> set[str]:
     return {m.group(0) for t in board if t["column"] == "done" and (m := LEADING_ID.match(t["task_id"]))}
 
 
+def agent_notices(tasks: list[dict]) -> list[str]:
+    """Agent cells that name no agency agent: their issue gets no agent: label."""
+    by_cell: dict[str, list[str]] = {}
+    for t in tasks:
+        if not t.get("agents") and t["agent"].strip() not in ("", PLACEHOLDER):
+            by_cell.setdefault(t["agent"].strip(), []).append(t["task_id"])
+    return [f"Agent cell '{cell}' names no agency agent, so {len(ids)} issue(s) get no agent: label "
+            f"({', '.join(ids)}). Humans such as the owner are the assignee, not a label."
+            for cell, ids in by_cell.items()]
+
+
 def notices(root: str) -> list[str]:
     """Non-fatal findings --check reports alongside a valid board. A `## Backlog`
     section in the live file is off-layout but lossless: its rows are parsed and
@@ -345,6 +368,7 @@ def parse(root: str, done_mode: str = "issues") -> list[dict]:
     if problems:
         raise BoardError("\n".join(problems))
     tasks: list[dict] = []
+    agents = known_agents()
     for col in COLUMNS:
         for t in column_tables(root, col):
             for _, line in t["rows"]:
@@ -363,11 +387,12 @@ def parse(root: str, done_mode: str = "issues") -> list[dict]:
                     "agent": agent,
                     # One `agent:@Name` label per agent the cell names — a label
                     # cannot be "@Kai (with @Link, @Swift)".
-                    "agents": list(dict.fromkeys(AGENT.findall(agent))),
+                    "agents": agent_names(agent, agents),
                     "priority": priority,
                     # "**P1**" or "P3 (stretch)" → P1 / P3; Step 3 creates only P0–P3.
                     "priority_label": (m := PRIORITY.search(priority)) and f"P{m.group(1)}" or "",
                     "fields": row,
+                    "body": issue_body(row, t["source"]),
                     "source": t["source"],
                     "parent": c[0].rsplit(".", 1)[0] if "." in c[0] else None,
                 })
@@ -413,16 +438,109 @@ def normalize_debt_id(raw: str) -> str | None:
     return f"TD-{m.group(1) if m.group(1) is not None else m.group(2)}"
 
 
+def utf16_len(text: str) -> int:
+    """Length in UTF-16 code units: never less than the code-point count, so a title
+    within it fits whichever unit GitHub counts."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _continues_cluster(ch: str) -> bool:
+    """A character that belongs to the one before it: a combining mark (accents,
+    Indic vowel signs and viramas), zero-width joiner, variation selector, emoji
+    skin tone, or a tag character of a subdivision flag."""
+    return (unicodedata.combining(ch) > 0 or unicodedata.category(ch) in ("Mn", "Mc", "Me")
+            or ch in "\u200d\ufe0e\ufe0f" or 0x1F3FB <= ord(ch) <= 0x1F3FF
+            or 0xE0020 <= ord(ch) <= 0xE007F)
+
+
+def cut16(text: str, units: int) -> str:
+    """The longest prefix of `text` within `units` UTF-16 units that does not end
+    inside a common character cluster: an accent, an Indic conjunct, a ZWJ emoji, a
+    country or subdivision flag. (An approximation of Unicode grapheme clusters.)"""
+    n = i = 0
+    while i < len(text) and n + (w := 2 if ord(text[i]) > 0xFFFF else 1) <= units:
+        n += w
+        i += 1
+    if i == len(text):
+        return text
+    # Back off while the next character would continue the one we end on.
+    # A virama (combining class 9) joins the next consonant into a conjunct.
+    while i > 0 and (_continues_cluster(text[i]) or text[i - 1] == "\u200d"
+                     or unicodedata.combining(text[i - 1]) == 9):
+        i -= 1
+    ri = lambda c: 0x1F1E6 <= ord(c) <= 0x1F1FF  # noqa: E731 — regional indicator
+    if i > 0 and ri(text[i - 1]) and ri(text[i]):
+        run = i
+        while run > 0 and ri(text[run - 1]):
+            run -= 1
+        if (i - run) % 2:  # an odd count before the cut splits a flag
+            i -= 1
+    return text[:i]
+
+
 def issue_title(task_id: str, description: str, limit: int = TITLE_MAX) -> str:
-    """`[ID] description`, cut at a word boundary (with a trailing …) so the whole
-    title fits GitHub's cap. The full text travels in the issue body."""
-    title = f"[{task_id}] {description}"
-    if len(title) <= limit:
+    """`[ID] description`, cut (with a trailing …) so the whole title fits GitHub's
+    cap. The cut prefers a word boundary, unless that would throw away more than a
+    quarter of the room — a long URL or path is hard-cut instead of dropped. The
+    full text travels in the issue body. An empty description gets a placeholder,
+    so the title never ends in the bare "[ID] " that GitHub would trim."""
+    title = f"[{task_id}] {description.strip() or '(no description)'}"
+    if utf16_len(title) <= limit:
         return title
-    cut = title[:limit - 1]  # room for the ellipsis
-    if title[limit - 1] != " " and " " in cut[len(task_id) + 3:]:
-        cut = cut[:cut.rindex(" ")]
+    cut = cut16(title, limit - 1)  # room for the ellipsis
+    prefix = len(task_id) + 3
+    space = cut.rfind(" ", prefix)
+    if space > prefix and space >= len(cut) * 3 // 4:
+        cut = cut[:space]
     return cut.rstrip() + "…"
+
+
+def issue_body(fields: dict[str, str], source: str, extra: str = "") -> str:
+    """Every field of the row, one paragraph each, capped under GitHub's body limit.
+    When over, the longest field is cut — or, if that cannot make it fit, the body as
+    a whole — with a note saying where the full text is."""
+    parts = dict(fields)
+    note = f" … *(truncated — full text in {source})*"
+
+    def render() -> str:
+        text = "\n\n".join(f"**{k}:** {v}" for k, v in parts.items())
+        return f"{extra}\n\n{text}".strip() if extra else text
+    body = render()
+    # Cut the longest field, which keeps the rest of the row readable. If even the
+    # longest cannot absorb the excess, no field can: cut the body as a whole instead
+    # (huge keys or `extra`, thousands of small fields). No loop, so nothing can hang.
+    if utf16_len(body) > BODY_MAX and parts:
+        key = max(parts, key=lambda k: utf16_len(parts[k]))
+        keep = utf16_len(parts[key]) - (utf16_len(body) - BODY_MAX) - utf16_len(note)
+        if keep > 0:
+            parts[key] = cut16(parts[key], keep) + note
+            body = render()
+    if utf16_len(body) > BODY_MAX:
+        body = cut16(body, BODY_MAX - utf16_len(note)) + note
+    return body
+
+
+def known_agents() -> dict[str, str]:
+    """lower-case name → canonical `@Name`, for every agency agent plus Claude."""
+    names = [f.split("-", 1)[0].capitalize() for f in os.listdir(AGENTS_DIR) if f.endswith(".md")] \
+        if os.path.isdir(AGENTS_DIR) else []
+    return {n.lower(): f"@{n}" for n in (names or KNOWN_AGENTS_FALLBACK) + ["Claude"]}
+
+
+def agent_names(cell: str, known: dict[str, str] | None = None) -> list[str]:
+    """Each agency agent a cell names, as its canonical `@Name`, once.
+
+    @mentions of agents decide when there are any (`@Link (Claude)` is Link; any
+    case). Otherwise capitalised bare words that are agent names count (`Kai / Link`,
+    `Shield (review)`, `Kai (pairing w/ @Zeyad)`) — lower-case prose such as
+    "link to PR" or "CI pipeline" does not. Anything else — TBD, N/A, a human such
+    as @Zeyad, who is the assignee — is no agent label."""
+    known = known if known is not None else known_agents()
+    mentioned = [known[m.lower()] for m in AGENT.findall(cell) if m.lower() in known]
+    if mentioned:
+        return list(dict.fromkeys(mentioned))
+    return list(dict.fromkeys(known[w.lower()] for w in WORD.findall(cell)
+                              if w[0].isupper() and w.lower() in known))
 
 
 def debt_tables(root: str, rel: str) -> list[dict]:
@@ -647,6 +765,7 @@ def parse_debt(root: str, board: list[dict]) -> dict:
                 "title": issue_title(tid, c[t["description_col"]]),
                 "description": c[t["description_col"]],
                 "fields": fields,
+                "body": issue_body(fields, f"{rel}:{n}"),
                 "source": rel, "line": n,
                 "board_task": board_task,
                 "on_board": board_task is not None,
@@ -688,14 +807,20 @@ def synthesize_epics(tasks: list[dict], frozen: set[str]) -> list[dict]:
         p = t["parent"]
         if p and p not in ids and p not in frozen:
             children.setdefault(p, []).append(t)
-    order = list(COLUMNS)
+    order = [c for c in COLUMNS if c != "done"]
     out: list[dict] = []
     for t in tasks:
         p = t["parent"]
         if p in children:
             kids = children.pop(p)
-            votes = Counter(k["column"] for k in kids)
-            column = max(votes, key=lambda c: (votes[c], order.index(c)))
+            # Done only when every story is; otherwise the open stories vote, ties go to
+            # the further-along column, and Blocked (outside the sequence) never wins one.
+            open_kids = [k for k in kids if k["column"] != "done"]
+            if open_kids:
+                votes = Counter(k["column"] for k in open_kids)
+                column = max(votes, key=lambda c: (votes[c], -1 if c == "blocked" else order.index(c)))
+            else:
+                column = "done"
             description = (f"Epic {p} — placeholder created by /migrate-board: its stories "
                            f"({', '.join(k['task_id'] for k in kids)}) had no epic row on the board")
             out.append({
@@ -703,6 +828,8 @@ def synthesize_epics(tasks: list[dict], frozen: set[str]) -> list[dict]:
                 "title": issue_title(p, f"Epic {p} (placeholder — no board row)"),
                 "agent": "", "agents": [], "priority": "", "priority_label": "",
                 "fields": {}, "source": "(synthesised from its stories' IDs)",
+                "body": issue_body({"Stories": ", ".join(k["task_id"] for k in kids)},
+                                   "the markdown board", extra=description),
                 "parent": None, "parent_frozen": False,
                 "synthetic": True, "children": [k["task_id"] for k in kids],
             })
@@ -850,7 +977,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.check:
             tasks = parse(a.root, a.done)
-            for note in notices(a.root):
+            for note in notices(a.root) + agent_notices(tasks):
                 print(f"  note: {note}")
             print(f"Board is structurally valid. {len(tasks)} task(s) parsed.")
             if a.include_tech_debt:

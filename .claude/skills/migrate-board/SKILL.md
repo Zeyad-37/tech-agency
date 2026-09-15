@@ -183,7 +183,8 @@ done
 There is deliberately no `status:done` label — Done is the issue being **closed**, which is what
 makes `Closes #N` in a PR body perform the transition (`@.claude/rules/shared/board-in-pr.md`).
 
-`agent:{name}` labels are not in this list because the agent names come from the board itself. Step 4
+`agent:@Name` labels are not in this list because which agents appear depends on the board: the
+parser keeps the agency agents each row names (see Step 4). Step 4
 creates each one — idempotently, with `--force` — immediately before the first issue that uses it,
 so no `gh issue create` ever references a label that does not exist.
 
@@ -203,7 +204,9 @@ than a malformed `--label "priority:"`. On a board whose In Progress / Review / 
 schemas have no `Priority` column, that is every task in those columns.
 
 ```bash
-# Exact "[ID] " title-prefix lookup, decided client-side. Steps 4b and 5 reuse it.
+# Exact "[ID] " title-prefix lookup, decided client-side. Steps 4b and 5 define it
+# again: a resumed step runs in a new shell, where a missing function would turn the
+# guard below into "always create".
 issue_for() {
   gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
     | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
@@ -215,12 +218,9 @@ while read -r task <&3; do
   COLUMN=$(jq -r '.column' <<<"$task")
   TITLE=$(jq -r '.title' <<<"$task")                   # "[ID] description", cut to 256 chars
   PRIORITY=$(jq -r '.priority_label' <<<"$task")        # P0–P3, or empty
-  # Body: the full description (the title may be cut), then every field of the row.
-  BODY=$(jq -r '"\(.description)\n\n" + (.fields | to_entries | map("**\(.key):** \(.value)") | join("\n\n"))' <<<"$task")
-  if [ "$(jq -r '.synthetic // false' <<<"$task")" = true ]; then
-    BODY+=$'\n\n'"Stories: $(jq -r '.children | join(", ")' <<<"$task")"
-  fi
-  BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$task") on $(date +%F)."
+  # Body: every field of the row (the full description included — the title may be
+  # cut), already capped under GitHub's 65,536-character limit by the parser.
+  BODY="$(jq -r '.body' <<<"$task")"$'\n\n'"Migrated from $(jq -r '.source' <<<"$task") on $(date +%F)."
 
   # Idempotency guard: exact "[TASK-ID] " prefix, decided client-side.
   existing=$(issue_for "$TASK_ID")
@@ -243,21 +243,35 @@ while read -r task <&3; do
 done 3< <(jq -c '.[]' "$BOARD_JSON")
 ```
 
-- **Title** is the parser's `title`: `[TASK-ID] description`, cut at a word boundary to GitHub's
-  256-character cap. Board descriptions are often paragraphs, and `gh issue create` rejects a longer
-  title outright. The prefix is the identity: branch names, commit prefixes and artifact filenames
-  all key off it, and `board.read_task()` resolves by searching it.
-- **Labels** come from normalised fields, never the raw cells. `agents` holds every `@Name` the
-  Agent cell mentions (`@Kai (with @Link)` gives two labels), and `priority_label` is `P0`–`P3`
-  or empty (`**P1**` gives `P1`). A raw cell would give a label nobody queries, or one Step 3 never
-  created, and the create would fail.
+- **Title** is the parser's `title`: `[TASK-ID] description`, cut to GitHub's 256-character cap.
+  Board descriptions are often paragraphs, and `gh issue create` rejects a longer title outright.
+  - The cut prefers a word boundary, but hard-cuts a long URL or path rather than dropping it.
+  - It avoids splitting common character clusters: accents, Indic conjuncts, emoji sequences, flags.
+  - The prefix is the identity. Branch names, commit prefixes and artifact filenames all key off it,
+    and `board.read_task()` resolves by searching it.
+- **Labels** come from normalised fields, never the raw cells.
+  - `agents` holds each **agency agent** the Agent cell names, spelled canonically. `@Kai (with @Link)`
+    gives two labels. With no agent @mention, capitalised agent names count: `Kai / Link`,
+    `Shield (review)`. Lower-case prose such as "link to PR" does not.
+  - The agents are the files in the plugin's `agents/` directory, plus Claude.
+  - `TBD`, `N/A`, email addresses and humans (`@Zeyad`) give no agent label. The human owner is the
+    assignee. `--check` lists every such cell, grouped by value, so none is dropped silently.
+  - `priority_label` is `P0`–`P3` or empty: `**P1**` gives `P1`.
+  - A raw cell would give a label nobody queries, or one Step 3 never created, and the create
+    would fail.
 - **Synthetic epics.** When live stories share a stem that has no row anywhere (`T-054.1`,
   `T-054.2`, but no `T-054`), the parser emits a placeholder task for the stem, marked
-  `synthetic: true`. It sits before its stories and takes the column most of them are in. It becomes
-  an ordinary issue, so Step 5 has a parent to link to and Step 7 expects it.
-- **Body** carries whatever the row could not: acceptance criteria, links to
-  `docs/artifacts/…`, the original `Started` / `Waiting Since` date, and a
-  `Migrated from board-context.md on {date}` line for provenance.
+  `synthetic: true`, placed before its stories.
+  - It takes the column most of its **open** stories are in. Ties go to the further-along column,
+    and Blocked never wins a tie.
+  - It is Done only when every story is Done, so an epic is never closed over open work.
+  - It becomes an ordinary issue, so Step 5 has a parent to link to and Step 7 expects it.
+- **Body** is the parser's `body`: every field of the row, with the full description, links,
+  and the original `Started` / `Waiting Since` date, then a `Migrated from … on {date}` line for
+  provenance. It is capped under GitHub's 65,536-character limit.
+  - An over-long field is cut, with a note naming the markdown file that keeps the full text.
+  - If even the longest field cannot absorb the excess (thousands of fields), the whole body is cut
+    instead, with the same note.
 - **Assignee** is the human owner (`gh repo view --json owner`), never the agency agent — @Kai and
   @Atlas have no GitHub accounts. The agent is the `agent:` label.
 - **Done rows** exist in `$BOARD_JSON` only when `DONE_MODE=issues`. They are created and then
@@ -285,7 +299,12 @@ Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **o
   get their own issue, and the parser lists them in `notes` for the report.
 
 ```bash
-# issue_for: the exact-prefix lookup defined in Step 4.
+# Exact "[ID] " title-prefix lookup, as in Step 4 — defined here too, for a resumed run.
+issue_for() {
+  gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
+    | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
+}
+
 STOPPED=""
 while read -r item <&3; do
   TASK_ID=$(jq -r '.task_id' <<<"$item")
@@ -314,9 +333,8 @@ while read -r item <&3; do
   existing=$(issue_for "$TASK_ID")
   if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
 
-  # Body: every field of the row, so the prose transfers intact.
-  BODY=$(jq -r '.fields | to_entries | map("**\(.key):** \(.value)") | join("\n\n")' <<<"$item")
-  BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
+  # Body: every field of the row, so the prose transfers intact — capped by the parser.
+  BODY="$(jq -r '.body' <<<"$item")"$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
   # .title is "[TD-n] description", already cut to GitHub's 256-character cap.
   gh issue create --title "$(jq -r '.title' <<<"$item")" --body "$BODY" \
     --label status:backlog --label tech-debt --label "severity:$ISSUE_SEVERITY"
@@ -329,7 +347,7 @@ fi
 ```
 
 Descriptions are often long, and GitHub caps titles at 256 characters. The parser's `title` field
-is already cut at a word boundary (ending in `…`) to fit, and keeps the `[TD-n] ` prefix the
+is already cut to fit (ending in `…`), exactly as for board tasks in Step 4, and keeps the `[TD-n] ` prefix the
 search-before-create guard matches on; the body carries the full description.
 
 Resolved tables (`not_migrated` in the JSON) are never imported — an issue is open work, and those
@@ -348,14 +366,26 @@ Every parent a live story needs is in `$BOARD_JSON`: a real row, or a `synthetic
 added (Step 4 created both). Link each story to its parent:
 
 ```bash
+# Exact "[ID] " title-prefix lookup, as in Step 4 — defined here too, for a resumed run.
+issue_for() {
+  gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
+    | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
+}
+
 while read -r pair <&3; do
   child=$(issue_for "${pair%% *}"); parent=$(issue_for "${pair##* }")
-  if [ -z "$child" ] || [ -z "$parent" ]; then echo "STOP: no issue for $pair — re-run Step 4"; exit 1; fi
+  if [ -z "$child" ] || [ -z "$parent" ]; then
+    # GitHub search indexes new issues with a delay. Re-running Step 4 now would miss
+    # them in its own guard and create duplicates — wait, then re-run THIS step.
+    echo "STOP: no issue found yet for $pair. Wait a minute for search to catch up, then re-run Step 5."
+    echo "      If it persists, check the issue exists before touching Step 4."
+    exit 1
+  fi
   gh issue edit "$parent" --add-sub-issue "$child"
 done 3< <(jq -r '.[] | select(.parent != null and (.parent_frozen | not)) | "\(.task_id) \(.parent)"' "$BOARD_JSON")
 ```
 
-`issue_for` is the exact-prefix lookup defined in Step 4. Re-running is safe: adding an existing
+Re-running is safe: adding an existing
 sub-issue is a no-op.
 
 **Except when `parent_frozen` is true.** Under `DONE_MODE=freeze`, a story whose epic is a Done row
