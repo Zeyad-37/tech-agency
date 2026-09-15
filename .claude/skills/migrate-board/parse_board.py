@@ -67,8 +67,16 @@ TITLE_MAX = 256  # GitHub's issue-title cap
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
 LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
-# A section heading that marks its table as finished work.
+# A section heading that marks its table as finished work. `\b` keeps
+# `Unresolved` from matching; NEGATION keeps `Not done yet` from matching.
 RESOLVED_HEADING = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
+NEGATION = re.compile(r"\b(not|un\w*|open|pending|yet|outstanding|remaining|todo|to\s+do)\b", re.IGNORECASE)
+# Any heading of level 2 or deeper; group 1 is its text.
+HEADING_LINE = re.compile(r"^#{2,}\s+(.*?)\s*#*\s*$")
+
+
+def is_resolved_heading(heading: str) -> bool:
+    return bool(RESOLVED_HEADING.search(heading)) and not NEGATION.search(heading)
 
 
 class BoardError(Exception):
@@ -303,10 +311,23 @@ def issue_title(task_id: str, description: str, limit: int = TITLE_MAX) -> str:
 
 def debt_tables(root: str, rel: str) -> list[dict]:
     """Tables in the debt file, located by header NAME rather than position —
-    consumers order the columns differently. A table with an ID and Description
-    column is debt. It is `active` when it has a Severity column, `resolved` when
-    it has none and its heading says resolved / closed / done, and `unclassified`
-    otherwise — open work must never be guessed into history."""
+    consumers order the columns differently.
+
+    Every table that looks like debt gets exactly one `kind`; no path skips one
+    silently:
+
+    - `resolved` — its heading (the nearest `##`, `###`, …) says resolved /
+      closed / done with no negation. Decided first, whatever the columns: a
+      finished table that kept its Severity column is history, not active debt.
+    - `active` — an exact `#`/`ID` column, a Description and a Severity column.
+    - `problem` — anything else, with `missing` naming the absent columns. Open
+      work is never guessed into history, and rows are never dropped unreported.
+
+    A table looks like debt when it has an exact `#`/`ID` column, an ID-like
+    header (`Task ID`), a data row keyed by a TD-<n> ID, or Description alongside
+    Severity or Category. A bare Description column is not enough — a
+    documentation table such as `| Field | Description |` has one — and
+    `| Item | Rule | Severity | … |` meets none of these; both are ignored."""
     lines = read_lines(os.path.join(root, rel))
     found: list[dict] = []
     for start, block in table_blocks(lines):
@@ -315,31 +336,26 @@ def debt_tables(root: str, rel: str) -> list[dict]:
         header = cells(block[0])
         lower = [h.lower().strip("* ") for h in header]
         id_col = next((i for i, h in enumerate(lower) if h in ("#", "id")), None)
-        heading = next((l[3:].strip() for l in reversed(lines[:start]) if l.startswith("## ")), "")
-        if id_col is None:
-            # Looks like debt but has no column the parser keys on: report it, never
-            # drop it silently. The signal must be specific to debt. A bare
-            # `Description` column is not — a documentation table such as
-            # `| Field | Description |` describing the file's format has one — so it
-            # takes an ID-ish header (`Task ID`), Description alongside Severity or
-            # Category, or rows keyed by a TD-<n> ID. `| Item | Rule | Severity | … |`
-            # meets none of these and is not debt.
-            debt_shaped = "description" in lower and ("severity" in lower or "category" in lower)
-            td_rows = any(re.match(r"^TD-\d+$", cells(l)[0]) for l in block[2:])
-            if debt_shaped or td_rows or any(LOOSE_ID.search(h) for h in lower):
-                found.append({"source": rel, "line": start + 1, "heading": heading,
-                              "header": header, "kind": "no_id", "rows": []})
+        looks_like_debt = (
+            id_col is not None
+            or any(LOOSE_ID.search(h) for h in lower)
+            or any(re.match(r"^TD-\d+$", cells(l)[0]) for l in block[2:])
+            or ("description" in lower and ("severity" in lower or "category" in lower)))
+        if not looks_like_debt:
             continue
-        if "description" not in lower:
-            continue
+        heading = next((m.group(1) for l in reversed(lines[:start]) if (m := HEADING_LINE.match(l))), "")
+        missing = [name for name, present in (("an '#' or 'ID' column", id_col is not None),
+                                              ("a Description column", "description" in lower),
+                                              ("a Severity column", "severity" in lower)) if not present]
         found.append({
             "source": rel, "line": start + 1, "heading": heading, "header": header,
-            "kind": ("active" if "severity" in lower
-                     else "resolved" if RESOLVED_HEADING.search(heading)
-                     else "unclassified"),
+            "kind": ("resolved" if is_resolved_heading(heading)
+                     else "active" if not missing
+                     else "problem"),
+            "missing": missing,
             "id_col": id_col,
             "severity_col": lower.index("severity") if "severity" in lower else None,
-            "description_col": lower.index("description"),
+            "description_col": lower.index("description") if "description" in lower else None,
             "category_col": lower.index("category") if "category" in lower else None,
             "rows": [(start + k + 1, l) for k, l in enumerate(block)
                      if k > 0 and not SEPARATOR.match(l)],
@@ -361,13 +377,10 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
         problems.append(f"{rel}: no tech-debt table with ID, Description and Severity columns "
                         f"— nothing would be imported")
     for t in tables:
-        if t["kind"] == "no_id":
-            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' has no '#' or 'ID' column "
+        if t["kind"] == "problem":
+            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' is missing "
+                            f"{' and '.join(t['missing'])} and its heading does not say it is resolved "
                             f"— its rows would not be imported")
-        elif t["kind"] == "unclassified":
-            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' has IDs and descriptions but "
-                            f"no Severity column, and its heading does not say it is resolved — a human "
-                            f"must decide")
     active: Counter[str] = Counter()
     resolved: set[str] = set()
     for t in tables:
@@ -377,6 +390,8 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
             c = cells(line)
             if c[0] == PLACEHOLDER:
                 continue
+            if t["id_col"] is None:
+                continue  # resolved, keyed by `Task ID` or the like: history, counted as a whole
             if len(c) != len(t["header"]):
                 problems.append(f"{rel}:{n}: row has {len(c)} cells, its table header has "
                                 f"{len(t['header'])} — an unescaped '|' inside a cell splits it; "
@@ -623,7 +638,7 @@ def verify_debt(debt: dict, issues: list[dict]) -> int:
           f"{via_column} via the Board Task column)  "
           f"{'; '.join(notes) or 'OK'}")
     for nm in debt["not_migrated"]:
-        print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) — stays in {debt['file']}")
+        print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading) — stays in {debt['file']}")
     return len(notes)
 
 
@@ -657,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
                     for note in debt["notes"]:
                         print(f"  note: {note}")
                     for nm in debt["not_migrated"]:
-                        print(f"  note: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) will not be migrated.")
+                        print(f"  note: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading) will not be migrated.")
             return 0
         if a.json:
             print(json.dumps(board_tasks(a.root, a.done), indent=2, ensure_ascii=False))

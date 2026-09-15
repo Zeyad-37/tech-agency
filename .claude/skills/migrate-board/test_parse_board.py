@@ -556,7 +556,7 @@ class TechDebtParsing(DebtDir):
 
     def test_table_without_a_recognised_id_column_is_a_problem(self) -> None:
         second = "\n## More Debt\n\n| Task ID | Severity | Description |\n|---|---|---|\n| TD-9 | low | Dropped |\n"
-        self.assertDebtProblem(DEBT_STEADY + second, "has no '#' or 'ID' column")
+        self.assertDebtProblem(DEBT_STEADY + second, "is missing an '#' or 'ID' column")
 
     def test_format_documentation_table_is_not_flagged(self) -> None:
         # Verbatim shape of a real consumer's `## Format` section: it has a
@@ -565,11 +565,11 @@ class TechDebtParsing(DebtDir):
                "| **ID** | TD-NNN (sequential) |\n| **Severity** | High / Medium / Low |\n\n")
         self.put("docs/tech-debt/backlog.md", fmt + DEBT_STEADY.split("\n", 1)[1])
         problems = pb.debt_check(self.root, pb.parse(self.root))
-        self.assertFalse(any("no '#' or 'ID' column" in p for p in problems), problems)
+        self.assertFalse(any("under 'Format'" in p for p in problems), problems)
 
     def test_table_keyed_by_td_rows_without_an_id_header_is_flagged(self) -> None:
         second = "\n## More\n\n| Ref | Summary |\n|---|---|\n| TD-9 | Dropped |\n"
-        self.assertDebtProblem(DEBT_STEADY + second, "has no '#' or 'ID' column")
+        self.assertDebtProblem(DEBT_STEADY + second, "is missing an '#' or 'ID' column")
 
     def test_unrelated_table_without_id_or_description_is_ignored(self) -> None:
         # The shape of tech-agency's own "Stranded consumer improvements" table.
@@ -581,7 +581,7 @@ class TechDebtParsing(DebtDir):
     def test_table_without_severity_under_an_active_heading_is_a_problem(self) -> None:
         mobile = ("\n## Active — Mobile\n\n| ID | Priority | Description |\n|---|---|---|\n"
                   "| TD-50 | P1 | Open mobile item |\n| TD-51 | P2 | Another |\n")
-        self.assertDebtProblem(DEBT_STEADY + mobile, "a human must decide")
+        self.assertDebtProblem(DEBT_STEADY + mobile, "under 'Active — Mobile' is missing a Severity column")
 
     def test_table_without_severity_under_a_closed_heading_is_not_migrated(self) -> None:
         closed = "\n## Closed\n\n| ID | Description |\n|---|---|\n| TD-60 | Finished item |\n"
@@ -589,6 +589,44 @@ class TechDebtParsing(DebtDir):
         debt = pb.parse_debt(self.root, pb.parse(self.root))
         self.assertIn("Closed", {nm["heading"] for nm in debt["not_migrated"]})
         self.assertNotIn("TD-60", {d["task_id"] for d in debt["items"]})
+
+    def test_resolved_heading_wins_over_a_severity_column(self) -> None:
+        # A resolved table that kept its Severity column is history, not active debt.
+        done = ("\n## Resolved (2026)\n\n| ID | Severity | Description | Resolution |\n|---|---|---|---|\n"
+                "| TD-900 | High | Old finished thing | Fixed in PR #9 |\n")
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY + done)
+        self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertNotIn("TD-900", {d["task_id"] for d in debt["items"]})
+        self.assertIn("Resolved (2026)", {nm["heading"] for nm in debt["not_migrated"]})
+
+    def test_id_and_severity_without_description_is_a_problem(self) -> None:
+        web = "\n## Active — Web\n\n| ID | Severity | Title |\n|---|---|---|\n| TD-901 | High | Web item |\n"
+        self.assertDebtProblem(DEBT_STEADY + web, "is missing a Description column")
+
+    def test_hash_item_severity_without_description_is_a_problem(self) -> None:
+        web = "\n## Active — Web\n\n| # | Item | Severity |\n|---|---|---|\n| 7 | Web item | Low |\n"
+        self.assertDebtProblem(DEBT_STEADY + web, "is missing a Description column")
+
+    def test_negated_done_heading_is_not_resolved(self) -> None:
+        open_ = "\n## Not done yet\n\n| ID | Description |\n|---|---|\n| TD-950 | still open |\n"
+        self.assertDebtProblem(DEBT_STEADY + open_, "under 'Not done yet' is missing a Severity column")
+
+    def test_negated_done_heading_with_every_column_is_active(self) -> None:
+        open_ = ("\n## Not done yet\n\n| ID | Severity | Description |\n|---|---|---|\n"
+                 "| TD-951 | low | still open |\n")
+        self.assertIn("TD-951", self.items(DEBT_STEADY + open_))
+
+    def test_unresolved_heading_is_not_resolved(self) -> None:
+        open_ = "\n## Unresolved\n\n| ID | Description |\n|---|---|\n| TD-952 | still open |\n"
+        self.assertDebtProblem(DEBT_STEADY + open_, "under 'Unresolved' is missing a Severity column")
+
+    def test_resolved_subheading_is_resolved(self) -> None:
+        sub = "\n## Archive\n\n### Resolved\n\n| ID | Description |\n|---|---|\n| TD-960 | finished |\n"
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY + sub)
+        self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertIn("Resolved", {nm["heading"] for nm in debt["not_migrated"]})
 
     def test_file_with_no_active_table(self) -> None:
         self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")
