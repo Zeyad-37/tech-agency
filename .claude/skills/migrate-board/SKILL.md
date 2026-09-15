@@ -12,8 +12,8 @@ repo-scoped Projects v2 board when the token allows it. Runs on any repo with a 
 
 1. **Nothing is deleted.** The markdown files stay in the repo, frozen with a banner. A migration
    that loses history is not a migration.
-2. **Re-running is safe.** Every create is preceded by a search for the task's `[TASK-ID]` title
-   prefix. A run interrupted halfway is resumed by running it again, not by cleaning up by hand.
+2. **Re-running is safe.** Every create is preceded by a lookup that matches the task's exact
+   `[TASK-ID] ` title prefix client-side (Step 4) — never a bare search hit. A run interrupted halfway is resumed by running it again, not by cleaning up by hand.
 
 See `@.claude/rules/shared/board-adapter.md` § `"github"` for the column mapping, identity rules,
 and operation translations this skill establishes.
@@ -59,7 +59,8 @@ A repair mixed into the migration commit is invisible in history, and the repair
 on its own. Then parse:
 
 ```bash
-python3 .claude/skills/migrate-board/parse_board.py --json > /tmp/board.json
+BOARD_JSON=$(mktemp "${TMPDIR:-/tmp}/board-XXXXXX.json")
+python3 .claude/skills/migrate-board/parse_board.py --json > "$BOARD_JSON"
 ```
 
 Show the user the counts per column and **stop for confirmation** before any write. This is the
@@ -82,29 +83,57 @@ done
 There is deliberately no `status:done` label — Done is the issue being **closed**, which is what
 makes `Closes #N` in a PR body perform the transition (`@.claude/rules/shared/board-in-pr.md`).
 
-Agent labels are created on demand in Step 4 as `agent:{name}`.
+`agent:{name}` labels are not in this list because the agent names come from the board itself. Step 4
+creates each one — idempotently, with `--force` — immediately before the first issue that uses it,
+so no `gh issue create` ever references a label that does not exist.
 
 ## Step 4: Create the issues
 
-For each task in `/tmp/board.json`, in this order — **Backlog, Ready, In Progress, Review, Blocked,
-then Done** — so that parents exist before Step 5 links their children.
+For each task in `$BOARD_JSON`, in this order — **Backlog, Ready, In Progress, Review, Blocked,
+then Done** — so that parents exist before Step 5 links their children. `parse_board.py --json`
+already emits tasks in that order.
 
-**Always search before creating:**
+**Always search before creating**, and decide on an **exact** title-prefix match made client-side.
+The `--search` only narrows the candidates; whether GitHub's tokenizer lets `"[T-016]"` match
+`[T-016.4] …` is not something this skill controls, so the search result is never trusted as the
+answer. `startswith("[T-016] ")` — with the trailing space — cannot match `[T-016.4] …`.
+
+Labels are built as a bash array, so an empty `agent` or `priority` adds **no** flag at all rather
+than a malformed `--label "priority:"`. On a board whose In Progress / Review / Blocked / Done
+schemas have no `Priority` column, that is every task in those columns.
 
 ```bash
-existing=$(gh issue list --search "\"[$TASK_ID]\" in:title" --state all --json number --jq '.[0].number')
-if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
-```
+# Tasks are read on fd 3 so no gh call inside the loop can swallow the list from stdin.
+while read -r task <&3; do
+  TASK_ID=$(jq -r '.task_id' <<<"$task")
+  COLUMN=$(jq -r '.column' <<<"$task")
+  DESCRIPTION=$(jq -r '.description' <<<"$task")
+  AGENT=$(jq -r '.agent // ""' <<<"$task")
+  PRIORITY=$(jq -r '.priority // ""' <<<"$task")
+  # Extend BODY with the row's remaining fields per the bullets below the block.
+  BODY="Migrated from $(jq -r '.source' <<<"$task") on $(date +%F)."
 
-Then create:
+  # Idempotency guard: exact "[TASK-ID] " prefix, decided client-side.
+  existing=$(gh issue list --state all --limit 100 --search "$TASK_ID in:title" \
+               --json number,title \
+             | jq -r --arg p "[$TASK_ID] " \
+                 'map(select(.title | startswith($p))) | .[0].number // empty')
+  if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
 
-```bash
-gh issue create \
-  --title "[$TASK_ID] $DESCRIPTION" \
-  --body "$BODY" \
-  --label "status:$COLUMN" \
-  --label "agent:$AGENT" \
-  --label "priority:$PRIORITY"
+  labels=()
+  # Done has no status label — Done is the issue being closed.
+  [ "$COLUMN" != "done" ] && labels+=(--label "status:$COLUMN")
+  if [ -n "$AGENT" ]; then
+    gh label create "agent:$AGENT" --color "bfdadc" --force >/dev/null   # idempotent
+    labels+=(--label "agent:$AGENT")
+  fi
+  [ -n "$PRIORITY" ] && labels+=(--label "priority:$PRIORITY")
+
+  url=$(gh issue create --title "[$TASK_ID] $DESCRIPTION" --body "$BODY" "${labels[@]}")
+  if [ "$COLUMN" = "done" ]; then
+    gh issue close "${url##*/}" --reason completed
+  fi
+done 3< <(jq -c '.[]' "$BOARD_JSON")
 ```
 
 - **Title** carries the Task ID prefix. That prefix is the identity — branch names, commit
