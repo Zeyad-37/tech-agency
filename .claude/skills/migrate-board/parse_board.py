@@ -60,7 +60,8 @@ TITLE_ID = re.compile(r"^\[([A-Za-z]+-\d+(?:\.\d+)?)\] ")
 # older consumers still use. Both present is an error, not a preference — importing
 # either alone silently drops the other's items.
 DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
-# "TD-337" (prefixed) or "3" (a bare `#` column); both normalise to TD-<n>.
+# "TD-337" (prefixed, kept as written) or "3" (a bare `#` column, read as TD-3).
+# Duplicates are compared by the number, so TD-002 and 2 are the same item.
 DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
 SEVERITIES = ("high", "medium", "low")
 TITLE_MAX = 256  # GitHub's issue-title cap
@@ -314,6 +315,11 @@ def debt_file(root: str) -> str | None:
     return present[0] if present else None
 
 
+def debt_number(tid: str) -> int:
+    """The number a normalised debt ID names: `TD-002`, `TD-2` and a bare `2` are one item."""
+    return int(tid.rsplit("-", 1)[1])
+
+
 def normalize_debt_id(raw: str) -> str | None:
     m = DEBT_ID.match(raw.strip())
     if not m:
@@ -407,8 +413,10 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
             problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' is missing "
                             f"{' and '.join(t['missing'])} and its heading does not say it is resolved "
                             f"— its rows would not be imported")
-    active: Counter[str] = Counter()
-    resolved: set[str] = set()
+    # Keyed by the ID's number, so `TD-002` and a bare `2` are one item; each
+    # value keeps the IDs as written, for the message and for display.
+    active: dict[int, list[str]] = {}
+    resolved: dict[int, list[str]] = {}
     for t in tables:
         if t["kind"] not in ("active", "resolved"):
             continue
@@ -429,9 +437,9 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
                                 f"(expected TD-<n>, or <n> in a '#' column)")
                 continue
             if t["kind"] == "resolved":
-                resolved.add(tid)
+                resolved.setdefault(debt_number(tid), []).append(tid)
                 continue
-            active[tid] += 1
+            active.setdefault(debt_number(tid), []).append(tid)
             sev = c[t["severity_col"]].strip("* ").lower()
             if sev not in SEVERITIES:
                 problems.append(f"{rel}:{n}: {tid} severity '{c[t['severity_col']]}' is not one of "
@@ -449,13 +457,14 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
             if tid and tid not in live_ids and len(live) > 1:
                 problems.append(f"{rel}:{n}: {tid}'s Board Task names {len(live)} live board tasks "
                                 f"({', '.join(live)}) — keep the one that resolves it")
-    for tid, k in sorted(active.items()):
-        if k > 1:
-            problems.append(f"{rel}: {tid} is listed {k} times as active debt")
-    for tid in sorted(set(active) & resolved):
-        problems.append(f"{rel}: {tid} is listed as both active and resolved — decide which is true")
+    for num, ids in sorted(active.items()):
+        if len(ids) > 1:
+            problems.append(f"{rel}: {' / '.join(dict.fromkeys(ids))} is listed {len(ids)} times as active debt")
+    for num in sorted(set(active) & set(resolved)):
+        both = " / ".join(dict.fromkeys(active[num] + resolved[num]))
+        problems.append(f"{rel}: {both} is listed as both active and resolved — decide which is true")
     done = {t["task_id"] for t in board if t["column"] == "done"}
-    for tid in sorted(set(active) & done):
+    for tid in sorted({i for ids in active.values() for i in ids} & done):
         problems.append(f"{rel}: {tid} is active debt but its board task is Done — mark the debt "
                         f"resolved, or reopen the task")
     return problems

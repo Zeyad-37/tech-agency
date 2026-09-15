@@ -550,6 +550,21 @@ class TechDebtParsing(DebtDir):
     def test_duplicate_active_id(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("| TD-002 |", "| TD-337 |"), "listed 2 times")
 
+    def test_duplicate_across_prefixed_and_bare_ids(self) -> None:
+        # TD-002 in an ID table and `2` in a `#` table are the same item.
+        api = ("\n## Active — API\n\n| # | Severity | Description |\n|---|---|---|\n"
+               "| 2 | Low | Same item, bare ID |\n")
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY + api)
+        problems = pb.debt_check(self.root, pb.parse(self.root))
+        self.assertTrue(any("TD-002" in p and "TD-2" in p and "listed 2 times" in p for p in problems), problems)
+
+    def test_zero_padded_id_is_kept_as_written(self) -> None:
+        self.assertIn("TD-002", self.items(DEBT_STEADY))
+
+    def test_active_and_resolved_contradiction_across_id_formats(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| TD-001 | Old item", "| TD-0337 | Old item"),
+                               "both active and resolved")
+
     def test_active_and_resolved_contradiction(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("| TD-001 | Old item", "| TD-337 | Old item"),
                                "both active and resolved")
