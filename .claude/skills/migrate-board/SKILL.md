@@ -45,26 +45,66 @@ gh project list --owner "$(gh repo view --json owner --jq .owner.login)" >/dev/n
 `gh auth refresh -s project` unlocks the board view later — re-running this skill will then create
 it. Do not treat it as an error and do not stop.
 
+**Ask the user two questions before going further** — both change what gets written, and neither
+has a safe default to assume silently:
+
+1. **Done history** — `DONE_MODE=issues` creates every Done row as a closed issue, so the full
+   history is searchable in GitHub and epics roll up correctly. `DONE_MODE=freeze` leaves Done rows
+   as markdown history only: far fewer writes on a long-lived board, at the cost of an epic whose
+   stories are partly done showing fewer children than it had.
+2. **Tech debt** — migrate the debt backlog too (`DEBT=yes`), or leave it as a file (`DEBT=no`).
+
+```bash
+DONE_MODE=freeze          # or: issues
+DEBT_FLAG=--include-tech-debt   # or empty when DEBT=no
+```
+
+The debt backlog is found at `docs/guides/tech-debt/backlog.md`, or at `docs/tech-debt/backlog.md`
+on repos set up before the docs reorganisation. **Both present is an error**: importing either
+alone would drop the other's items, so merge them first.
+
 ## Step 2: Repair, then parse
 
 Markdown boards corrupt silently — a merge can leave separator rows before their headers, or
 sections the schema no longer has, and nothing detects it. Validate before trusting the contents:
 
 ```bash
-python3 .claude/skills/migrate-board/parse_board.py --check
+python3 .claude/skills/migrate-board/parse_board.py --check $DEBT_FLAG
 ```
 
 If it reports problems, **fix them and commit that repair as its own commit** before migrating.
 A repair mixed into the migration commit is invisible in history, and the repair is worth reviewing
-on its own. Then parse:
+on its own.
+
+**Older consumers need the most repair**, because their board predates the layout the parser
+expects. The classes seen on real boards, and what fixes each:
+
+| Reported | Cause | Repair |
+|---|---|---|
+| `'## Done' / '## Decisions Log' must not be in the live board` | Board never got the live/archive split | Move Done rows to `docs/board/done-{YYYY}-Q{N}.md` and the log to `docs/board/decisions-log.md` (`board-adapter.md` § markdown) |
+| `Backlog header is \| Task ID \| Priority \| Description \|` | An older 3-column schema | Add the `Requested By` column to the header and every row |
+| `row(s) starting at 'X' are cut off from their table` | A blank line or `---` split one table in two | Delete the blank line / `---` so the rows rejoin their table |
+| `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Escape it as `\\|` |
+| `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell | Move the commentary into the description |
+| `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
+
+The last row is different in kind: the rest are mechanical, but a duplicated or contradictory debt
+item is a question about what is actually true, so surface it rather than resolving it.
+
+Then parse:
 
 ```bash
 BOARD_JSON=$(mktemp "${TMPDIR:-/tmp}/board-XXXXXX.json")
-python3 .claude/skills/migrate-board/parse_board.py --json > "$BOARD_JSON"
+python3 .claude/skills/migrate-board/parse_board.py --json --done "$DONE_MODE" > "$BOARD_JSON"
+# When DEBT=yes:
+DEBT_JSON=$(mktemp "${TMPDIR:-/tmp}/debt-XXXXXX.json")
+python3 .claude/skills/migrate-board/parse_board.py --tech-debt > "$DEBT_JSON"
 ```
 
-Show the user the counts per column and **stop for confirmation** before any write. This is the
-dry run: creating dozens of issues is hard to undo.
+Show the user the counts per column, the Done mode, and — when migrating debt — the active item
+count, how many are already on the board (`on_board`, which become labels rather than issues), and
+which resolved tables will not migrate. **Stop for confirmation** before any write. This is the dry
+run: creating dozens of issues is hard to undo.
 
 ## Step 3: Create the labels
 
@@ -143,10 +183,49 @@ done 3< <(jq -c '.[]' "$BOARD_JSON")
   `Migrated from board-context.md on {date}` line for provenance.
 - **Assignee** is the human owner (`gh repo view --json owner`), never the agency agent — @Kai and
   @Atlas have no GitHub accounts. The agent is the `agent:` label.
-- **Done rows** are created and then closed: `gh issue close "$n" --reason completed`. Preserve the
-  original completion date in the body; the close timestamp will be today's and that is fine, as
-  the body holds the truth.
+- **Done rows** exist in `$BOARD_JSON` only when `DONE_MODE=issues`. They are created and then
+  closed: `gh issue close "$n" --reason completed`. Preserve the original completion date in the
+  body; the close timestamp will be today's and that is fine, as the body holds the truth. Under
+  `freeze` there are no Done rows to create — they stay in the frozen `docs/board/done-*.md`.
 - **Blocked rows** get the blocker reason as a comment, not squeezed into the title.
+
+## Step 4b: Import tech debt (skip when `DEBT=no`)
+
+Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **one of two paths**:
+
+- **`on_board: true`** — its ID is already a live board task (some repos pull debt onto the board
+  under the debt's own ID). That task's issue **is** this debt item: label it, do not create a
+  second issue. Creating one would give two issues titled `[TD-n]`, and the search-before-create
+  guard would silently skip whichever came second.
+- **`on_board: false`** — create it on the Backlog, with the same exact-prefix guard as Step 4.
+
+```bash
+while read -r item <&3; do
+  TASK_ID=$(jq -r '.task_id' <<<"$item")
+  SEVERITY=$(jq -r '.severity' <<<"$item")
+  existing=$(gh issue list --state all --limit 100 --search "$TASK_ID in:title" --json number,title \
+             | jq -r --arg p "[$TASK_ID] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+
+  if [ "$(jq -r '.on_board' <<<"$item")" = "true" ]; then
+    [ -n "$existing" ] || { echo "STOP: $TASK_ID is on the board but has no issue — run Step 4 first"; break; }
+    gh issue edit "$existing" --add-label tech-debt --add-label "severity:$SEVERITY"
+    continue
+  fi
+  if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
+
+  # Body: every field of the row, so the prose transfers intact.
+  BODY=$(jq -r '.fields | to_entries | map("**\(.key):** \(.value)") | join("\n\n")' <<<"$item")
+  BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
+  gh issue create --title "[$TASK_ID] $(jq -r '.description' <<<"$item")" --body "$BODY" \
+    --label status:backlog --label tech-debt --label "severity:$SEVERITY"
+done 3< <(jq -c '.items[]' "$DEBT_JSON")
+```
+
+Descriptions are often long; GitHub caps titles at 256 characters. When one exceeds that, truncate
+the title at a word boundary and rely on the body, which carries the full text.
+
+Resolved tables (`not_migrated` in the JSON) are never imported — an issue is open work, and those
+rows are the record of work already finished.
 
 ## Step 5: Link epics as sub-issues
 
@@ -159,6 +238,10 @@ gh issue edit "$PARENT_NUM" --add-sub-issue "$CHILD_NUM"
 
 If the stem has no issue of its own, create one first as the epic, labelled with the column its
 children mostly sit in. Re-running is safe: adding an existing sub-issue is a no-op.
+
+**Except when `parent_frozen` is true.** Under `DONE_MODE=freeze`, a story whose epic is a Done row
+has no epic issue on purpose — creating one would resurrect finished work as an open issue. Leave
+that story unlinked and count it for the report.
 
 ## Step 6: Create the Projects v2 board (skip if `PROJECT_SCOPE=no`)
 
@@ -177,7 +260,7 @@ them, which is why losing the scope degrades cleanly rather than breaking the bo
 Do not freeze the markdown until verification is clean:
 
 ```bash
-python3 .claude/skills/migrate-board/parse_board.py --verify
+python3 .claude/skills/migrate-board/parse_board.py --verify --done "$DONE_MODE" $DEBT_FLAG
 ```
 
 It re-parses the board (refusing outright if `--check` would fail) and compares every column
@@ -192,6 +275,18 @@ against GitHub **in both directions**, over a fully paginated issue list — no 
   wholly dropped column cannot pass as an empty one. A table holding only the `—` placeholder is a
   genuinely empty column and passes.
 
+Under `DONE_MODE=freeze` the Done line reads `frozen` and is not compared. With
+`--include-tech-debt`, a `tech-debt` line checks every active item is an **open** issue carrying
+`tech-debt` and its `severity:` label — its own issue, or the board task it was merged onto:
+
+- **MISSING** — no issue for the item. **NOT LABELLED** — the item's issue exists but lacks
+  `tech-debt`, which is what an unlabelled `on_board` merge looks like.
+- **CLOSED** — active debt on a closed issue, invisible to `/replenish`'s label query.
+- **WRONG SEVERITY**, and **EXTRA** — an open `tech-debt` issue that is not in the backlog.
+
+Debt-only issues carry `status:backlog`, but they are **not** counted against the Backlog column —
+otherwise every imported item would show as a Backlog EXTRA.
+
 **Any mismatch stops the migration** with the markdown untouched — investigate, fix, and re-run from
 Step 4, which will skip everything already created.
 
@@ -204,7 +299,8 @@ python3 -m unittest discover -s .claude/skills/migrate-board -p 'test_*.py'
 ## Step 8: Freeze the markdown, flip the backend
 
 Only after Step 7 is clean. Prepend to `board-context.md`, `docs/board/backlog.md`, and each
-`docs/board/done-*.md`:
+`docs/board/done-*.md` (under `DONE_MODE=freeze`, add a line to the Done files saying their rows
+were **not** migrated, so nobody goes looking for them in GitHub):
 
 ```markdown
 > **Frozen {YYYY-MM-DD}.** This board moved to GitHub Issues. Kept as history; not updated.
@@ -215,10 +311,10 @@ Only after Step 7 is clean. Prepend to `board-context.md`, `docs/board/backlog.m
 **`docs/board/decisions-log.md` is NOT frozen.** It is a versioned document, not tracked work — it
 stays live and in the repo. Same for everything under `docs/artifacts/`.
 
-**`docs/guides/tech-debt/backlog.md`** is migrated like the board: each entry becomes an issue
-labelled `tech-debt` plus its severity (the prose body transfers intact — an issue body has no
-one-line constraint), and the file is frozen with the same banner. This is what lets `/replenish`
-pull its 15–20 % debt allocation with a label query. `resolved.md` is a record; leave it alone.
+**The tech-debt backlog**, when imported in Step 4b, is frozen with the same banner — at whichever
+path it was found (`$DEBT_JSON`'s `file`), including the legacy `docs/tech-debt/backlog.md`. That
+is what lets `/replenish` pull its 15–20 % debt allocation with a label query. Note in the banner
+that resolved tables in the file were not migrated. `resolved.md` is a record; leave it alone.
 
 Then flip the backend:
 
@@ -236,6 +332,10 @@ like any other — it goes through a PR.
 State plainly:
 
 - Issues created, by column; how many were skipped as already present
+- The Done mode — and under `freeze`, how many Done rows stayed as markdown and how many stories
+  were left unlinked because their epic is frozen
+- Tech debt: issues created, items merged onto existing board tasks, resolved rows not migrated
+  (or that debt was left as a file)
 - Epic links made
 - Whether the Projects v2 board was created or skipped for scope, and the `gh auth refresh -s project` remedy
 - Which files were frozen, and that nothing was deleted
@@ -243,8 +343,11 @@ State plainly:
 
 ## Notes
 
-**Rate limits.** A large board is a lot of `gh issue create` calls. If you hit a secondary rate
-limit, wait and re-run — Step 4's search-before-create makes resumption free.
+**Rate limits.** A large board is a lot of `gh issue create` calls, and a tech-debt import can
+double it. GitHub throttles content creation at roughly 500 writes an hour, so a board plus a few
+hundred debt items will hit it. When you hit a secondary rate limit, wait and re-run — Steps 4 and
+4b both search before creating, so resumption is free. `DONE_MODE=freeze` is the biggest lever on
+volume for a long-lived board.
 
 **Issue numbers are not Task IDs.** Never renumber tasks to match issue numbers. The Task ID is the
 identity; `#47` is an implementation detail that appears only in `Closes #47`.
