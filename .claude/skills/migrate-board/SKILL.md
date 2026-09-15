@@ -22,6 +22,33 @@ and operation translations this skill establishes.
 
 Stop on any failure here — a partial migration is worse than none.
 
+**First, locate the parser.** `parse_board.py` ships inside the installed plugin, not in the repo
+being migrated, so a repo-relative path finds it only inside tech-agency itself. Resolve it the
+same way the `pre-push` hook resolves `mirror.sh`: a local copy, then `$CLAUDE_PLUGIN_ROOT`, then
+the newest installed version in the plugin cache.
+
+```bash
+# resolve-parser: parse_board.py lives in the installed plugin, not in this repo.
+PARSER=""
+for c in ".claude/skills/migrate-board/parse_board.py" \
+         "${CLAUDE_PLUGIN_ROOT:-}/skills/migrate-board/parse_board.py"; do
+  [ -n "$c" ] && [ -f "$c" ] && PARSER="$c" && break
+done
+if [ -z "$PARSER" ]; then
+  PARSER=$(find "$HOME/.claude/plugins/cache" -maxdepth 6 \
+             -path '*/tech-agency/*/skills/migrate-board/parse_board.py' 2>/dev/null \
+           | sort -V | tail -1)
+fi
+if [ -z "$PARSER" ]; then
+  echo "STOP: parse_board.py not found. Install the plugin (claude plugin install tech-agency@tech-agency) or set CLAUDE_PLUGIN_ROOT."
+  exit 1
+fi
+echo "Using $PARSER"
+```
+
+Every later step runs `python3 "$PARSER"`. Each shell starts fresh, so re-run this block in any new
+shell rather than typing a path by hand.
+
 ```bash
 gh auth status                       # authenticated?
 gh repo view --json nameWithOwner,hasIssuesEnabled   # remote exists, Issues enabled?
@@ -69,7 +96,7 @@ Markdown boards corrupt silently — a merge can leave separator rows before the
 sections the schema no longer has, and nothing detects it. Validate before trusting the contents:
 
 ```bash
-python3 .claude/skills/migrate-board/parse_board.py --check $DEBT_FLAG
+python3 "$PARSER" --check $DEBT_FLAG
 ```
 
 If it reports problems, **fix them and commit that repair as its own commit** before migrating.
@@ -118,11 +145,11 @@ Then parse:
 
 ```bash
 BOARD_JSON=$(mktemp "${TMPDIR:-/tmp}/board-XXXXXX.json")
-python3 .claude/skills/migrate-board/parse_board.py --json --done "$DONE_MODE" > "$BOARD_JSON"
+python3 "$PARSER" --json --done "$DONE_MODE" > "$BOARD_JSON"
 # Only when migrating debt — DEBT_FLAG is set in Step 1:
 if [ -n "$DEBT_FLAG" ]; then
   DEBT_JSON=$(mktemp "${TMPDIR:-/tmp}/debt-XXXXXX.json")
-  python3 .claude/skills/migrate-board/parse_board.py --tech-debt > "$DEBT_JSON"
+  python3 "$PARSER" --tech-debt > "$DEBT_JSON"
 fi
 ```
 
@@ -322,7 +349,7 @@ them, which is why losing the scope degrades cleanly rather than breaking the bo
 Do not freeze the markdown until verification is clean:
 
 ```bash
-python3 .claude/skills/migrate-board/parse_board.py --verify --done "$DONE_MODE" $DEBT_FLAG
+python3 "$PARSER" --verify --done "$DONE_MODE" $DEBT_FLAG
 ```
 
 It re-parses the board (refusing outright if `--check` would fail) and compares every column
@@ -358,7 +385,8 @@ Step 4, which will skip everything already created.
 The parser has its own tests (standard library only):
 
 ```bash
-python3 -m unittest discover -s .claude/skills/migrate-board -p 'test_*.py'
+# PYTHONDONTWRITEBYTECODE: the tests live in the installed plugin; do not litter its cache.
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$(dirname "$PARSER")" -p 'test_*.py'
 ```
 
 ## Step 8: Freeze the markdown, flip the backend

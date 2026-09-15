@@ -906,6 +906,86 @@ class HeadingStatusSilentDrops(unittest.TestCase):
             self.assertEqual(pb.heading_status(h), "resolved", h)
 
 
+SKILL_MD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SKILL.md")
+
+
+def resolve_block() -> str:
+    """The parser-resolution bash block from SKILL.md, verbatim."""
+    import re
+    with open(SKILL_MD, encoding="utf-8") as fh:
+        blocks = re.findall(r"```bash\n(.*?)```", fh.read(), re.S)
+    found = [b for b in blocks if "# resolve-parser" in b]
+    assert len(found) == 1, f"expected one resolve-parser block, found {len(found)}"
+    return found[0]
+
+
+class ParserResolution(unittest.TestCase):
+    """The skill runs in consumer repos, where parse_board.py is not in the repo:
+    it ships inside the installed plugin. A repo-relative path works only inside
+    tech-agency itself — which is where every earlier test ran."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.consumer = os.path.join(self._tmp.name, "consumer")
+        self.home = os.path.join(self._tmp.name, "home")
+        os.makedirs(self.consumer)
+        os.makedirs(self.home)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def plant(self, root: str) -> str:
+        path = os.path.join(root, "skills", "migrate-board", "parse_board.py")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        return path
+
+    def run_block(self, plugin_root: str | None = None) -> tuple[int, str]:
+        import subprocess
+        env = {"PATH": os.environ["PATH"], "HOME": self.home}
+        if plugin_root is not None:
+            env["CLAUDE_PLUGIN_ROOT"] = plugin_root
+        r = subprocess.run(["bash", "-c", resolve_block()], cwd=self.consumer, env=env,
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+
+    def test_skill_never_invokes_the_parser_by_a_repo_relative_path(self) -> None:
+        with open(SKILL_MD, encoding="utf-8") as fh:
+            python_lines = [l for l in fh if "python3" in l]
+        # The parser is invoked through the resolved path...
+        self.assertTrue([l for l in python_lines if 'python3 "$PARSER"' in l])
+        # ...and never by naming the file, which works only inside tech-agency.
+        self.assertEqual([l for l in python_lines if "parse_board.py" in l], [])
+
+    def test_finds_the_plugin_root_copy_from_a_consumer_repo(self) -> None:
+        plugin = os.path.join(self._tmp.name, "plugin")
+        want = self.plant(plugin)
+        code, out = self.run_block(plugin_root=plugin)
+        self.assertEqual(code, 0, out)
+        self.assertIn(want, out)
+
+    def test_falls_back_to_the_newest_cached_plugin_version(self) -> None:
+        cache = os.path.join(self.home, ".claude", "plugins", "cache", "tech-agency", "tech-agency")
+        self.plant(os.path.join(cache, "1.2.3"))
+        newest = self.plant(os.path.join(cache, "1.2.10"))  # lexically smaller, numerically newer
+        code, out = self.run_block()
+        self.assertEqual(code, 0, out)
+        self.assertIn(newest, out)
+
+    def test_prefers_a_local_copy(self) -> None:
+        self.plant(os.path.join(self.consumer, ".claude"))
+        plugin = os.path.join(self._tmp.name, "plugin")
+        self.plant(plugin)
+        code, out = self.run_block(plugin_root=plugin)
+        self.assertEqual(code, 0, out)
+        self.assertIn("Using .claude/skills/migrate-board/parse_board.py", out)
+
+    def test_fails_loudly_when_the_parser_is_nowhere(self) -> None:
+        code, out = self.run_block()
+        self.assertNotEqual(code, 0)
+        self.assertIn("parse_board.py not found", out)
+
+
 class FetchIssues(unittest.TestCase):
     def test_paginates_instead_of_limiting(self) -> None:
         completed = mock.Mock(returncode=0, stdout='{"title":"[T-1] a","state":"open","state_reason":null,"labels":[]}\n')
