@@ -66,6 +66,8 @@ SEVERITIES = ("high", "medium", "low")
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
 LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
+# A section heading that marks its table as finished work.
+RESOLVED_HEADING = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
 
 
 class BoardError(Exception):
@@ -289,7 +291,9 @@ def normalize_debt_id(raw: str) -> str | None:
 def debt_tables(root: str, rel: str) -> list[dict]:
     """Tables in the debt file, located by header NAME rather than position —
     consumers order the columns differently. A table with an ID and Description
-    column is debt; it is `active` when it also has Severity, else `resolved`."""
+    column is debt. It is `active` when it has a Severity column, `resolved` when
+    it has none and its heading says resolved / closed / done, and `unclassified`
+    otherwise — open work must never be guessed into history."""
     lines = read_lines(os.path.join(root, rel))
     found: list[dict] = []
     for start, block in table_blocks(lines):
@@ -311,7 +315,9 @@ def debt_tables(root: str, rel: str) -> list[dict]:
             continue
         found.append({
             "source": rel, "line": start + 1, "heading": heading, "header": header,
-            "kind": "active" if "severity" in lower else "resolved",
+            "kind": ("active" if "severity" in lower
+                     else "resolved" if RESOLVED_HEADING.search(heading)
+                     else "unclassified"),
             "id_col": id_col,
             "severity_col": lower.index("severity") if "severity" in lower else None,
             "description_col": lower.index("description"),
@@ -339,6 +345,10 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
         if t["kind"] == "no_id":
             problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' has no '#' or 'ID' column "
                             f"— its rows would not be imported")
+        elif t["kind"] == "unclassified":
+            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' has IDs and descriptions but "
+                            f"no Severity column, and its heading does not say it is resolved — a human "
+                            f"must decide")
     active: Counter[str] = Counter()
     resolved: set[str] = set()
     for t in tables:
@@ -542,7 +552,7 @@ def verify_debt(debt: dict, issues: list[dict]) -> int:
     print(f"  {'tech-debt':12} markdown={len(want):3}  ({merged} merged onto board tasks)  "
           f"{'; '.join(notes) or 'OK'}")
     for nm in debt["not_migrated"]:
-        print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} resolved row(s)) — stays in {debt['file']}")
+        print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) — stays in {debt['file']}")
     return len(notes)
 
 
@@ -573,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Tech debt is structurally valid: {len(debt['items'])} active item(s) in "
                           f"{debt['file']}, {merged} already on the board.")
                     for nm in debt["not_migrated"]:
-                        print(f"  note: '{nm['heading']}' ({nm['rows']} resolved row(s)) will not be migrated.")
+                        print(f"  note: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) will not be migrated.")
             return 0
         if a.json:
             print(json.dumps(board_tasks(a.root, a.done), indent=2, ensure_ascii=False))

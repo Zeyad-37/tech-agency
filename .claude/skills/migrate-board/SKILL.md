@@ -86,10 +86,13 @@ expects. The classes seen on real boards, and what fixes each:
 | `row(s) starting at 'X' are cut off from their table` | A blank line or `---` split one table in two | Delete the blank line / `---` so the rows rejoin their table |
 | `row has N cells, … an unescaped '\|'` | A literal `\|` inside a description | Put a backslash before it, `\\|` — the parser splits only on unescaped pipes and reads `\\|` back as a literal `\|` |
 | `'T-053.7 (follow-up)' is not a Task ID` | Commentary in the ID cell | Move the commentary into the description |
+| `table under 'X' has no '#' or 'ID' column` | A debt table keyed by `Task ID` or similar | Rename that header cell to `ID` |
 | `is listed N times as active debt` / `both active and resolved` / `board task is Done` | Contradictions in the debt data | **A human decides** which entry is true — never pick one automatically |
+| `no Severity column, and its heading does not say it is resolved` | A debt table that may be open work or history | **A human decides**: add a Severity column if it is open, or put it under a `Resolved` / `Closed` / `Done` heading if it is finished |
 
-The last row is different in kind: the rest are mechanical, but a duplicated or contradictory debt
-item is a question about what is actually true, so surface it rather than resolving it.
+The two "a human decides" rows are different in kind: the rest are mechanical, but a duplicated,
+contradictory or unclassifiable debt item is a question about what is actually true, so surface it
+rather than resolving it.
 
 Then parse:
 

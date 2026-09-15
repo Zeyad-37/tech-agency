@@ -522,6 +522,18 @@ class TechDebtParsing(DebtDir):
         self.put("docs/tech-debt/backlog.md", DEBT_STEADY + other)
         self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
 
+    def test_table_without_severity_under_an_active_heading_is_a_problem(self) -> None:
+        mobile = ("\n## Active — Mobile\n\n| ID | Priority | Description |\n|---|---|---|\n"
+                  "| TD-50 | P1 | Open mobile item |\n| TD-51 | P2 | Another |\n")
+        self.assertDebtProblem(DEBT_STEADY + mobile, "a human must decide")
+
+    def test_table_without_severity_under_a_closed_heading_is_not_migrated(self) -> None:
+        closed = "\n## Closed\n\n| ID | Description |\n|---|---|\n| TD-60 | Finished item |\n"
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY + closed)
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        self.assertIn("Closed", {nm["heading"] for nm in debt["not_migrated"]})
+        self.assertNotIn("TD-60", {d["task_id"] for d in debt["items"]})
+
     def test_file_with_no_active_table(self) -> None:
         self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")
 
