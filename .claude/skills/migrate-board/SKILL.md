@@ -174,16 +174,32 @@ them, which is why losing the scope degrades cleanly rather than breaking the bo
 
 ## Step 7: Verify before freezing
 
-Do not freeze the markdown until the counts match:
+Do not freeze the markdown until verification is clean:
 
 ```bash
 python3 .claude/skills/migrate-board/parse_board.py --verify
 ```
 
-It re-parses the board and compares each column against `gh issue list` by label, Done against
-closed issues, and reports any Task ID present in the markdown but missing from GitHub. **Any
-mismatch stops the migration** with the markdown untouched — investigate, fix, and re-run from
+It re-parses the board (refusing outright if `--check` would fail) and compares every column
+against GitHub **in both directions**, over a fully paginated issue list — no `--limit` to truncate at:
+
+- **MISSING** — a Task ID in the markdown with no issue in that column (Done = closed as completed;
+  a close as *not planned* is not Done).
+- **EXTRA** — an issue in that column whose Task ID is not in the markdown.
+- **DUPLICATE** — a Task ID with more than one issue, the exact failure Step 4's guard exists to
+  prevent. Closing the extras as *not planned* resolves it.
+- **NO TABLE** — a column's source file exists but no table for that column was found in it, so a
+  wholly dropped column cannot pass as an empty one. A table holding only the `—` placeholder is a
+  genuinely empty column and passes.
+
+**Any mismatch stops the migration** with the markdown untouched — investigate, fix, and re-run from
 Step 4, which will skip everything already created.
+
+The parser has its own tests (standard library only):
+
+```bash
+python3 -m unittest discover -s .claude/skills/migrate-board -p 'test_*.py'
+```
 
 ## Step 8: Freeze the markdown, flip the backend
 
