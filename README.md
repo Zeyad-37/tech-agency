@@ -123,9 +123,9 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 ## Skills
 
-49 skills ship with the plugin, all invoked as slash commands. 34 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
+49 skills ship with the plugin, all invoked as slash commands. 35 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
 
-### First-party workflows (34)
+### First-party workflows (35)
 
 #### Planning & requirements
 

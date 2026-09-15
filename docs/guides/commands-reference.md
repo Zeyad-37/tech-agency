@@ -1,8 +1,8 @@
 # Commands Reference
 
-These are the **34 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
+These are the **35 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
 
-The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 48 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
+The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 49 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
 
 > Installing the plugin is not the whole setup. Run `/setup-repo` once per project to bootstrap the shared policy rules, the board, the git hooks, and `.claude/settings.json`. See `../setup-guide.md`.
 
@@ -631,4 +631,4 @@ Mirrors edits to `.claude/rules/` between a consumer project and the canonical t
 | `/sync-rule` | Mirror `.claude/rules/` edits between consumer and tech-agency | After any rule edit |
 | `/audit-memory` | Audit Claude Code's auto-memory for stale/duplicate entries | Every 30 days |
 
-All 34 first-party commands are listed above.
+All 35 first-party commands are listed above.

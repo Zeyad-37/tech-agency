@@ -23,7 +23,7 @@ board, no git hooks, no sandbox, and none of the shared policy rules in context.
 
 ## Command Index
 
-34 first-party commands ship with the plugin. Full documentation:
+35 first-party commands ship with the plugin. Full documentation:
 [`commands-reference.md`](commands-reference.md).
 
 | Group | Commands |
