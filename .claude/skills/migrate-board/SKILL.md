@@ -105,7 +105,8 @@ python3 .claude/skills/migrate-board/parse_board.py --tech-debt > "$DEBT_JSON"
 ```
 
 Show the user the counts per column, the Done mode, and — when migrating debt — the active item
-count, how many are already on the board (`on_board`, which become labels rather than issues), and
+count, how many are already on the board (`on_board`, which become labels rather than issues — and
+of those, how many via the `Board Task` column), the `notes` for debt whose Board Task is Done, and
 which resolved tables will not migrate. **Stop for confirmation** before any write. This is the dry
 run: creating dozens of issues is hard to undo.
 
@@ -196,24 +197,44 @@ done 3< <(jq -c '.[]' "$BOARD_JSON")
 
 Before verification, so Step 7 can check it. Each item in `$DEBT_JSON` takes **one of two paths**:
 
-- **`on_board: true`** — its ID is already a live board task (some repos pull debt onto the board
-  under the debt's own ID). That task's issue **is** this debt item: label it, do not create a
-  second issue. Creating one would give two issues titled `[TD-n]`, and the search-before-create
-  guard would silently skip whichever came second.
+- **`on_board: true`** — the item is already on the board, and `board_task` names the task: either
+  the debt's own ID (some repos pull debt onto the board under that ID) or the one live task its
+  `Board Task` column names. Label **that task's issue**; do not create an issue for the debt. A
+  second issue would either collide with `[TD-n]` — the search-before-create guard silently skips
+  whichever came second — or sit unlinked beside the task that resolves it. Several debt items may
+  share one task. When `board_task` differs from the debt's ID, also leave a comment carrying the
+  debt's ID, severity and description, so its detail is not lost with no `[TD-n]` issue to hold it.
 - **`on_board: false`** — create it on the Backlog, with the same exact-prefix guard as Step 4.
+  That includes items whose Board Task is **Done**: finished work cannot carry open debt, so those
+  get their own issue, and the parser lists them in `notes` for the report.
 
 ```bash
+# Exact "[ID] " title-prefix lookup, decided client-side (see Step 4).
+issue_for() {
+  gh issue list --state all --limit 100 --search "$1 in:title" --json number,title \
+    | jq -r --arg p "[$1] " 'map(select(.title | startswith($p))) | .[0].number // empty'
+}
+
 while read -r item <&3; do
   TASK_ID=$(jq -r '.task_id' <<<"$item")
   SEVERITY=$(jq -r '.severity' <<<"$item")
-  existing=$(gh issue list --state all --limit 100 --search "$TASK_ID in:title" --json number,title \
-             | jq -r --arg p "[$TASK_ID] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+  BOARD_TASK=$(jq -r '.board_task // empty' <<<"$item")
 
-  if [ "$(jq -r '.on_board' <<<"$item")" = "true" ]; then
-    [ -n "$existing" ] || { echo "STOP: $TASK_ID is on the board but has no issue — run Step 4 first"; break; }
-    gh issue edit "$existing" --add-label tech-debt --add-label "severity:$SEVERITY"
+  if [ -n "$BOARD_TASK" ]; then
+    n=$(issue_for "$BOARD_TASK")
+    [ -n "$n" ] || { echo "STOP: $TASK_ID maps to $BOARD_TASK, which has no issue — run Step 4 first"; break; }
+    gh issue edit "$n" --add-label tech-debt --add-label "severity:$SEVERITY"
+    if [ "$BOARD_TASK" != "$TASK_ID" ]; then
+      # Idempotent: the hidden marker stops a re-run posting the same comment twice.
+      MARK="<!-- migrated-debt:$TASK_ID -->"
+      if ! gh issue view "$n" --json comments --jq '.comments[].body' | grep -qF "$MARK"; then
+        gh issue comment "$n" --body "$MARK"$'\n'"**Tech debt $TASK_ID** ($SEVERITY), resolved by this task:"$'\n\n'"$(jq -r '.description' <<<"$item")"
+      fi
+    fi
     continue
   fi
+
+  existing=$(issue_for "$TASK_ID")
   if [ -n "$existing" ]; then echo "skip $TASK_ID -> #$existing"; continue; fi
 
   # Body: every field of the row, so the prose transfers intact.
@@ -284,8 +305,9 @@ Under `DONE_MODE=freeze` the Done line reads `frozen` and is not compared. With
 `--include-tech-debt`, a `tech-debt` line checks every active item is an **open** issue carrying
 `tech-debt` and its `severity:` label — its own issue, or the board task it was merged onto:
 
-- **MISSING** — no issue for the item. **NOT LABELLED** — the item's issue exists but lacks
-  `tech-debt`, which is what an unlabelled `on_board` merge looks like.
+- **MISSING** — no issue for the item. **NOT LABELLED** — the issue the item lives on exists but
+  lacks `tech-debt`, which is what a skipped `on_board` merge looks like. For a merged item that
+  issue is its `board_task`'s, not a `[TD-n]` — so a board task carrying debt is never an EXTRA.
 - **CLOSED** — active debt on a closed issue, invisible to `/replenish`'s label query.
 - **WRONG SEVERITY**, and **EXTRA** — an open `tech-debt` issue that is not in the backlog.
 
@@ -339,8 +361,8 @@ State plainly:
 - Issues created, by column; how many were skipped as already present
 - The Done mode — and under `freeze`, how many Done rows stayed as markdown and how many stories
   were left unlinked because their epic is frozen
-- Tech debt: issues created, items merged onto existing board tasks, resolved rows not migrated
-  (or that debt was left as a file)
+- Tech debt: issues created, items merged onto existing board tasks (own ID vs Board Task column),
+  items whose Board Task is Done, resolved rows not migrated — or that debt was left as a file
 - Epic links made
 - Whether the Projects v2 board was created or skipped for scope, and the `gh auth refresh -s project` remedy
 - Which files were frozen, and that nothing was deleted

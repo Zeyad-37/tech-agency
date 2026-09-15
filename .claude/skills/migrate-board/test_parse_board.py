@@ -478,15 +478,45 @@ class TechDebtParsing(DebtDir):
         self.assertEqual(debt["not_migrated"], [{"heading": "Resolved Debt", "line": 12, "rows": 1}])
 
     def test_item_already_a_live_board_task_is_marked_on_board(self) -> None:
-        # Default board has T-002, not TD-002: neither debt item is on the board.
-        got = self.items(DEBT_STEADY)
-        self.assertFalse(got["TD-002"]["on_board"])
-        self.assertFalse(got["TD-337"]["on_board"])
-        # Put TD-002 on the board as a live task: matched by exact ID.
+        # Own ID: TD-002 is itself a live board task, so it is merged onto itself.
         self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-002"), REVIEW, BLOCKED))
-        got = {d["task_id"]: d for d in pb.parse_debt(self.root, pb.parse(self.root))["items"]}
-        self.assertTrue(got["TD-002"]["on_board"])
-        self.assertFalse(got["TD-337"]["on_board"])
+        got = self.items(DEBT_STEADY)
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (True, "TD-002"))
+        self.assertEqual((got["TD-337"]["on_board"], got["TD-337"]["board_task"]), (False, None))
+
+    def test_board_task_column_merges_onto_that_task(self) -> None:
+        # DEBT_STEADY's TD-002 names T-002 in its Board Task column; T-002 is live.
+        got = self.items(DEBT_STEADY)
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (True, "T-002"))
+
+    def test_board_task_id_is_found_amid_text(self) -> None:
+        got = self.items(DEBT_STEADY.replace("| T-002 |", "| T-002 · PR #584 |"))
+        self.assertEqual(got["TD-002"]["board_task"], "T-002")
+
+    def test_board_task_own_id_wins_over_the_column(self) -> None:
+        self.write("board-context.md", live(READY, IN_PROGRESS.replace("T-002", "TD-002"), REVIEW, BLOCKED))
+        got = self.items(DEBT_STEADY.replace("| T-002 |", "| T-001 |"))  # T-001 is live too
+        self.assertEqual(got["TD-002"]["board_task"], "TD-002")
+
+    def test_board_task_not_on_the_board_gets_its_own_issue(self) -> None:
+        got = self.items(DEBT_STEADY.replace("| T-002 |", "| T-999 |"))
+        self.assertEqual((got["TD-002"]["on_board"], got["TD-002"]["board_task"]), (False, None))
+
+    def test_board_task_that_is_done_gets_its_own_issue_and_a_note(self) -> None:
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY.replace("| T-002 |", "| T-005 |"))  # T-005 is Done
+        debt = pb.parse_debt(self.root, pb.parse(self.root))
+        item = {d["task_id"]: d for d in debt["items"]}["TD-002"]
+        self.assertEqual((item["on_board"], item["board_task"]), (False, None))
+        self.assertTrue(any("TD-002" in n and "T-005" in n and "Done" in n for n in debt["notes"]), debt["notes"])
+
+    def test_board_task_naming_two_live_tasks_is_a_problem(self) -> None:
+        self.assertDebtProblem(DEBT_STEADY.replace("| T-002 |", "| T-001 / T-002 |"),
+                               "names 2 live board tasks")
+
+    def test_several_debt_items_may_share_one_board_task(self) -> None:
+        got = self.items(DEBT_STEADY.replace("| Testing Gaps | Steady low item | ios | S | @Shield | — |",
+                                             "| Testing Gaps | Steady low item | ios | S | @Shield | T-002 |"))
+        self.assertEqual({got["TD-337"]["board_task"], got["TD-002"]["board_task"]}, {"T-002"})
 
     def test_unescaped_pipe_is_rejected(self) -> None:
         self.assertDebtProblem(DEBT_STEADY.replace("Steady low item", "Steady | low item"),
@@ -617,6 +647,22 @@ class VerifyTechDebt(DebtDir):
         code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337"), debt_issue("TD-999")])
         self.assertEqual(code, 1)
         self.assertIn("EXTRA 1: TD-999", out)
+
+    def test_item_merged_via_board_task_column_is_verified_on_that_issue(self) -> None:
+        # Put the default board back (T-002 live) so TD-002 merges onto [T-002].
+        self.write("board-context.md", live(READY, IN_PROGRESS, REVIEW, BLOCKED))
+        issues = self.board_issues()
+        issues[2] = issue("T-002", status="in-progress")
+        issues[2]["labels"] += [pb.DEBT_LABEL, "severity:high"]
+        code, out = self.run_verify(issues + [debt_issue("TD-337")])
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 via the Board Task column", out)
+        # The same board task without the debt label is caught, and [T-002] is not an EXTRA.
+        issues[2]["labels"] = ["status:in-progress"]
+        code, out = self.run_verify(issues + [debt_issue("TD-337")])
+        self.assertEqual(code, 1)
+        self.assertIn("NOT LABELLED tech-debt 1: TD-002", out)
+        self.assertNotIn("EXTRA", out)
 
     def test_closed_active_debt(self) -> None:
         code, out = self.run_verify(self.board_issues() + [debt_issue("TD-337", state="closed")])

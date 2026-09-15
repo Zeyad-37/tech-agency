@@ -395,6 +395,19 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
             if sev not in SEVERITIES:
                 problems.append(f"{rel}:{n}: {tid} severity '{c[t['severity_col']]}' is not one of "
                                 f"{', '.join(SEVERITIES)}")
+    live_ids = {t["task_id"] for t in board if t["column"] != "done"}
+    for t in tables:
+        if t["kind"] != "active":
+            continue
+        for n, line in t["rows"]:
+            c = cells(line)
+            if c[0] == PLACEHOLDER or len(c) != len(t["header"]):
+                continue
+            tid = normalize_debt_id(c[t["id_col"]])
+            live = [r for r in board_task_refs(dict(zip(t["header"], c))) if r in live_ids]
+            if tid and tid not in live_ids and len(live) > 1:
+                problems.append(f"{rel}:{n}: {tid}'s Board Task names {len(live)} live board tasks "
+                                f"({', '.join(live)}) — keep the one that resolves it")
     for tid, k in sorted(active.items()):
         if k > 1:
             problems.append(f"{rel}: {tid} is listed {k} times as active debt")
@@ -407,21 +420,46 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
     return problems
 
 
+BOARD_TASK_REF = re.compile(r"\b([A-Za-z]+-\d+(?:\.\d+)?)\b")
+
+
+def board_task_refs(fields: dict[str, str]) -> list[str]:
+    """Task IDs named in a debt row's `Board Task` column, in order, deduplicated.
+    The cell often carries text around the ID (`T-053.10 · PR #584`); `PR #584`
+    has no hyphen, so it is never mistaken for a task."""
+    for key, value in fields.items():
+        if key.lower().strip("* ") == "board task":
+            return list(dict.fromkeys(BOARD_TASK_REF.findall(value)))
+    return []
+
+
+def resolve_board_task(tid: str, fields: dict[str, str], live_ids: set[str]) -> str | None:
+    """The live board task a debt item is merged onto: its own ID when that is a
+    board task, else the one live task its Board Task column names."""
+    if tid in live_ids:
+        return tid
+    live = [r for r in board_task_refs(fields) if r in live_ids]
+    return live[0] if len(live) == 1 else None
+
+
 def parse_debt(root: str, board: list[dict]) -> dict:
     """Active debt items to import. Raises BoardError on a corrupt debt file.
 
-    `on_board` marks an item whose ID is already a live board task. It must NOT
-    become a second issue: the board task's issue is labelled as debt instead,
-    otherwise the search-before-create guard finds one [TD-n] and silently skips
-    the other."""
+    `board_task` is the live board task the item is merged onto — its own ID when
+    that is a board task, or the single live task its `Board Task` column names —
+    and `on_board` is whether there is one. Such an item must NOT become an issue
+    of its own: the board task's issue is labelled as debt instead. Several debt
+    items may share one task. An item whose Board Task is Done gets its own issue
+    and is listed in `notes`, since finished work cannot carry open debt."""
     problems = debt_check(root, board)
     if problems:
         raise BoardError("\n".join(problems))
     rel = debt_file(root)
-    result: dict = {"file": rel, "items": [], "not_migrated": []}
+    result: dict = {"file": rel, "items": [], "not_migrated": [], "notes": []}
     if rel is None:
         return result
     live_ids = {t["task_id"] for t in board if t["column"] != "done"}
+    done_ids = {t["task_id"] for t in board if t["column"] == "done"}
     for t in debt_tables(root, rel):
         if t["kind"] not in ("active", "resolved"):
             continue  # debt_check has already refused these
@@ -431,15 +469,24 @@ def parse_debt(root: str, board: list[dict]) -> dict:
             continue
         for n, c in rows:
             tid = normalize_debt_id(c[t["id_col"]])
+            fields = dict(zip(t["header"], c))
+            board_task = resolve_board_task(tid, fields, live_ids)
+            if board_task is None:
+                done_refs = [r for r in board_task_refs(fields) if r in done_ids]
+                if done_refs:
+                    result["notes"].append(
+                        f"{tid}: its Board Task {', '.join(done_refs)} is Done but the debt is still "
+                        f"active — it gets its own issue; mark it resolved if the task fixed it")
             result["items"].append({
                 "task_id": tid,
                 "severity": c[t["severity_col"]].strip("* ").lower(),
                 "category": c[t["category_col"]] if t["category_col"] is not None else "",
                 "title": issue_title(tid, c[t["description_col"]]),
                 "description": c[t["description_col"]],
-                "fields": dict(zip(t["header"], c)),
+                "fields": fields,
                 "source": rel, "line": n,
-                "on_board": tid in live_ids,
+                "board_task": board_task,
+                "on_board": board_task is not None,
             })
     return result
 
@@ -550,9 +597,11 @@ def verify_debt(debt: dict, issues: list[dict]) -> int:
         if m := TITLE_ID.match(i["title"]):
             by_id.setdefault(m.group(1), []).append(i)
     want = {d["task_id"]: d for d in debt["items"]}
+    # The issue an item lives on: the board task it was merged onto, else its own.
+    expected = {d["board_task"] or d["task_id"] for d in want.values()}
     missing, unlabelled, closed, severity = [], [], [], []
     for tid, d in sorted(want.items()):
-        found = by_id.get(tid, [])
+        found = by_id.get(d["board_task"] or tid, [])
         if not found:
             missing.append(tid)
             continue
@@ -564,12 +613,14 @@ def verify_debt(debt: dict, issues: list[dict]) -> int:
         elif f"severity:{d['severity']}" not in i["labels"]:
             severity.append(tid)
     extra = sorted({m.group(1) for i in live if DEBT_LABEL in i["labels"] and i["state"] == "open"
-                    and (m := TITLE_ID.match(i["title"])) and m.group(1) not in want})
+                    and (m := TITLE_ID.match(i["title"])) and m.group(1) not in expected})
     notes = [f"{name} {len(v)}: {', '.join(v)}" for name, v in
              (("MISSING", missing), ("NOT LABELLED tech-debt", unlabelled),
               ("CLOSED", closed), ("WRONG SEVERITY", severity), ("EXTRA", extra)) if v]
     merged = sum(1 for d in want.values() if d["on_board"])
-    print(f"  {'tech-debt':12} markdown={len(want):3}  ({merged} merged onto board tasks)  "
+    via_column = sum(1 for d in want.values() if d["on_board"] and d["board_task"] != d["task_id"])
+    print(f"  {'tech-debt':12} markdown={len(want):3}  ({merged} merged onto board tasks, "
+          f"{via_column} via the Board Task column)  "
           f"{'; '.join(notes) or 'OK'}")
     for nm in debt["not_migrated"]:
         print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) — stays in {debt['file']}")
@@ -600,8 +651,11 @@ def main(argv: list[str] | None = None) -> int:
                     print("No tech-debt backlog found (looked in: " + ", ".join(DEBT_FILES) + ").")
                 else:
                     merged = sum(1 for d in debt["items"] if d["on_board"])
+                    via = sum(1 for d in debt["items"] if d["on_board"] and d["board_task"] != d["task_id"])
                     print(f"Tech debt is structurally valid: {len(debt['items'])} active item(s) in "
-                          f"{debt['file']}, {merged} already on the board.")
+                          f"{debt['file']}, {merged} already on the board ({via} via the Board Task column).")
+                    for note in debt["notes"]:
+                        print(f"  note: {note}")
                     for nm in debt["not_migrated"]:
                         print(f"  note: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading, no Severity) will not be migrated.")
             return 0
