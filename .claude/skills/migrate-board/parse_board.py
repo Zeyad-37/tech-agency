@@ -64,6 +64,8 @@ DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
 DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
 SEVERITIES = ("high", "medium", "low")
 DEBT_LABEL = "tech-debt"
+# A header cell that names an ID without being one the parser keys on (`Task ID`).
+LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
 
 
 class BoardError(Exception):
@@ -296,9 +298,17 @@ def debt_tables(root: str, rel: str) -> list[dict]:
         header = cells(block[0])
         lower = [h.lower().strip("* ") for h in header]
         id_col = next((i for i, h in enumerate(lower) if h in ("#", "id")), None)
-        if id_col is None or "description" not in lower:
-            continue
         heading = next((l[3:].strip() for l in reversed(lines[:start]) if l.startswith("## ")), "")
+        if id_col is None:
+            # Looks like debt (a Description, or an ID-ish column such as `Task ID`)
+            # but has no column the parser keys on: report it, never drop it silently.
+            # A table with neither — e.g. `| Item | Rule | Severity | … |` — is not debt.
+            if "description" in lower or any(LOOSE_ID.search(h) for h in lower):
+                found.append({"source": rel, "line": start + 1, "heading": heading,
+                              "header": header, "kind": "no_id", "rows": []})
+            continue
+        if "description" not in lower:
+            continue
         found.append({
             "source": rel, "line": start + 1, "heading": heading, "header": header,
             "kind": "active" if "severity" in lower else "resolved",
@@ -325,9 +335,15 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
     if not any(t["kind"] == "active" for t in tables):
         problems.append(f"{rel}: no tech-debt table with ID, Description and Severity columns "
                         f"— nothing would be imported")
+    for t in tables:
+        if t["kind"] == "no_id":
+            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' has no '#' or 'ID' column "
+                            f"— its rows would not be imported")
     active: Counter[str] = Counter()
     resolved: set[str] = set()
     for t in tables:
+        if t["kind"] not in ("active", "resolved"):
+            continue
         for n, line in t["rows"]:
             c = cells(line)
             if c[0] == PLACEHOLDER:
@@ -378,6 +394,8 @@ def parse_debt(root: str, board: list[dict]) -> dict:
         return result
     live_ids = {t["task_id"] for t in board if t["column"] != "done"}
     for t in debt_tables(root, rel):
+        if t["kind"] not in ("active", "resolved"):
+            continue  # debt_check has already refused these
         rows = [(n, cells(l)) for n, l in t["rows"] if cells(l)[0] != PLACEHOLDER]
         if t["kind"] == "resolved":
             result["not_migrated"].append({"heading": t["heading"], "line": t["line"], "rows": len(rows)})

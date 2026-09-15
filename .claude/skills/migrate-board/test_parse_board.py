@@ -511,6 +511,17 @@ class TechDebtParsing(DebtDir):
         self.write("docs/board/done-2026-Q3.md", DONE_FILE.replace("T-005", "TD-337"))
         self.assertDebtProblem(DEBT_STEADY, "board task is Done")
 
+    def test_table_without_a_recognised_id_column_is_a_problem(self) -> None:
+        second = "\n## More Debt\n\n| Task ID | Severity | Description |\n|---|---|---|\n| TD-9 | low | Dropped |\n"
+        self.assertDebtProblem(DEBT_STEADY + second, "has no '#' or 'ID' column")
+
+    def test_unrelated_table_without_id_or_description_is_ignored(self) -> None:
+        # The shape of tech-agency's own "Stranded consumer improvements" table.
+        other = ("\n## Stranded\n\n| Item | Rule | Severity | Why it is generic |\n"
+                 "|---|---|---|---|\n| A split | kmp.md | Medium | generic |\n")
+        self.put("docs/tech-debt/backlog.md", DEBT_STEADY + other)
+        self.assertEqual(pb.debt_check(self.root, pb.parse(self.root)), [])
+
     def test_file_with_no_active_table(self) -> None:
         self.assertDebtProblem("# Tech Debt\n\nNothing here yet.\n", "no tech-debt table")
 
