@@ -317,10 +317,16 @@ def debt_tables(root: str, rel: str) -> list[dict]:
         id_col = next((i for i, h in enumerate(lower) if h in ("#", "id")), None)
         heading = next((l[3:].strip() for l in reversed(lines[:start]) if l.startswith("## ")), "")
         if id_col is None:
-            # Looks like debt (a Description, or an ID-ish column such as `Task ID`)
-            # but has no column the parser keys on: report it, never drop it silently.
-            # A table with neither — e.g. `| Item | Rule | Severity | … |` — is not debt.
-            if "description" in lower or any(LOOSE_ID.search(h) for h in lower):
+            # Looks like debt but has no column the parser keys on: report it, never
+            # drop it silently. The signal must be specific to debt. A bare
+            # `Description` column is not — a documentation table such as
+            # `| Field | Description |` describing the file's format has one — so it
+            # takes an ID-ish header (`Task ID`), Description alongside Severity or
+            # Category, or rows keyed by a TD-<n> ID. `| Item | Rule | Severity | … |`
+            # meets none of these and is not debt.
+            debt_shaped = "description" in lower and ("severity" in lower or "category" in lower)
+            td_rows = any(re.match(r"^TD-\d+$", cells(l)[0]) for l in block[2:])
+            if debt_shaped or td_rows or any(LOOSE_ID.search(h) for h in lower):
                 found.append({"source": rel, "line": start + 1, "heading": heading,
                               "header": header, "kind": "no_id", "rows": []})
             continue

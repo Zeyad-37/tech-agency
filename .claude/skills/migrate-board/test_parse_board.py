@@ -528,6 +528,19 @@ class TechDebtParsing(DebtDir):
         second = "\n## More Debt\n\n| Task ID | Severity | Description |\n|---|---|---|\n| TD-9 | low | Dropped |\n"
         self.assertDebtProblem(DEBT_STEADY + second, "has no '#' or 'ID' column")
 
+    def test_format_documentation_table_is_not_flagged(self) -> None:
+        # Verbatim shape of a real consumer's `## Format` section: it has a
+        # Description column but describes the file, it is not debt.
+        fmt = ("# Tech Debt Backlog\n\n## Format\n\n| Field | Description |\n|-------|-------------|\n"
+               "| **ID** | TD-NNN (sequential) |\n| **Severity** | High / Medium / Low |\n\n")
+        self.put("docs/tech-debt/backlog.md", fmt + DEBT_STEADY.split("\n", 1)[1])
+        problems = pb.debt_check(self.root, pb.parse(self.root))
+        self.assertFalse(any("no '#' or 'ID' column" in p for p in problems), problems)
+
+    def test_table_keyed_by_td_rows_without_an_id_header_is_flagged(self) -> None:
+        second = "\n## More\n\n| Ref | Summary |\n|---|---|\n| TD-9 | Dropped |\n"
+        self.assertDebtProblem(DEBT_STEADY + second, "has no '#' or 'ID' column")
+
     def test_unrelated_table_without_id_or_description_is_ignored(self) -> None:
         # The shape of tech-agency's own "Stranded consumer improvements" table.
         other = ("\n## Stranded\n\n| Item | Rule | Severity | Why it is generic |\n"
