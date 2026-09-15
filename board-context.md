@@ -20,7 +20,6 @@ Keep rows to one line. Review notes and walkthroughs belong in the linked artifa
 
 | Task ID | Agent | Description | Reviewer | Waiting Since |
 |---------|-------|-------------|----------|---------------|
-| T-027.10 | @Claude | `/migrate-board` for legacy consumers: freeze-Done mode, tech-debt import (both paths, header-driven, merges debt already on the board) | @Zeyad | 2026-09-15 |
 | T-016.10 | @Claude | Promote the task-ID-title rule the mirror gate caught in the consumer | @Zeyad | 2026-09-08 |
 | T-016.9 | @Claude | mirror.sh: refuse a silent downgrade before writing anything | @Zeyad | 2026-09-08 |
 | T-016.8 | @Claude | Reconcile T-016 with the merged T-018 plugin audit | @Zeyad | 2026-09-08 |
