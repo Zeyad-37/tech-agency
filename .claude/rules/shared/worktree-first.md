@@ -10,7 +10,7 @@ Multiple Claude Code sessions can run in parallel on the same repo, and they hav
 
 ## What counts as "work"
 
-Anything that writes a file in the repo: implementing code, editing docs, updating `board-context.md`, generating reports, running formatters, committing, branching. All of it happens in a worktree.
+Anything that writes a file in the repo: implementing code, editing docs, updating `board-context.md` (on the `markdown` board backend), generating reports, running formatters, committing, branching. All of it happens in a worktree.
 
 Pure read-only operations (running `git log`, reading files to answer a question) may run in the main checkout — but the moment the task transitions to producing output, a worktree is created before any write.
 
@@ -86,7 +86,9 @@ An epic integration branch is itself created from `origin/main` (`git branch epi
 
 Publishing a new, empty epic integration branch is the one **named exception** to the push policy's "no bare `git push` outside `/create-pr` / `/ship-pr`" rule (see "Push Policy" in `@.claude/rules/shared/shared-standards.md`): the branch must exist on the remote before any story worktree can be cut from it, and there is no PR to carry it. It pushes zero commits — only a ref pointing at `origin/main`. Do this only when @Zeyad has approved the epic, and never use it as cover for pushing commits.
 
-## Board Updates Happen in the Worktree
+## Board Updates Happen in the Worktree (`markdown` backend)
+
+On the `github` board backend there is no board file: transitions are API writes that take effect immediately, and nothing in this section applies (`@.claude/rules/shared/board-adapter.md`). On `markdown` (including an absent `board_backend`):
 
 `board-context.md` is edited in the worktree alongside the task work. The board update commits onto the task branch and merges back to `main` via the same PR as the code change. There is no "Atlas updates the board in the main checkout" path — that would violate the worktree-first rule.
 

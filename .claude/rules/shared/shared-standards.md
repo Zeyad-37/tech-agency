@@ -174,7 +174,7 @@ Standard success response envelope:
 ## Context Continuity
 
 - Before starting any task, search for existing docs across the relevant type folders (`docs/artifacts/prd/`, `docs/artifacts/brd/`, `docs/artifacts/adr/`, `docs/artifacts/rfc/`, etc.) using the Task ID or feature name to locate all related documents
-- Check `board-context.md` for current board state, WIP items, and blockers
+- Check the board through the adapter (`board.read_all()`; `@.claude/rules/shared/board-adapter.md`) for current board state, WIP items, and blockers — `gh issue list` on `github`, `board-context.md` on `markdown`
 - If prior ADRs, BRDs, or RFCs exist for the feature, follow their decisions — do not contradict them without raising an explicit change request to @Sage and getting approval from @Zeyad
 - When resuming work from a previous session, re-read the relevant handoff docs and your last status update to @Atlas
 
@@ -224,7 +224,7 @@ Quick rules:
 - One agent per worktree — never assign two agents to the same worktree
 - Agents must not read or write files outside their worktree
 - **First action in any task**: create the worktree, `cd` into it, verify `pwd` + `git branch --show-current` before any write. If already inside a worktree (spawned by `/dispatch` / `/dispatch-task`), verify it matches the task and continue
-- `board-context.md` is edited inside the worktree on the task branch and merges back via PR — there is no privileged "Atlas writes to main checkout" path
+- On the `markdown` backend, `board-context.md` is edited inside the worktree on the task branch and merges back via PR — there is no privileged "Atlas writes to main checkout" path. On `github` there is no board file; transitions are API writes
 - Each worktree merges back via PR — never merge or commit directly on `main`
 - Worktree cleanup is automatic: every `/create-pr` invocation sweeps all worktrees and removes any whose PR is already merged. No manual cleanup needed for the happy path. To abandon an unmerged worktree, run `git worktree remove <path> && git branch -D <branch>` from the main checkout
 - This rule is also the entire parallel-session arbitration mechanism: two sessions running at the same time each get their own worktree under distinct branch names, with no shared in-flight state — no lock files or busy-checks are needed
@@ -261,14 +261,15 @@ Quick rules:
 
 ## Board Context Maintenance
 
-- `board-context.md` is the live source of truth for the Kanban board — agents must keep it updated
+- The board configured by `board_backend` in `.claude/settings.json` (absent → `markdown`) is the source of truth for the Kanban board — agents must keep it updated, through the operations in `@.claude/rules/shared/board-adapter.md`. On `github` that is GitHub Issues and nothing is mirrored into the repo; on `markdown` it is `board-context.md` + `docs/board/`
 - When pulling a task: move it to the "In Progress" column with your name
 - When blocked: add the blocker to the "Blocked" section immediately
 - When completing a task: move it to Done with the output artifact reference — on the markdown backend this archives the row to `docs/board/done-{YYYY}-Q{N}.md` and removes it from the live board, in one commit
 - When a key decision is made: add it to `docs/board/decisions-log.md`
 - Keep board rows to one line each. Review notes, walkthroughs, and discussion belong in the linked artifact document — a board that accumulates prose is read in full at the start of every task
-- @Atlas is responsible for reviewing `board-context.md` accuracy at every daily sync
-- **Every board edit ships inside the PR that carries the change it describes** — committed on the task branch, never as a board-only PR and never as a commit on `main`. `→ Done` is the final pre-merge commit on the PR branch, not a post-merge step. Planning-only board edits ride with the docs they produced, or wait for the first implementation PR. Full policy: `@.claude/rules/shared/board-in-pr.md`
+- @Atlas is responsible for reviewing board accuracy at every daily sync — the issue labels on `github`, `board-context.md` on `markdown`
+- **On `markdown`, every board edit ships inside the PR that carries the change it describes** — committed on the task branch, never as a board-only PR and never as a commit on `main`. `→ Done` is the final pre-merge commit on the PR branch, not a post-merge step. Planning-only board edits ride with the docs they produced, or wait for the first implementation PR. Full policy: `@.claude/rules/shared/board-in-pr.md`
+- **On `github`, `→ Done` is `Closes #{issue}` in the PR body**, closed by GitHub when the merge lands. `/create-pr` writes the line and `/address-feedback` verifies it before merging; nothing about the board is committed
 
 ## Release Process
 
