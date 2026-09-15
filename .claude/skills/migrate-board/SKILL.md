@@ -219,13 +219,15 @@ while read -r item <&3; do
   # Body: every field of the row, so the prose transfers intact.
   BODY=$(jq -r '.fields | to_entries | map("**\(.key):** \(.value)") | join("\n\n")' <<<"$item")
   BODY+=$'\n\n'"Migrated from $(jq -r '.source' <<<"$item"):$(jq -r '.line' <<<"$item") on $(date +%F)."
-  gh issue create --title "[$TASK_ID] $(jq -r '.description' <<<"$item")" --body "$BODY" \
+  # .title is "[TD-n] description", already cut to GitHub's 256-character cap.
+  gh issue create --title "$(jq -r '.title' <<<"$item")" --body "$BODY" \
     --label status:backlog --label tech-debt --label "severity:$SEVERITY"
 done 3< <(jq -c '.items[]' "$DEBT_JSON")
 ```
 
-Descriptions are often long; GitHub caps titles at 256 characters. When one exceeds that, truncate
-the title at a word boundary and rely on the body, which carries the full text.
+Descriptions are often long, and GitHub caps titles at 256 characters. The parser's `title` field
+is already cut at a word boundary (ending in `…`) to fit, and keeps the `[TD-n] ` prefix the
+search-before-create guard matches on; the body carries the full description.
 
 Resolved tables (`not_migrated` in the JSON) are never imported — an issue is open work, and those
 rows are the record of work already finished.

@@ -458,6 +458,19 @@ class TechDebtParsing(DebtDir):
         self.assertEqual(got["TD-337"]["description"], "Steady low item")
         self.assertEqual(got["TD-002"]["severity"], "high")  # bold markers stripped
 
+    def test_long_description_gets_a_title_within_githubs_cap(self) -> None:
+        words = " ".join(f"word{i:03}" for i in range(40))  # 319 characters
+        got = self.items(DEBT_STEADY.replace("Steady low item", words))["TD-337"]
+        self.assertLessEqual(len(got["title"]), 256)
+        self.assertTrue(got["title"].startswith("[TD-337] word000 "))
+        stem = got["title"].removesuffix("…").removeprefix("[TD-337] ")
+        self.assertTrue(words.startswith(stem + " "), "title is not cut on a word boundary")
+        self.assertEqual(got["description"], words)  # full text is kept
+        self.assertIn(words, got["fields"].values())
+
+    def test_short_description_title_is_unchanged(self) -> None:
+        self.assertEqual(self.items(DEBT_STEADY)["TD-337"]["title"], "[TD-337] Steady low item")
+
     def test_resolved_table_is_not_migrated_but_reported(self) -> None:
         self.put("docs/tech-debt/backlog.md", DEBT_STEADY)
         debt = pb.parse_debt(self.root, pb.parse(self.root))

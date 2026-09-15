@@ -63,6 +63,7 @@ DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
 # "TD-337" (prefixed) or "3" (a bare `#` column); both normalise to TD-<n>.
 DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
 SEVERITIES = ("high", "medium", "low")
+TITLE_MAX = 256  # GitHub's issue-title cap
 DEBT_LABEL = "tech-debt"
 # A header cell that names an ID without being one the parser keys on (`Task ID`).
 LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
@@ -288,6 +289,18 @@ def normalize_debt_id(raw: str) -> str | None:
     return f"TD-{m.group(1) if m.group(1) is not None else m.group(2)}"
 
 
+def issue_title(task_id: str, description: str, limit: int = TITLE_MAX) -> str:
+    """`[ID] description`, cut at a word boundary (with a trailing …) so the whole
+    title fits GitHub's cap. The full text travels in the issue body."""
+    title = f"[{task_id}] {description}"
+    if len(title) <= limit:
+        return title
+    cut = title[:limit - 1]  # room for the ellipsis
+    if title[limit - 1] != " " and " " in cut[len(task_id) + 3:]:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip() + "…"
+
+
 def debt_tables(root: str, rel: str) -> list[dict]:
     """Tables in the debt file, located by header NAME rather than position —
     consumers order the columns differently. A table with an ID and Description
@@ -416,6 +429,7 @@ def parse_debt(root: str, board: list[dict]) -> dict:
                 "task_id": tid,
                 "severity": c[t["severity_col"]].strip("* ").lower(),
                 "category": c[t["category_col"]] if t["category_col"] is not None else "",
+                "title": issue_title(tid, c[t["description_col"]]),
                 "description": c[t["description_col"]],
                 "fields": dict(zip(t["header"], c)),
                 "source": rel, "line": n,
