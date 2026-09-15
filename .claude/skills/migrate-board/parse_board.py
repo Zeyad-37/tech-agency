@@ -74,7 +74,9 @@ LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
 RESOLVED_WORD = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
 OPEN_MARKER = re.compile(
     r"\b(not|unresolved|undone|unfixed|unfinished|open|active|pending|outstanding|remaining"
-    r"|yet|todo|to\s+do|partially|partial)\b", re.IGNORECASE)
+    r"|yet|todo|to\s+do|partially|partial|reopen|reopened|almost|nearly|close\s+to)\b"
+    # A question ("Resolved?") asserts nothing, so it must not resolve either.
+    r"|\?", re.IGNORECASE)
 # Any heading of level 2 or deeper; group 1 is its hashes, group 2 its text.
 HEADING_LINE = re.compile(r"^(#{2,})\s+(.*?)\s*#*\s*$")
 

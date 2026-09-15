@@ -886,6 +886,26 @@ class VerifyTechDebt(DebtDir):
         self.assertIn("CLOSED 1: TD-337", out)
 
 
+class HeadingStatusSilentDrops(unittest.TestCase):
+    """Wordings that read as finished but describe open work. A wrong `resolved`
+    silently drops the table's rows, so each must NOT resolve."""
+
+    def test_reopened_is_open(self) -> None:
+        self.assertEqual(pb.heading_status("Closed (reopened)"), "open")
+        self.assertEqual(pb.heading_status("Resolved, then reopen"), "open")
+
+    def test_a_question_is_not_a_resolution(self) -> None:
+        self.assertEqual(pb.heading_status("Resolved?"), "open")
+
+    def test_nearly_finished_is_open(self) -> None:
+        for h in ("Close to done", "Almost done", "Nearly resolved"):
+            self.assertEqual(pb.heading_status(h), "open", h)
+
+    def test_plain_resolutions_still_resolve(self) -> None:
+        for h in ("Resolved", "Closed", "Done", "Resolved Debt", "Closed until 2026-06"):
+            self.assertEqual(pb.heading_status(h), "resolved", h)
+
+
 class FetchIssues(unittest.TestCase):
     def test_paginates_instead_of_limiting(self) -> None:
         completed = mock.Mock(returncode=0, stdout='{"title":"[T-1] a","state":"open","state_reason":null,"labels":[]}\n')

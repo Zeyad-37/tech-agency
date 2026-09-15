@@ -99,8 +99,9 @@ rather than resolving it.
 
 - A heading is **open** if it contains an open-marker, a whole word (case-insensitive) from this
   list: `not`, `unresolved`, `undone`, `unfixed`, `unfinished`, `open`, `active`, `pending`,
-  `outstanding`, `remaining`, `yet`, `todo`, `to do`, `partially`, `partial`. It is a list, not a
-  prefix: `under`, `until` and `unless` are not open-markers.
+  `outstanding`, `remaining`, `yet`, `todo`, `to do`, `partially`, `partial`, `reopen`, `reopened`,
+  `almost`, `nearly`, `close to` — or a `?` anywhere in it, since a question asserts nothing. It is a
+  list, not a prefix: `under`, `until` and `unless` are not open-markers.
 - Otherwise it is **resolved** if it contains the whole word `resolved`, `closed` or `done`.
 - Otherwise it has **no status**.
 
