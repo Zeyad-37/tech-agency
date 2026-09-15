@@ -2,10 +2,19 @@
 """Parse, validate and verify a markdown Kanban board for /migrate-board.
 
 Modes:
-  --check    Validate table integrity. Exits 1 if the board is corrupt.
-  --json     Emit every task as JSON on stdout. Refuses (exit 1) on a corrupt board.
-  --verify   Compare the parsed board against GitHub Issues, both directions.
-             Exits 1 on any mismatch. Refuses (exit 1) on a corrupt board.
+  --check      Validate table integrity. Exits 1 if the board is corrupt.
+  --json       Emit every task as JSON on stdout. Refuses (exit 1) on a corrupt board.
+  --tech-debt  Emit the active tech-debt items as JSON. Refuses (exit 1) on a
+               corrupt board or a corrupt tech-debt file.
+  --verify     Compare the parsed board against GitHub Issues, both directions.
+               Exits 1 on any mismatch. Refuses (exit 1) on a corrupt board.
+
+Options:
+  --done issues|freeze   `issues` (default) migrates Done rows as closed issues.
+                         `freeze` leaves them as markdown history: --json omits
+                         them and --verify does not expect them on GitHub.
+  --include-tech-debt    --check also validates the tech-debt file; --verify
+                         also checks every active debt item on GitHub.
 
 The board's shape is defined in .claude/rules/shared/board-adapter.md; the
 per-column schemas in .claude/skills/update-board/SKILL.md.
@@ -47,13 +56,88 @@ SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
 TASK_ID = re.compile(r"^[A-Za-z]+-\d+(\.\d+)?$")
 TITLE_ID = re.compile(r"^\[([A-Za-z]+-\d+(?:\.\d+)?)\] ")
 
+# Tech debt: the current location first, then the pre-reorganisation one that
+# older consumers still use. Both present is an error, not a preference — importing
+# either alone silently drops the other's items.
+DEBT_FILES = ["docs/guides/tech-debt/backlog.md", "docs/tech-debt/backlog.md"]
+# "TD-337" (prefixed, kept as written) or "3" (a bare `#` column, read as TD-3).
+# Duplicates are compared by the number, so TD-002 and 2 are the same item.
+DEBT_ID = re.compile(r"^(?:TD-(\d+)|(\d+))$")
+SEVERITIES = ("high", "medium", "low")
+TITLE_MAX = 256  # GitHub's issue-title cap
+DEBT_LABEL = "tech-debt"
+# A header cell that names an ID without being one the parser keys on (`Task ID`).
+LOOSE_ID = re.compile(r"\bid\b", re.IGNORECASE)
+# A heading's status decides whether the tables under it are finished work.
+# Open-markers are an explicit whole-word list, never a prefix pattern: `under`,
+# `until` and `unless` are ordinary words, not negations.
+RESOLVED_WORD = re.compile(r"\b(resolved|closed|done)\b", re.IGNORECASE)
+OPEN_MARKER = re.compile(
+    r"\b(not|unresolved|undone|unfixed|unfinished|open|active|pending|outstanding|remaining"
+    r"|yet|todo|to\s+do|partially|partial|reopen|reopened|almost|nearly|close\s+to)\b"
+    # A question ("Resolved?") asserts nothing, so it must not resolve either.
+    r"|\?", re.IGNORECASE)
+# Any heading of level 2 or deeper; group 1 is its hashes, group 2 its text.
+HEADING_LINE = re.compile(r"^(#{2,})\s+(.*?)\s*#*\s*$")
+
+
+def heading_status(heading: str) -> str | None:
+    """`open` when the heading carries an open-marker, else `resolved` when it
+    says resolved / closed / done, else None (the heading says nothing)."""
+    if OPEN_MARKER.search(heading):
+        return "open"
+    if RESOLVED_WORD.search(heading):
+        return "resolved"
+    return None
+
+
+def ancestor_headings(lines: list[str], index: int, code: set[int]) -> list[str]:
+    """The headings enclosing line `index`, nearest first: the nearest heading
+    above it, then the nearest above that of a strictly smaller level, and so on
+    up to `##`. Lines inside fenced code are not headings."""
+    found: list[str] = []
+    level = None
+    for i in range(index - 1, -1, -1):
+        if i in code:
+            continue
+        m = HEADING_LINE.match(lines[i])
+        if m and (level is None or len(m.group(1)) < level):
+            found.append(m.group(2))
+            level = len(m.group(1))
+            if level == 2:
+                break
+    return found
+
+
+def table_status(ancestors: list[str]) -> tuple[bool, str]:
+    """Whether a table under these headings (nearest first) is resolved, and the
+    heading to name it by. The nearest heading that has a status decides; with no
+    status anywhere the table is not resolved. The name runs from the deciding
+    heading down to the nearest (`Resolved › 2026 Q2`)."""
+    for depth, heading in enumerate(ancestors):
+        status = heading_status(heading)
+        if status is not None:
+            name = " › ".join(reversed(ancestors[:depth + 1]))
+            return status == "resolved", name
+    return False, ancestors[0] if ancestors else ""
+
 
 class BoardError(Exception):
     """The board is not safe to parse."""
 
 
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+
 def cells(line: str) -> list[str]:
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    """A table row's cells. Splits only on unescaped pipes, as GitHub does, and
+    reads each `\\|` back as a literal `|` inside its cell."""
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    return [c.strip().replace("\\|", "|") for c in UNESCAPED_PIPE.split(row)]
 
 
 def read_lines(path: str) -> list[str]:
@@ -83,13 +167,37 @@ def section(lines: list[str], heading: str) -> tuple[int, int] | None:
     return start, len(lines)
 
 
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def fenced(lines: list[str]) -> set[int]:
+    """Indices of lines inside a fenced code block, the fence lines included. A
+    fence closes on the same character repeated at least as many times."""
+    inside: set[int] = set()
+    opener: str | None = None
+    for i, line in enumerate(lines):
+        m = FENCE.match(line)
+        if opener is None:
+            if m:
+                opener = m.group(1)
+                inside.add(i)
+        else:
+            inside.add(i)
+            if m and m.group(1)[0] == opener[0] and len(m.group(1)) >= len(opener) \
+                    and not line.strip()[len(m.group(1)):].strip():
+                opener = None
+    return inside
+
+
 def table_blocks(lines: list[str], offset: int = 0) -> list[tuple[int, list[str]]]:
-    """Runs of consecutive '|' lines, as (first line index, lines)."""
+    """Runs of consecutive '|' lines, as (first line index, lines). Lines inside
+    fenced code are examples, not tables, and are skipped."""
     blocks: list[tuple[int, list[str]]] = []
     cur: list[str] = []
     start = 0
+    code = fenced(lines)
     for i, line in enumerate(lines):
-        if line.startswith("|"):
+        if line.startswith("|") and i not in code:
             if not cur:
                 start = i
             cur.append(line)
@@ -115,13 +223,21 @@ def structural_problems(rel: str, lines: list[str]) -> list[str]:
     separator, header rows inside a table body."""
     problems: list[str] = []
     for start, block in table_blocks(lines):
+        if not SEPARATOR.match(block[0]) and (len(block) == 1 or not SEPARATOR.match(block[1])):
+            first = cells(block[0])[0]
+            if TASK_ID.match(first) or DEBT_ID.match(first):
+                # Not a header at all: data rows split off their table by a blank line
+                # or a '---'. Markdown renders the first as a header, and every row in
+                # the fragment — including a lone single row — would be dropped.
+                problems.append(f"{rel}:{start + 1}: {len(block)} row(s) starting at '{first}' are cut "
+                                f"off from their table by a blank line or '---' above — join them back")
+            else:
+                problems.append(f"{rel}:{start + 1}: table header with no separator row after it")
         for k, line in enumerate(block):
             n = start + k + 1
             is_sep = bool(SEPARATOR.match(line))
             if k == 0 and is_sep:
                 problems.append(f"{rel}:{n}: separator row with no header above it — the table will not render")
-            elif k == 1 and not is_sep and not SEPARATOR.match(block[0]):
-                problems.append(f"{rel}:{n - 1}: table header with no separator row after it")
             elif k > 1 and is_sep:
                 problems.append(f"{rel}:{n}: separator row inside a table body — two tables have merged")
             elif k > 1 and cells(line) in KNOWN_HEADERS:
@@ -231,6 +347,290 @@ def parse(root: str) -> list[dict]:
     return tasks
 
 
+def debt_file(root: str) -> str | None:
+    """The tech-debt backlog to import, relative to root, or None if there is none."""
+    present = [p for p in DEBT_FILES if os.path.exists(os.path.join(root, p))]
+    if len(present) > 1:
+        raise BoardError(
+            f"tech debt exists at both {present[0]} and {present[1]} — merge them into "
+            f"{DEBT_FILES[0]} first; importing either alone drops the other's items")
+    return present[0] if present else None
+
+
+def debt_number(tid: str) -> int:
+    """The number a normalised debt ID names: `TD-002`, `TD-2` and a bare `2` are one item."""
+    return int(tid.rsplit("-", 1)[1])
+
+
+def normalize_debt_id(raw: str) -> str | None:
+    m = DEBT_ID.match(raw.strip())
+    if not m:
+        return None
+    return f"TD-{m.group(1) if m.group(1) is not None else m.group(2)}"
+
+
+def issue_title(task_id: str, description: str, limit: int = TITLE_MAX) -> str:
+    """`[ID] description`, cut at a word boundary (with a trailing …) so the whole
+    title fits GitHub's cap. The full text travels in the issue body."""
+    title = f"[{task_id}] {description}"
+    if len(title) <= limit:
+        return title
+    cut = title[:limit - 1]  # room for the ellipsis
+    if title[limit - 1] != " " and " " in cut[len(task_id) + 3:]:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip() + "…"
+
+
+def debt_tables(root: str, rel: str) -> list[dict]:
+    """Tables in the debt file, located by header NAME rather than position —
+    consumers order the columns differently.
+
+    Every table that looks like debt gets exactly one `kind`; no path skips one
+    silently:
+
+    - `resolved` — the nearest enclosing heading that has a status (see
+      `heading_status`, walking up `###` → `##`) says resolved / closed / done.
+      Decided first, whatever the columns: a finished table that kept its
+      Severity column is history, not active debt. `## Resolved` → `### 2026 Q2`
+      is resolved; `## Resolved` → `### Still open` is not.
+    - `active` — an exact `#`/`ID` column, a Description and a Severity column.
+    - `problem` — anything else, with `missing` naming the absent columns. Open
+      work is never guessed into history, and rows are never dropped unreported.
+
+    A table looks like debt when it has an exact `#`/`ID` column, an ID-like
+    header (`Task ID`), a data row keyed by a TD-<n> ID, or Description alongside
+    Severity or Category. A bare Description column is not enough — a
+    documentation table such as `| Field | Description |` has one — and
+    `| Item | Rule | Severity | … |` meets none of these; both are ignored."""
+    lines = read_lines(os.path.join(root, rel))
+    code = fenced(lines)
+    found: list[dict] = []
+    for start, block in table_blocks(lines):
+        if len(block) < 2 or not SEPARATOR.match(block[1]):
+            continue  # structural_problems reports this
+        header = cells(block[0])
+        lower = [h.lower().strip("* ") for h in header]
+        id_col = next((i for i, h in enumerate(lower) if h in ("#", "id")), None)
+        looks_like_debt = (
+            id_col is not None
+            or any(LOOSE_ID.search(h) for h in lower)
+            or any(re.match(r"^TD-\d+$", cells(l)[0]) for l in block[2:])
+            or ("description" in lower and ("severity" in lower or "category" in lower)))
+        if not looks_like_debt:
+            continue
+        resolved, heading = table_status(ancestor_headings(lines, start, code))
+        missing = [name for name, present in (("an '#' or 'ID' column", id_col is not None),
+                                              ("a Description column", "description" in lower),
+                                              ("a Severity column", "severity" in lower)) if not present]
+        found.append({
+            "source": rel, "line": start + 1, "heading": heading, "header": header,
+            "kind": ("resolved" if resolved
+                     else "active" if not missing
+                     else "problem"),
+            "missing": missing,
+            "id_col": id_col,
+            "severity_col": lower.index("severity") if "severity" in lower else None,
+            "description_col": lower.index("description") if "description" in lower else None,
+            "category_col": lower.index("category") if "category" in lower else None,
+            "rows": [(start + k + 1, l) for k, l in enumerate(block)
+                     if k > 0 and not SEPARATOR.match(l)],
+        })
+    return found
+
+
+def debt_check(root: str, board: list[dict]) -> list[str]:
+    """Every reason the tech-debt file is not safe to import. Empty == valid or absent."""
+    try:
+        rel = debt_file(root)
+    except BoardError as e:
+        return [str(e)]
+    if rel is None:
+        return []
+    problems = structural_problems(rel, read_lines(os.path.join(root, rel)))
+    tables = debt_tables(root, rel)
+    if not any(t["kind"] == "active" for t in tables):
+        problems.append(f"{rel}: no tech-debt table with ID, Description and Severity columns "
+                        f"— nothing would be imported")
+    for t in tables:
+        if t["kind"] == "problem":
+            problems.append(f"{rel}:{t['line']}: table under '{t['heading']}' is missing "
+                            f"{' and '.join(t['missing'])} and its heading does not say it is resolved "
+                            f"— its rows would not be imported")
+    # Keyed by the ID's number, so `TD-002` and a bare `2` are one item; each
+    # value keeps the IDs as written, for the message and for display.
+    active: dict[int, list[str]] = {}
+    resolved: dict[int, list[str]] = {}
+    for t in tables:
+        if t["kind"] not in ("active", "resolved"):
+            continue
+        for n, line in t["rows"]:
+            c = cells(line)
+            if c[0] == PLACEHOLDER:
+                continue
+            if t["id_col"] is None:
+                continue  # resolved, keyed by `Task ID` or the like: history, counted as a whole
+            if len(c) != len(t["header"]):
+                problems.append(f"{rel}:{n}: row has {len(c)} cells, its table header has "
+                                f"{len(t['header'])} — an unescaped '|' inside a cell splits it; "
+                                f"write it as '\\|'")
+                continue
+            tid = normalize_debt_id(c[t["id_col"]])
+            if tid is None:
+                problems.append(f"{rel}:{n}: '{c[t['id_col']]}' is not a tech-debt ID "
+                                f"(expected TD-<n>, or <n> in a '#' column)")
+                continue
+            if t["kind"] == "resolved":
+                resolved.setdefault(debt_number(tid), []).append(tid)
+                continue
+            active.setdefault(debt_number(tid), []).append(tid)
+            sev = c[t["severity_col"]].strip("* ").lower()
+            if sev not in SEVERITIES:
+                problems.append(f"{rel}:{n}: {tid} severity '{c[t['severity_col']]}' is not one of "
+                                f"{', '.join(SEVERITIES)}")
+    live_ids = {t["task_id"] for t in board if t["column"] != "done"}
+    for t in tables:
+        if t["kind"] != "active":
+            continue
+        for n, line in t["rows"]:
+            c = cells(line)
+            if c[0] == PLACEHOLDER or len(c) != len(t["header"]):
+                continue
+            tid = normalize_debt_id(c[t["id_col"]])
+            live = live_refs(dict(zip(t["header"], c)), id_index(live_ids))
+            if tid and task_key(tid) not in id_index(live_ids) and len(live) > 1:
+                problems.append(f"{rel}:{n}: {tid}'s Board Task names {len(live)} live board tasks "
+                                f"({', '.join(live)}) — keep the one that resolves it")
+    for num, ids in sorted(active.items()):
+        if len(ids) > 1:
+            problems.append(f"{rel}: {' / '.join(dict.fromkeys(ids))} is listed {len(ids)} times as active debt")
+    for num in sorted(set(active) & set(resolved)):
+        both = " / ".join(dict.fromkeys(active[num] + resolved[num]))
+        problems.append(f"{rel}: {both} is listed as both active and resolved — decide which is true")
+    done = id_index({t["task_id"] for t in board if t["column"] == "done"})
+    for tid in sorted(i for ids in active.values() for i in set(ids) if task_key(i) in done):
+        as_written = "" if done[task_key(tid)] == tid else f" (on the board as {done[task_key(tid)]})"
+        problems.append(f"{rel}: {tid} is active debt but its board task is Done{as_written} — mark the "
+                        f"debt resolved, or reopen the task")
+    return problems
+
+
+BOARD_TASK_REF = re.compile(r"\b([A-Za-z]+-\d+(?:\.\d+)?)\b")
+TASK_KEY = re.compile(r"^([A-Za-z]+)-(\d+)(?:\.(\d+))?$")
+
+
+def task_key(tid: str) -> tuple[str, int, int | None] | str:
+    """A task ID compared by number: `TD-002`, `td-2` and `TD-2` share a key, while
+    `T-053.10` and `T-053.1` do not. An unrecognised ID is its own key."""
+    m = TASK_KEY.match(tid)
+    if not m:
+        return tid
+    return (m.group(1).upper(), int(m.group(2)), int(m.group(3)) if m.group(3) else None)
+
+
+def id_index(ids: set[str]) -> dict:
+    """Board IDs by their task_key, so a match can be reported as written on the board."""
+    return {task_key(i): i for i in ids}
+
+
+def board_task_refs(fields: dict[str, str]) -> list[str]:
+    """Task IDs named in a debt row's `Board Task` column, in order, deduplicated.
+    The cell often carries text around the ID (`T-053.10 · PR #584`); `PR #584`
+    has no hyphen, so it is never mistaken for a task."""
+    for key, value in fields.items():
+        if key.lower().strip("* ") == "board task":
+            return list(dict.fromkeys(BOARD_TASK_REF.findall(value)))
+    return []
+
+
+def live_refs(fields: dict[str, str], ids: dict) -> list[str]:
+    """Board tasks (as written on the board) that a Board Task column names, matched by number."""
+    return list(dict.fromkeys(ids[task_key(r)] for r in board_task_refs(fields) if task_key(r) in ids))
+
+
+def resolve_board_task(tid: str, fields: dict[str, str], live_ids: set[str]) -> str | None:
+    """The live board task a debt item is merged onto: its own ID when that is a
+    board task, else the one live task its Board Task column names. IDs match by
+    number (`TD-002` is board row `TD-2`), and the result is the ID as written on
+    the board, because the migration finds that issue by its title prefix."""
+    ids = id_index(live_ids)
+    if task_key(tid) in ids:
+        return ids[task_key(tid)]
+    live = live_refs(fields, ids)
+    return live[0] if len(live) == 1 else None
+
+
+def parse_debt(root: str, board: list[dict]) -> dict:
+    """Active debt items to import. Raises BoardError on a corrupt debt file.
+
+    `board_task` is the live board task the item is merged onto — its own ID when
+    that is a board task, or the single live task its `Board Task` column names —
+    and `on_board` is whether there is one. Such an item must NOT become an issue
+    of its own: the board task's issue is labelled as debt instead. Several debt
+    items may share one task; `issue_severity` is the highest severity among every
+    item on the same issue, and is the one `severity:` label that issue carries. An
+    item whose Board Task is Done gets its own issue and is listed in `notes`, since
+    finished work cannot carry open debt."""
+    problems = debt_check(root, board)
+    if problems:
+        raise BoardError("\n".join(problems))
+    rel = debt_file(root)
+    result: dict = {"file": rel, "items": [], "not_migrated": [], "notes": []}
+    if rel is None:
+        return result
+    live_ids = {t["task_id"] for t in board if t["column"] != "done"}
+    done_ids = {t["task_id"] for t in board if t["column"] == "done"}
+    for t in debt_tables(root, rel):
+        if t["kind"] not in ("active", "resolved"):
+            continue  # debt_check has already refused these
+        rows = [(n, cells(l)) for n, l in t["rows"] if cells(l)[0] != PLACEHOLDER]
+        if t["kind"] == "resolved":
+            result["not_migrated"].append({"heading": t["heading"], "line": t["line"], "rows": len(rows)})
+            continue
+        for n, c in rows:
+            tid = normalize_debt_id(c[t["id_col"]])
+            fields = dict(zip(t["header"], c))
+            board_task = resolve_board_task(tid, fields, live_ids)
+            if board_task is None:
+                done_refs = live_refs(fields, id_index(done_ids))
+                if done_refs:
+                    result["notes"].append(
+                        f"{tid}: its Board Task {', '.join(done_refs)} is Done but the debt is still "
+                        f"active — it gets its own issue; mark it resolved if the task fixed it")
+            result["items"].append({
+                "task_id": tid,
+                "severity": c[t["severity_col"]].strip("* ").lower(),
+                "category": c[t["category_col"]] if t["category_col"] is not None else "",
+                "title": issue_title(tid, c[t["description_col"]]),
+                "description": c[t["description_col"]],
+                "fields": fields,
+                "source": rel, "line": n,
+                "board_task": board_task,
+                "on_board": board_task is not None,
+            })
+    # One issue carries one severity: the highest among every item living on it.
+    worst: dict[str, str] = {}
+    for d in result["items"]:
+        key = d["board_task"] or d["task_id"]
+        if key not in worst or SEVERITIES.index(d["severity"]) < SEVERITIES.index(worst[key]):
+            worst[key] = d["severity"]
+    for d in result["items"]:
+        d["issue_severity"] = worst[d["board_task"] or d["task_id"]]
+    return result
+
+
+def board_tasks(root: str, done_mode: str) -> list[dict]:
+    """parse(), shaped for migration. Under `freeze`, Done rows stay markdown
+    history; a live story whose epic is one of them is flagged `parent_frozen`,
+    because creating that epic would resurrect finished work as an open issue."""
+    tasks = parse(root)
+    done_ids = {t["task_id"] for t in tasks if t["column"] == "done"}
+    if done_mode == "freeze":
+        tasks = [t for t in tasks if t["column"] != "done"]
+    for t in tasks:
+        t["parent_frozen"] = done_mode == "freeze" and t["parent"] in done_ids
+    return tasks
+
+
 def fetch_issues() -> list[dict]:
     """Every issue in the repo (PRs excluded), fully paginated — no --limit to
     silently truncate at."""
@@ -256,10 +656,20 @@ def issue_column(issue: dict) -> str | None:
     return None
 
 
-def verify(root: str) -> int:
+def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> int:
     tasks = parse(root)
+    debt = parse_debt(root, tasks) if include_debt else None
     issues = fetch_issues()
     failures = 0
+
+    # An issue labelled as debt whose ID is not a board task belongs to the debt
+    # import, not a board column — it carries status:backlog, and counting it there
+    # would report every imported debt item as a Backlog EXTRA.
+    board_ids = {t["task_id"] for t in tasks}
+
+    def debt_only(i: dict) -> bool:
+        m = TITLE_ID.match(i["title"])
+        return DEBT_LABEL in i["labels"] and not (m and m.group(1) in board_ids)
 
     # A duplicate closed as "not planned" is the remedy, so it no longer counts.
     gh_ids = [m.group(1) for i in issues
@@ -275,8 +685,13 @@ def verify(root: str) -> int:
 
     for col in COLUMNS:
         want = Counter(t["task_id"] for t in tasks if t["column"] == col)
+        if col == "done" and done_mode == "freeze":
+            print(f"  {col:12} markdown={sum(want.values()):3}  frozen — kept as markdown history, "
+                  f"not expected on GitHub")
+            continue
         have = Counter(m.group(1) for i in issues
-                       if issue_column(i) == col and (m := TITLE_ID.match(i["title"])))
+                       if issue_column(i) == col and not debt_only(i)
+                       and (m := TITLE_ID.match(i["title"])))
         missing = sorted(set(want) - set(have))
         extra = sorted(set(have) - set(want))
         notes = []
@@ -293,8 +708,54 @@ def verify(root: str) -> int:
               f"{'; '.join(notes) or 'OK'}")
         failures += len(notes)
 
+    if debt is not None:
+        failures += verify_debt(debt, issues)
+
     print(f"\n{'MISMATCH — do not freeze the markdown' if failures else 'All tasks accounted for.'}")
     return 1 if failures else 0
+
+
+def verify_debt(debt: dict, issues: list[dict]) -> int:
+    """Every active debt item is an open issue labelled tech-debt and exactly one
+    severity label, `issue_severity` — its own issue, or the board task's it was
+    merged onto."""
+    live = [i for i in issues if i.get("state_reason") != "not_planned"]
+    by_id: dict[str, list[dict]] = {}
+    for i in live:
+        if m := TITLE_ID.match(i["title"]):
+            by_id.setdefault(m.group(1), []).append(i)
+    want = {d["task_id"]: d for d in debt["items"]}
+    # The issue an item lives on: the board task it was merged onto, else its own.
+    expected = {d["board_task"] or d["task_id"] for d in want.values()}
+    missing, unlabelled, closed, severity = [], [], [], []
+    for tid, d in sorted(want.items()):
+        found = by_id.get(d["board_task"] or tid, [])
+        if not found:
+            missing.append(tid)
+            continue
+        i = found[0]
+        if i["state"] != "open":
+            closed.append(tid)
+        if DEBT_LABEL not in i["labels"]:
+            unlabelled.append(tid)
+        else:
+            have = sorted(l for l in i["labels"] if l.startswith("severity:"))
+            if have != [f"severity:{d['issue_severity']}"]:
+                severity.append(f"{tid} (wants severity:{d['issue_severity']}, has "
+                                f"{', '.join(have) or 'none'})")
+    extra = sorted({m.group(1) for i in live if DEBT_LABEL in i["labels"] and i["state"] == "open"
+                    and (m := TITLE_ID.match(i["title"])) and m.group(1) not in expected})
+    notes = [f"{name} {len(v)}: {', '.join(v)}" for name, v in
+             (("MISSING", missing), ("NOT LABELLED tech-debt", unlabelled),
+              ("CLOSED", closed), ("WRONG SEVERITY", severity), ("EXTRA", extra)) if v]
+    merged = sum(1 for d in want.values() if d["on_board"])
+    via_column = sum(1 for d in want.values() if d["on_board"] and task_key(d["board_task"]) != task_key(d["task_id"]))
+    print(f"  {'tech-debt':12} markdown={len(want):3}  ({merged} merged onto board tasks, "
+          f"{via_column} via the Board Task column)  "
+          f"{'; '.join(notes) or 'OK'}")
+    for nm in debt["not_migrated"]:
+        print(f"  {'':12} not migrated: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading) — stays in {debt['file']}")
+    return len(notes)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -303,20 +764,39 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--check", action="store_true")
     g.add_argument("--json", action="store_true")
     g.add_argument("--verify", action="store_true")
+    g.add_argument("--tech-debt", action="store_true")
+    ap.add_argument("--done", choices=("issues", "freeze"), default="issues")
+    ap.add_argument("--include-tech-debt", action="store_true")
     ap.add_argument("--root", default=".")
     a = ap.parse_args(argv)
 
     try:
         if a.check:
-            n = len(parse(a.root))
+            tasks = parse(a.root)
             for note in notices(a.root):
                 print(f"  note: {note}")
-            print(f"Board is structurally valid. {n} task(s) parsed.")
+            print(f"Board is structurally valid. {len(tasks)} task(s) parsed.")
+            if a.include_tech_debt:
+                debt = parse_debt(a.root, tasks)
+                if debt["file"] is None:
+                    print("No tech-debt backlog found (looked in: " + ", ".join(DEBT_FILES) + ").")
+                else:
+                    merged = sum(1 for d in debt["items"] if d["on_board"])
+                    via = sum(1 for d in debt["items"] if d["on_board"] and task_key(d["board_task"]) != task_key(d["task_id"]))
+                    print(f"Tech debt is structurally valid: {len(debt['items'])} active item(s) in "
+                          f"{debt['file']}, {merged} already on the board ({via} via the Board Task column).")
+                    for note in debt["notes"]:
+                        print(f"  note: {note}")
+                    for nm in debt["not_migrated"]:
+                        print(f"  note: '{nm['heading']}' ({nm['rows']} row(s) under a resolved/closed/done heading) will not be migrated.")
             return 0
         if a.json:
-            print(json.dumps(parse(a.root), indent=2, ensure_ascii=False))
+            print(json.dumps(board_tasks(a.root, a.done), indent=2, ensure_ascii=False))
             return 0
-        return verify(a.root)
+        if a.tech_debt:
+            print(json.dumps(parse_debt(a.root, parse(a.root)), indent=2, ensure_ascii=False))
+            return 0
+        return verify(a.root, a.done, a.include_tech_debt)
     except BoardError as e:
         print("Board integrity problems — repair and commit before migrating:\n", file=sys.stderr)
         for p in str(e).split("\n"):

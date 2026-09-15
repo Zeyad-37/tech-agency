@@ -422,6 +422,13 @@ Safe to re-run: every create is preceded by a search for the task's `[TASK-ID]` 
 
 Projects v2 needs a scope that `repo` does not include. When it is missing the migration runs label-only rather than failing — that is a supported mode, and `gh auth refresh -s project` unlocks the board view later.
 
+It asks two questions before writing anything:
+
+- **Done history** — migrate Done rows as closed issues, or **freeze** them as markdown history. Freezing is the main lever on volume for a long-lived board; GitHub throttles content creation at roughly 500 writes an hour.
+- **Tech debt** — import the debt backlog as `tech-debt`-labelled issues, or leave it as a file. It is found at `docs/guides/tech-debt/backlog.md` or the older `docs/tech-debt/backlog.md`, and read by column name, so repos that order the columns differently import correctly. Only active tables migrate. A debt item already on the board — under its own ID, or through the live task its `Board Task` column names — is labelled onto that task's issue rather than duplicated; several debt items may share one task, and that issue carries the highest of their severities.
+
+Repos set up before the current board layout need a repair pass first. The skill lists every class it detects (an unsplit board, old Backlog headers, table rows cut off by a blank line, unescaped pipes) and how to fix each — and stops for a human on anything that is a question of fact, such as a debt item listed as both active and resolved.
+
 **When to use:** Once per repo, when the markdown board stops scaling — context cost per task, merge conflicts on a single file, or live state not reaching `main`.
 
 **Example triggers:**
