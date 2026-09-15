@@ -316,6 +316,13 @@ def check(root: str, done_mode: str = "issues") -> list[str]:
     return problems
 
 
+def done_task_ids(board: list[dict]) -> set[str]:
+    """The Task IDs the Done archive records. A legacy cell names its task by its
+    leading ID — `T-013 (Phase 3 pilot)` is T-013 — and a cell with none (`T-PICKER-THEME`)
+    names no task another row could refer to."""
+    return {m.group(0) for t in board if t["column"] == "done" and (m := LEADING_ID.match(t["task_id"]))}
+
+
 def notices(root: str) -> list[str]:
     """Non-fatal findings --check reports alongside a valid board. A `## Backlog`
     section in the live file is off-layout but lossless: its rows are parsed and
@@ -515,7 +522,7 @@ def debt_check(root: str, board: list[dict]) -> list[str]:
     for num in sorted(set(active) & set(resolved)):
         both = " / ".join(dict.fromkeys(active[num] + resolved[num]))
         problems.append(f"{rel}: {both} is listed as both active and resolved — decide which is true")
-    done = id_index({t["task_id"] for t in board if t["column"] == "done"})
+    done = id_index(done_task_ids(board))
     for tid in sorted(i for ids in active.values() for i in set(ids) if task_key(i) in done):
         as_written = "" if done[task_key(tid)] == tid else f" (on the board as {done[task_key(tid)]})"
         problems.append(f"{rel}: {tid} is active debt but its board task is Done{as_written} — mark the "
@@ -587,7 +594,7 @@ def parse_debt(root: str, board: list[dict]) -> dict:
     if rel is None:
         return result
     live_ids = {t["task_id"] for t in board if t["column"] != "done"}
-    done_ids = {t["task_id"] for t in board if t["column"] == "done"}
+    done_ids = done_task_ids(board)
     for t in debt_tables(root, rel):
         if t["kind"] not in ("active", "resolved"):
             continue  # debt_check has already refused these
@@ -632,7 +639,9 @@ def board_tasks(root: str, done_mode: str) -> list[dict]:
     history; a live story whose epic is one of them is flagged `parent_frozen`,
     because creating that epic would resurrect finished work as an open issue."""
     tasks = parse(root, done_mode)
-    done_ids = {m.group(0) for t in tasks if t["column"] == "done" and (m := LEADING_ID.match(t["task_id"]))}
+    # A task still live is not frozen, even if an earlier phase of it sits in Done:
+    # it becomes an issue, and its stories must link to it.
+    done_ids = done_task_ids(tasks) - {t["task_id"] for t in tasks if t["column"] != "done"}
     if done_mode == "freeze":
         tasks = [t for t in tasks if t["column"] != "done"]
     for t in tasks:
@@ -687,10 +696,14 @@ def verify(root: str, done_mode: str = "issues", include_debt: bool = False) -> 
         if n > 1:
             print(f"  DUPLICATE on GitHub: [{tid}] appears {n} times — close the extras as not planned")
             failures += 1
-    # Frozen Done rows are history, not issues: a task done twice in the archive
-    # creates nothing on GitHub, so it cannot collide there.
-    migrated = [t for t in tasks if not (t["column"] == "done" and done_mode == "freeze")]
-    for tid, n in sorted(Counter(t["task_id"] for t in migrated).items()):
+    # Under freeze a task done twice in the archive creates nothing on GitHub, so
+    # Done-vs-Done repeats are history. A Done row repeating a LIVE task is still a
+    # contradiction — the task cannot be both finished and in flight.
+    live_ids = {t["task_id"] for t in tasks if t["column"] != "done"}
+    counted = [t for t in tasks if not (done_mode == "freeze" and t["column"] == "done")]
+    if done_mode == "freeze":
+        counted += list({t["task_id"]: t for t in tasks if t["column"] == "done" and t["task_id"] in live_ids}.values())
+    for tid, n in sorted(Counter(t["task_id"] for t in counted).items()):
         if n > 1:
             print(f"  DUPLICATE in markdown: {tid} appears {n} times")
             failures += 1
