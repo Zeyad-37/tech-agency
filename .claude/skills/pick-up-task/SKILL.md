@@ -208,7 +208,9 @@ Once the user confirms the plan:
 
    Every later step in this task — the board edit from Step 4, the implementation, the tests, the commits — happens inside `$WORKTREE_DIR`. The PR merges back into `$BASE`.
 
-   If you were spawned into a worktree already (by `/dispatch` or `/dispatch-task`), skip creation: verify the existing worktree matches this task and continue.
+   If you were spawned into a worktree already (by `/dispatch` or `/dispatch-task` in local fallback mode), skip creation: verify the existing worktree matches this task and continue.
+
+   If you were dispatched into a **cloud environment**, you already have your own clone and there is no worktree to create: `git switch --no-track -c "$BRANCH" "origin/$BASE"`, verify with `git branch --show-current`, and continue. Every later step happens on that branch.
 
 2. Implement the task following:
    - The relevant coding standards

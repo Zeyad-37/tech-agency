@@ -358,9 +358,11 @@ Covers: tooling improvements, CI/CD changes, refactoring, design system creation
 
 ### `/dispatch`
 
-Dispatches one or more tasks to run in parallel using git worktrees. Each task gets its own isolated worktree and branch so agents don't interfere with each other's work. Handles the full lifecycle: parse the task list, resolve the base branch per task, create worktrees with proper branch naming, hand off to the assigned agent, and track progress. After work is complete, the agent pushes and creates a PR. Worktrees are cleaned up after merge.
+Dispatches one or more tasks to run in parallel **in the cloud**. Each task is handed to an agent in its own remote environment, with its own clone and branch, so agents don't interfere with each other's work and nothing lands on your machine. Handles the full lifecycle: parse the task list, resolve the base branch per task, verify everything the agents need is already on the remote, spawn the agents, and track progress. After work is complete, the agent pushes and creates a PR.
 
-**Base branch resolution (per task):** the branch a worktree cuts off from is also the branch its PR merges into. Resolved in order: explicit `--base <branch>` (or saying "branch off X") → epic integration branch (`epic/{EPIC-ID}-{slug}`, confirmed with you if inferred) → hotfix release tag → `main`. Different tasks in one multi-dispatch can have different bases. See `.claude/rules/shared/worktree-first.md` § Base Branch Resolution.
+**Local worktrees are the fallback.** Remote execution is a gated capability; when it is unavailable, `/dispatch` warns and creates local worktrees under `../{repo}-worktrees/` instead, cleaning them up after merge. Pass `--local` to force that path for work needing host-machine resources (a physical device, a local emulator, a gitignored local config).
+
+**Base branch resolution (per task):** the branch a task cuts off from is also the branch its PR merges into. Resolved in order: explicit `--base <branch>` (or saying "branch off X") → epic integration branch (`epic/{EPIC-ID}-{slug}`, confirmed with you if inferred) → hotfix release tag → `main`. Different tasks in one multi-dispatch can have different bases. See `.claude/rules/shared/worktree-first.md` § Base Branch Resolution.
 
 **When to use:** When you have multiple independent tasks that can be worked on simultaneously — e.g., two features on different modules, a backend task and a frontend task, or any set of tasks that don't share files.
 
@@ -371,13 +373,15 @@ Dispatches one or more tasks to run in parallel using git worktrees. Each task g
 - "parallel execution: US-042 and US-043"
 - "dispatch @Kai the checkout screen, branch off the epic branch"
 
-**Arguments:** Provide the task list — either task IDs from the board or inline descriptions with assigned agents. Optionally `--base <branch>` to branch off (and PR back into) an epic integration branch instead of `main`.
+**Arguments:** Provide the task list — either task IDs from the board or inline descriptions with assigned agents. Optionally `--base <branch>` to branch off (and PR back into) an epic integration branch instead of `main`, and `--local` to force local worktrees instead of cloud agents.
 
 ---
 
 ### `/dispatch-task`
 
-Meta-skill that combines upfront planning with parallel worktree execution — effectively `/tech-task` (or `/new-feature`, `/investigate-bug`, `/investigate-crash`) followed by `/dispatch`. **Phase 1** runs the full planning chain for the given task type in the main repo — docs (RFC/BRD/ADR/triage report), board tasks, agent routing — and stops for explicit @Zeyad approval. **Phase 2** creates one worktree per implementation task off the approved base branch and hands off to each agent in parallel, same mechanics as `/dispatch`.
+Meta-skill that combines upfront planning with parallel cloud execution — effectively `/tech-task` (or `/new-feature`, `/investigate-bug`, `/investigate-crash`) followed by `/dispatch`. **Phase 1** runs the full planning chain for the given task type locally, in a planning worktree — docs (RFC/BRD/ADR/triage report), board tasks, agent routing — and stops for explicit @Zeyad approval. It stays local because it blocks on your approval, and cloud agents always run in the background. **Phase 2** dispatches one cloud agent per implementation task off the approved base branch, in parallel, same mechanics as `/dispatch` — local worktrees remaining the fallback.
+
+Phase 1's artifacts must be landed on the base branch before Phase 2 dispatches, and the skill verifies it. A cloud agent clones `origin/<base>` and can see nothing else, so an RFC left uncommitted in the planning worktree is one its prompt points at but it cannot open.
 
 **When to use:** When a piece of work needs both planning AND parallel implementation. Use `/dispatch` instead when planning is already done, and the plain planning skills (`/tech-task`, `/new-feature`, …) when the implementation is sequential.
 
@@ -387,7 +391,7 @@ Meta-skill that combines upfront planning with parallel worktree execution — e
 - "plan then dispatch"
 - "plan this and parallelize the implementation"
 
-**Arguments:** `--type <new-feature | tech-task | investigate-bug | investigate-crash>` (inferred from the description if omitted), optionally `--base <branch>` for epic work, and the task description.
+**Arguments:** `--type <new-feature | tech-task | investigate-bug | investigate-crash>` (inferred from the description if omitted), optionally `--base <branch>` for epic work and `--local` to force local worktrees in Phase 2, and the task description.
 
 ---
 
@@ -625,8 +629,8 @@ Mirrors edits to `.claude/rules/` between a consumer project and the canonical t
 | `/rfc` | Write an RFC for large features | Per epic / large feature |
 | `/sprint-report` | Sprint metrics, throughput, cycle times, trends | Per sprint / monthly |
 | `/tech-task` | Technical/infrastructure task kickoff | As needed |
-| `/dispatch` | Dispatch parallel tasks via git worktrees (dynamic base: `--base` / epic branch / main) | As needed |
-| `/dispatch-task` | Plan (tech-task/new-feature/bug/crash chain) then dispatch to parallel worktrees | As needed |
+| `/dispatch` | Dispatch parallel tasks to cloud agents, local worktrees as fallback (dynamic base: `--base` / epic branch / main) | As needed |
+| `/dispatch-task` | Plan (tech-task/new-feature/bug/crash chain) then dispatch to parallel cloud agents | As needed |
 | `/update-board` | Update board status and commit on branch | Per transition |
 | `/migrate-board` | Markdown board → GitHub Issues + Projects v2; repairs, dry-runs, never deletes | Once per repo |
 | `/create-pr` | Create standardized PR with task ID and agents | Per task |

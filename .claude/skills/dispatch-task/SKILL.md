@@ -1,28 +1,32 @@
 ---
 name: dispatch-task
-description: "Meta-skill that combines upfront planning with parallel worktree execution. Runs the full planning chain for a given task type (new-feature, tech-task, investigate-bug, investigate-crash) in the main repo, requires @Zeyad approval, then dispatches the resulting implementation tasks to agents in isolated git worktrees so they execute in parallel. Use when the user says '/dispatch-task', 'dispatch a new feature', 'dispatch a bug fix', 'dispatch a tech task', 'plan and parallelize', 'plan then dispatch', 'run planning then dispatch', or asks to plan a task type AND parallelize the implementation. Distinct from /dispatch (raw worktree parallelization with no planning) and from /new-feature, /tech-task, /investigate-bug, /investigate-crash (planning chains that do not use worktrees)."
+description: "Meta-skill that combines upfront planning with parallel cloud execution. Runs the full planning chain for a given task type (new-feature, tech-task, investigate-bug, investigate-crash) locally, requires @Zeyad approval, then dispatches the resulting implementation tasks to agents running in the cloud so they execute in parallel — falling back to local git worktrees, with a warning, when remote execution is unavailable. Use when the user says '/dispatch-task', 'dispatch a new feature', 'dispatch a bug fix', 'dispatch a tech task', 'plan and parallelize', 'plan then dispatch', 'run planning then dispatch', or asks to plan a task type AND parallelize the implementation. Distinct from /dispatch (raw parallelization with no planning) and from /new-feature, /tech-task, /investigate-bug, /investigate-crash (planning chains that do not dispatch)."
 ---
 
 # Dispatch Task — Plan Then Parallelize
 
 This skill is a meta-skill that orchestrates two phases:
 
-1. **Phase 1 (Planning)**: Runs the appropriate planning chain (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) sequentially in the main working directory. Produces docs (RFC/BRD/ADR/triage report), creates board tasks, and identifies which agents will implement what. **Stops and waits for @Zeyad approval before continuing.**
-2. **Phase 2 (Dispatch)**: Once approved, creates a git worktree per implementation task and hands off to each agent in parallel — same mechanics as `/dispatch`.
+1. **Phase 1 (Planning)**: Runs the appropriate planning chain (`/new-feature`, `/tech-task`, `/investigate-bug`, or `/investigate-crash`) sequentially in a local planning worktree. Produces docs (RFC/BRD/ADR/triage report), creates board tasks, and identifies which agents will implement what. **Stops and waits for @Zeyad approval before continuing.**
+2. **Phase 2 (Dispatch)**: Once approved, spawns one cloud agent per implementation task and hands off to each in parallel — same mechanics as `/dispatch`. Local worktrees are the fallback when remote execution is unavailable.
 
-> **CRITICAL — Phase boundary:** Never create implementation worktrees during Phase 1. Planning is sequential; implementation is parallel. The boundary is the explicit user approval step.
+**Why Phase 1 stays local.** Planning is interactive: it blocks on @Zeyad's approval of the plan, and on approval of each upstream doc. Remote agents always run in the background, which is the wrong shape for a gate a human has to walk through. Implementation, by contrast, is exactly the shape remote execution suits — long-running, parallel, and reporting back when done.
+
+> **CRITICAL — Phase boundary:** Never dispatch implementation agents during Phase 1. Planning is sequential; implementation is parallel. The boundary is the explicit user approval step.
 >
-> **CRITICAL — Phase 1 artifacts must be committed and pushed before Phase 2 cuts anything.** Phase 2 creates each worktree from `origin/$BASE`. A doc that exists only as an uncommitted file in the planning directory is not on `origin/$BASE`, so it is not in any worktree — and every dispatched agent's prompt would reference an RFC, BRD, ADR or triage report it cannot open. The same applies to the board tasks Phase 1 creates: an agent told to run `/update-board T-042 → In Progress` against a board that has no `T-042` row has nothing to move. Phase 1 therefore ends by committing its artifacts on a branch and landing them on `$BASE` (Step 5 below). This is the same failure `/replenish` warns about — a planning-only board edit that no branch carries is discarded when the planning worktree is removed.
+> **CRITICAL — Phase 1 artifacts must be committed and pushed before Phase 2 dispatches anything.** Every Phase 2 agent starts from `origin/$BASE` — a cloud environment clones it, and a local fallback worktree is cut from it. A doc that exists only as an uncommitted file in the planning directory is on neither, so every dispatched agent's prompt would reference an RFC, BRD, ADR or triage report it cannot open. This bites harder in cloud mode, where the agent cannot reach this machine at all even to look. The same applies to the board tasks Phase 1 creates: an agent told to run `/update-board T-042 → In Progress` against a board that has no `T-042` row has nothing to move. Phase 1 therefore ends by committing its artifacts on a branch and landing them on `$BASE` (Step 5 below). This is the same failure `/replenish` warns about — a planning-only board edit that no branch carries is discarded when the planning worktree is removed.
 
 ## Invocation
 
 ```
-/dispatch-task --type <task-type> [--base <branch>] "<description>"
+/dispatch-task --type <task-type> [--base <branch>] [--local] "<description>"
 ```
 
 Where `<task-type>` is one of: `new-feature`, `tech-task`, `investigate-bug`, `investigate-crash`.
 
-`--base <branch>` (optional) overrides where the Phase 2 worktrees branch off from and where their PRs merge into. Without it, the base is resolved per the resolution order in `.claude/skills/dispatch/SKILL.md` Step 1b: explicit user wording → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `main`.
+`--base <branch>` (optional) overrides where the Phase 2 branches are cut from and where their PRs merge into. Without it, the base is resolved per the resolution order in `.claude/skills/dispatch/SKILL.md` Step 1b: explicit user wording → epic integration branch (`epic/{EPIC-ID}-{slug}`) → hotfix release tag → `main`.
+
+`--local` (optional) forces Phase 2 to use local git worktrees instead of cloud agents. Use it when the work needs host-machine resources — a physical device, a local emulator, host-only credentials, or a gitignored local config a cloud environment has no copy of.
 
 If `--type` is omitted, infer from the description:
 - "fix bug", "investigate bug", "regression", "not working" → `investigate-bug`
@@ -155,12 +159,14 @@ After the planning chain completes, present a structured summary to the user. Do
 - Severity: P{n}
 - Recommended action: {targeted fix | rollback}
 
-### Worktrees that will be created in Phase 2
-| # | Agent | Branch | Base (off + into) | Worktree path |
-|---|-------|--------|-------------------|---------------|
-| 1 | @{Agent} | {STORY-ID}/{slug} | {main \| epic/…} | ../{repo}-worktrees/{slug} |
+### Agents that will be dispatched in Phase 2
+**Execution mode:** {CLOUD (default) | LOCAL (--local requested)}
 
-**Base branch:** {main | epic/{EPIC-ID}-{slug} | v{X.Y.Z} tag} — {why: default | --base flag | task belongs to epic {EPIC-ID} | hotfix}. Each worktree branches off this base and its PR merges back into it.
+| # | Agent | Branch | Base (off + into) | Where |
+|---|-------|--------|-------------------|-------|
+| 1 | @{Agent} | {STORY-ID}/{slug} | {main \| epic/…} | {cloud (remote agent) \| ../{repo}-worktrees/{slug}} |
+
+**Base branch:** {main | epic/{EPIC-ID}-{slug} | v{X.Y.Z} tag} — {why: default | --base flag | task belongs to epic {EPIC-ID} | hotfix}. Each branch is cut from this base and its PR merges back into it.
 
 ---
 
@@ -171,7 +177,7 @@ Approve this plan to proceed with implementation? (yes / adjust / cancel)
 
 ### Step 5: Land the Phase 1 artifacts (blocking gate before Phase 2)
 
-Run this the moment the user approves, and **before** creating a single implementation worktree. Phase 2 cuts every worktree from `origin/$BASE`; anything not on `origin/$BASE` at that moment is invisible to every dispatched agent.
+Run this the moment the user approves, and **before** dispatching a single implementation agent. Every Phase 2 agent starts from `origin/$BASE` — cloud agents clone it, local fallback worktrees are cut from it. Anything not on `origin/$BASE` at that moment is invisible to every dispatched agent.
 
 Commit according to `board_backend` (absent → `markdown`).
 
@@ -242,11 +248,51 @@ git worktree remove "$PLAN_DIR"
 
 ---
 
-## Phase 2 — Dispatch (Worktrees, Parallel)
+## Phase 2 — Dispatch (Cloud, Parallel)
 
 This phase mirrors `.claude/skills/dispatch/SKILL.md` mechanics. Run only after Phase 1 approval **and** after Step 5's verification passes.
 
-### Step 1: Create all worktrees from the main repo
+**Implementation agents run in the cloud**, spawned with the `Agent` tool's `isolation: "remote"` — one remote environment per task, each with its own clone. Nothing is created on the local machine. Local git worktrees are the fallback when remote execution is unavailable, exactly as in `/dispatch` Step 0.
+
+Phase 1's planning is unaffected: it still runs locally in the planning worktree, because it is interactive and stops for your approval.
+
+**Phase 1 Step 5 is what makes cloud dispatch possible.** Every remote environment clones from `origin/$BASE` and can see nothing else — not this machine, not the planning worktree. The Step 5 verification that every Phase 1 doc and board task is on `origin/$BASE` is therefore not a nicety here; skip it and every dispatched agent opens a prompt pointing at files that do not exist.
+
+### Step 0: Resolve the execution mode
+
+Same three rules as `/dispatch` Step 0:
+
+1. **Cloud is the default** — spawn every implementation agent with `isolation: "remote"`.
+2. **`--local` forces local mode** — use the worktree mechanics in Step 1b.
+3. **Fall back on unavailability** — if the first remote spawn is refused (capability not enabled, no cloud environment configured, remote isolation unavailable), warn loudly and switch the whole of Phase 2 to local worktrees:
+
+   ```
+   ⚠️  Cloud execution unavailable — {reason reported by the tool}.
+       Falling back to LOCAL git worktrees for this dispatch.
+       To dispatch to the cloud, enable a cloud environment for this account
+       (see the plugin README § Use in Cloud Sessions).
+   ```
+
+   Do not mix modes within one dispatch. Record the resolved mode in the tracker (Step 4).
+
+### Step 1a: Cloud pre-flight (default mode)
+
+No local setup. Confirm instead that the remote has everything:
+
+```bash
+MAIN_REPO="$(git rev-parse --show-toplevel)"
+BASE="{main | epic/{EPIC-ID}-{slug}}"     # from the approved Phase 1 plan
+
+git -C "$MAIN_REPO" fetch origin "$BASE"
+
+# Phase 1 Step 5 already verified the docs and board tasks are on origin/$BASE.
+# Re-confirm nothing else the agents need is stranded locally:
+git -C "$MAIN_REPO" log --oneline "origin/${BASE}..HEAD" 2>/dev/null
+```
+
+If Step 5's verification did not pass, stop — do not dispatch. Also confirm the cloud environment has repository push access (every agent ends with `/create-pr`), an authenticated `gh` when `board_backend` is `github`, and the plugin installed so the coding standards resolve (`@.claude/rules/shared/rules-delivery.md` § 5; the plugin README § "Use in Cloud Sessions" § 3a is the one-time fix).
+
+### Step 1b: Create all worktrees from the main repo (fallback mode only)
 
 Create every worktree sequentially from the main working directory before handing off to any agent. Use the base branch that was resolved and approved in the Phase 1 plan (default `main`; an epic integration branch when the work belongs to an epic; a release tag for hotfixes).
 
@@ -276,29 +322,36 @@ If a worktree path or branch already exists, warn the user and skip that worktre
 
 ### Step 2: Hand off to each agent in parallel
 
-Spawn one agent per implementation task using parallel `Agent` tool invocations (multiple tool calls in a single message). Each prompt MUST start with this exact mandatory preamble:
+Spawn one agent per implementation task using parallel `Agent` tool invocations (multiple tool calls in a single message). In cloud mode every invocation passes `isolation: "remote"`; remote agents always run in the background, so do not pass `run_in_background: false`.
+
+Each prompt MUST start with this exact mandatory preamble. **Cloud mode:**
 
 ```
 ## Mandatory Setup — Run FIRST before any other work
 
-1. cd into your assigned worktree:
-   cd {WORKTREE_ABSOLUTE_PATH}
+You are running in a cloud environment with your own clone of this repository.
+No other agent shares it. Create your branch before writing anything.
 
-2. Verify your location:
-   pwd
-   # Expected: {WORKTREE_ABSOLUTE_PATH}
+1. git fetch origin {BASE}
+
+2. git switch --no-track -c {BRANCH_NAME} origin/{BASE}
+   # --no-track is mandatory: a tracking branch can push to {BASE} itself.
 
 3. Verify the branch:
    git branch --show-current
    # Expected: {BRANCH_NAME}
 
-4. If EITHER check fails, STOP and report the error. Do NOT proceed in the wrong directory.
+4. Verify you have the Phase 1 artifacts (they were landed on origin/{BASE} before dispatch):
+   ls {path to each reference doc listed below}
+
+5. If ANY check fails, STOP and report the error. Do NOT proceed on the wrong branch,
+   and do NOT proceed without the Phase 1 docs — they are your specification.
 
 ---
 
 ## Your Task
 
-@{Agent} — You are working in an isolated worktree at {WORKTREE_ABSOLUTE_PATH} on branch {BRANCH_NAME}.
+@{Agent} — You are working in your own cloud environment on branch {BRANCH_NAME}.
 
 Task: {specific implementation task from Phase 1}
 Board task ID: {STORY-ID}
@@ -321,8 +374,9 @@ Test plan (mandatory, on this branch):
 - Edge cases: {empty / error / invalid input}
 
 Rules:
-1. ALL file reads, writes, and git operations happen in {WORKTREE_ABSOLUTE_PATH} only.
-2. Do NOT cd to any other directory (especially not the main repo or another worktree).
+1. You are on {BRANCH_NAME}, cut from origin/{BASE} (verified above). Everything you need is on
+   that base — this environment cannot see the dispatching machine or the planning worktree.
+2. Stay on this branch. Do NOT switch branches or work anywhere else in this environment.
 3. FIRST COMMIT: run /update-board {STORY-ID} → In Progress and commit it on this branch — every board transition for this task ships inside this task's PR, never separately (.claude/rules/shared/board-in-pr.md). If you get blocked, /update-board {STORY-ID} → Blocked also commits here.
 4. Read the coding standard for this task's stack before writing code. It is NOT preloaded — it lives in the plugin and is read on demand:
    ${CLAUDE_PLUGIN_ROOT}/rules/mobile/android/compose-coding-standards.md   (Android / Compose)
@@ -334,18 +388,27 @@ Rules:
    ${CLAUDE_PLUGIN_ROOT}/rules/backend/python/python-coding-standards.md    (Python / FastAPI)
    ${CLAUDE_PLUGIN_ROOT}/rules/backend/jvm/jvm-coding-standards.md          (JVM / Spring Boot)
    If CLAUDE_PLUGIN_ROOT is unset, read the same path under .claude/rules/.
-   The shared rules in .claude/rules/shared/ are already loaded — do not re-read them.
+   If NEITHER resolves — which is what a cloud environment without the plugin installed looks
+   like — STOP and report it as a blocker. Do NOT write the code from generic knowledge
+   (.claude/rules/shared/rules-delivery.md § 5).
+   The shared rules in .claude/rules/shared/ are committed in the repo and already loaded —
+   do not re-read them.
 5. Commit format: [{STORY-ID}] @{AgentName}: short description
 6. When done: write tests, verify they pass, commit, run /update-board {STORY-ID} → Review (committed on this branch), then run /create-pr --base {BASE}.
 ```
+
+**Local fallback mode** uses the same body with a different opening: replace steps 1–5 of the
+Mandatory Setup with the `cd {WORKTREE_ABSOLUTE_PATH}` / `pwd` / `git branch --show-current`
+sequence from `.claude/skills/dispatch/SKILL.md` Step 3b, and replace Rules 1–2 with that skill's
+worktree-confinement rules. Everything from Rule 3 onwards is identical in both modes.
 
 Spawn all agents in a single message with multiple tool calls — do not wait for one to finish before starting the next.
 
 ### Step 3: Each agent's completion sequence
 
-Inside its worktree, every dispatched agent must:
+In its own environment, every dispatched agent must:
 
-1. Verify location: `pwd && git branch --show-current`.
+1. Verify location: `git branch --show-current` (cloud), or `pwd && git branch --show-current` (local worktree).
 2. Run `/update-board {STORY-ID} → In Progress` and commit it as the **first commit** on the branch — board transitions ship inside the task's own PR, never as a board-only PR or a commit on `main` (`@.claude/rules/shared/board-in-pr.md`).
 3. Implement the task and write tests on the same branch (per `@.claude/rules/shared/agent-preamble.md` and the on-demand coding standard for the task's stack).
 4. Run the project's quality gates (e.g., `./gradlew detekt`, the relevant test command). Do not raise a PR with failing checks.
@@ -355,20 +418,29 @@ Inside its worktree, every dispatched agent must:
 
 ### Step 4: Track active dispatches
 
-Maintain a tracker in the conversation so the user can see all parallel work. Use absolute paths to remove ambiguity.
+Maintain a tracker in the conversation so the user can see all parallel work. **Always name the mode**, and in local mode use absolute worktree paths to remove ambiguity.
 
 ```
-## Active Dispatches
-| # | Agent | Branch | Worktree (absolute path) | Status | PR |
-|---|-------|--------|--------------------------|--------|-----|
-| 1 | @{Agent} | {branch} | {abs-path} | In Progress | — |
+## Active Dispatches — mode: CLOUD
+| # | Agent | Branch | Base | Where | Status | PR |
+|---|-------|--------|------|-------|--------|-----|
+| 1 | @{Agent} | {branch} | {base} | cloud (remote agent) | In Progress | — |
+```
+
+```
+## Active Dispatches — mode: LOCAL (cloud unavailable: {reason})
+| # | Agent | Branch | Base | Where | Status | PR |
+|---|-------|--------|------|-------|--------|-----|
+| 1 | @{Agent} | {branch} | {base} | {abs-worktree-path} | In Progress | — |
 ```
 
 ### Step 5: Cleanup (Automatic, after PRs are merged)
 
-Cleanup is automatic. The next `/create-pr` invocation in this repo runs an opportunistic sweep (Step 6 of that skill) that enumerates every worktree, checks each branch with `gh pr list --state merged`, and removes the worktree + deletes the branch for any merged ones. The worktree stays in place until its PR is actually merged so review feedback can be addressed.
+**Cloud mode: nothing to clean up locally.** The remote environment is disposable, and the local machine never held a worktree or branch for these tasks. Note that the Phase 1 *planning* worktree is local and is still removed at the end of Phase 1 Step 5.
 
-To abandon a dispatch before merge (failed task, wrong approach), clean up manually from the main repo:
+**Local fallback mode:** cleanup is automatic. The next `/create-pr` invocation in this repo runs an opportunistic sweep (Step 6 of that skill) that enumerates every worktree, checks each branch with `gh pr list --state merged`, and removes the worktree + deletes the branch for any merged ones. The worktree stays in place until its PR is actually merged so review feedback can be addressed.
+
+To abandon a local dispatch before merge (failed task, wrong approach), clean up manually from the main repo:
 
 ```bash
 cd "$MAIN_REPO"
@@ -381,19 +453,21 @@ git worktree prune                            # if the directory was already rem
 
 ## Error Handling
 
-- **Pending upstream doc:** If Phase 1 produced docs that require @Zeyad approval (RFC, BRD, ADR) and approval has not been granted, block at Step 4 of Phase 1. Do not present the dispatch plan and do not create worktrees.
-- **Existing worktree:** If `git worktree add` would collide with an existing branch or directory, warn the user, list the conflict, and skip that single worktree without aborting the rest of the dispatch.
-- **User selects "adjust":** Re-run the relevant parts of Phase 1 with the requested changes (e.g., reassign an agent, split a task, drop one task) and present the plan again. Do not create worktrees in between.
-- **User selects "cancel":** Roll back any board tasks created during Phase 1 (use `board.update_task()` or move them back to Backlog with a note that the dispatch was cancelled). Do not create any worktrees. Do not delete existing docs — they remain as historical context.
+- **Pending upstream doc:** If Phase 1 produced docs that require @Zeyad approval (RFC, BRD, ADR) and approval has not been granted, block at Step 4 of Phase 1. Do not present the dispatch plan and do not dispatch anything.
+- **Cloud execution unavailable:** This is the Phase 2 Step 0 fallback, not an error to stop on. Warn, switch the whole of Phase 2 to local worktrees, and continue.
+- **Phase 1 artifacts not on `origin/$BASE`:** Stop. Do not dispatch. Land them first (Phase 1 Step 5) — in cloud mode the agents cannot reach this machine to read them at all.
+- **Existing worktree (local mode):** If `git worktree add` would collide with an existing branch or directory, warn the user, list the conflict, and skip that single worktree without aborting the rest of the dispatch.
+- **User selects "adjust":** Re-run the relevant parts of Phase 1 with the requested changes (e.g., reassign an agent, split a task, drop one task) and present the plan again. Do not dispatch in between.
+- **User selects "cancel":** Roll back any board tasks created during Phase 1 (use `board.update_task()` or move them back to Backlog with a note that the dispatch was cancelled). Do not dispatch anything. Do not delete existing docs — they remain as historical context.
 - **Same-file conflicts across dispatched tasks:** If two implementation tasks would touch the same files, flag this in the plan and recommend sequencing rather than parallelizing. Let the user decide.
-- **Agent in the wrong directory mid-task:** Follow the troubleshooting steps in `.claude/skills/dispatch/SKILL.md` — stop, verify with `pwd` and `git branch --show-current`, `cd` to the correct worktree, revert any accidental edits in the wrong directory, resume.
+- **Agent in the wrong place mid-task:** Follow the troubleshooting steps in `.claude/skills/dispatch/SKILL.md` § "Troubleshooting: Agent Working in Wrong Place" — it covers both the cloud (wrong branch) and local (wrong directory) cases.
 
 ---
 
 ## When NOT to use this skill
 
-- **Pure planning, no implementation:** A standalone PRD/BRD/RFC/retro doesn't need worktrees. Use `/new-feature`, `/tech-task`, `/rfc`, or `/retro` directly.
+- **Pure planning, no implementation:** A standalone PRD/BRD/RFC/retro doesn't need dispatching. Use `/new-feature`, `/tech-task`, `/rfc`, or `/retro` directly.
 - **Pure parallelization, no planning:** If the planning is already done (docs approved, tasks on the board), use `/dispatch` directly to skip Phase 1.
-- **Single sequential task:** A task with no parallel siblings doesn't benefit from a worktree. Implement on a normal feature branch.
+- **Single sequential task:** A task with no parallel siblings doesn't benefit from dispatch overhead. Implement on a normal feature branch.
 - **Tasks with hard sequential dependencies:** If task B needs task A's output, do not parallelize — let A finish first, then dispatch B.
 - **Trivial fixes:** One-line changes don't need this overhead. Edit the branch directly.

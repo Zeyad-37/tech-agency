@@ -602,7 +602,7 @@ Rules for this step:
 
 ## Step 6: Sweep Merged Worktrees (Auto-Cleanup)
 
-Immediately after the PR is created, scan all existing worktrees and remove any whose branch has already been merged. This is how worktrees created by `/dispatch` and `/dispatch-task` get cleaned up — there is no separate cleanup command.
+Immediately after the PR is created, scan all existing worktrees and remove any whose branch has already been merged. This is how local worktrees get cleaned up — including those `/dispatch` and `/dispatch-task` create in their local fallback mode — and there is no separate cleanup command. Dispatched work that ran in the cloud leaves no local worktree, so the sweep simply finds nothing for it.
 
 ```bash
 # Run from the main repo (NOT inside a worktree).

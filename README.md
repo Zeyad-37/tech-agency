@@ -154,8 +154,8 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 | Command | Description |
 |---------|-------------|
-| `/dispatch` | Dispatch a task to an agent in an isolated git worktree for parallel execution |
-| `/dispatch-task` | Plan (tech-task / new-feature / bug / crash chain) then dispatch the implementation in parallel |
+| `/dispatch` | Dispatch a task to an agent running in the cloud, for parallel execution |
+| `/dispatch-task` | Plan (tech-task / new-feature / bug / crash chain) then dispatch the implementation to the cloud in parallel |
 
 #### Ship a change
 
@@ -465,9 +465,13 @@ Git hooks enforce the commit message format `[ID] @Agent: description` — where
 
 ### Parallel Execution
 
-`/dispatch` creates isolated git worktrees so multiple agents can work simultaneously without file conflicts. Each agent gets its own branch and working directory. Worktrees branch off — and PR back into — a dynamically resolved base: an explicit `--base <branch>`, an epic integration branch (`epic/{EPIC-ID}-{slug}`), a hotfix release tag, or `main` by default.
+**Dispatched work runs in the cloud.** `/dispatch` spawns each agent into its own remote cloud environment, with its own clone of the repository, so multiple agents work simultaneously without file conflicts and nothing is created on your machine — no worktree, no branch, no build output. Each agent gets its own branch, which is cut from — and PRs back into — a dynamically resolved base: an explicit `--base <branch>`, an epic integration branch (`epic/{EPIC-ID}-{slug}`), a hotfix release tag, or `main` by default.
 
-`/dispatch-task` layers planning on top: it runs the appropriate planning chain (`/tech-task`, `/new-feature`, `/investigate-bug`, or `/investigate-crash`) first, waits for approval, then dispatches the resulting implementation tasks to parallel worktrees.
+Two things follow from running remotely, and the skill enforces both. Everything the agents need must already be on `origin/<base>`, because a cloud environment cannot see your machine — `/dispatch` refuses to dispatch over work that is still unpushed. And the environment needs the plugin installed for the language coding standards to resolve, which is what [§ Use in cloud sessions](#use-in-cloud-sessions) sets up; a dispatched agent that cannot read its standard stops and reports rather than writing code without it.
+
+**Local git worktrees are the fallback.** Remote execution is a gated capability. When it is unavailable, `/dispatch` says so and creates local worktrees under `../{repo}-worktrees/` instead — the behaviour it had before. Pass `--local` to force that path deliberately, for work that needs host-machine resources such as a physical device, a local emulator, or a gitignored local config.
+
+`/dispatch-task` layers planning on top: it runs the appropriate planning chain (`/tech-task`, `/new-feature`, `/investigate-bug`, or `/investigate-crash`) first — locally, since it stops for your approval — then dispatches the resulting implementation tasks to parallel cloud agents.
 
 ---
 
