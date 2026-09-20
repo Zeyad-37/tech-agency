@@ -214,7 +214,7 @@ verification gate.
 
 ## Worktree-First Workflow (Mandatory)
 
-**All Claude Code work happens in a git worktree. No exceptions.** The main checkout is an orchestration root only — it holds the canonical `.git` directory and parents the worktrees. No task work runs there.
+**All Claude Code work happens in an isolated checkout — a git worktree locally, or a cloud environment's own clone. No exceptions.** The main checkout is an orchestration root only — it holds the canonical `.git` directory and parents the worktrees. No task work runs there. **Dispatched work runs in the cloud by default** (`/dispatch`, `/dispatch-task` Phase 2), which satisfies the rule without creating a local worktree at all.
 
 The full protocol — branch naming, creation commands, verification, exceptions — lives in `@.claude/rules/shared/worktree-first.md`. The agent preamble (`@.claude/rules/shared/agent-preamble.md`) references it as Step 0 of every task.
 
@@ -223,7 +223,7 @@ Quick rules:
 - Worktree directory convention: `../{repo}-worktrees/{branch-slug}/`
 - One agent per worktree — never assign two agents to the same worktree
 - Agents must not read or write files outside their worktree
-- **First action in any task**: create the worktree, `cd` into it, verify `pwd` + `git branch --show-current` before any write. If already inside a worktree (spawned by `/dispatch` / `/dispatch-task`), verify it matches the task and continue
+- **First action in any task**: create the worktree, `cd` into it, verify `pwd` + `git branch --show-current` before any write. If already inside a worktree (spawned by `/dispatch` / `/dispatch-task` in local fallback mode), verify it matches the task and continue. Dispatched agents running in a **cloud environment** already have their own clone — they create their branch from `origin/{BASE}` instead of a worktree
 - On the `markdown` backend, `board-context.md` is edited inside the worktree on the task branch and merges back via PR — there is no privileged "Atlas writes to main checkout" path. On `github` there is no board file; transitions are API writes
 - Each worktree merges back via PR — never merge or commit directly on `main`
 - Worktree cleanup is automatic: every `/create-pr` invocation sweeps all worktrees and removes any whose PR is already merged. No manual cleanup needed for the happy path. To abandon an unmerged worktree, run `git worktree remove <path> && git branch -D <branch>` from the main checkout

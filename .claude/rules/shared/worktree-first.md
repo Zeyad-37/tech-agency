@@ -1,8 +1,10 @@
 # Worktree-First Workflow
 
-**Rule:** All Claude Code work happens in a git worktree. The main checkout is never used for active task work. No exceptions.
+**Rule:** All Claude Code work happens in an isolated checkout of the repository — a git worktree locally, or a cloud environment's own clone. The main checkout is never used for active task work. No exceptions.
 
 The main checkout is an orchestration root only — it holds the canonical `.git` directory and serves as the parent of all worktrees. Nothing else.
+
+**Dispatched work is isolated by running in the cloud.** `/dispatch` and `/dispatch-task` Phase 2 spawn their agents into remote cloud environments, each with its own clone, so no worktree is created on this machine at all. That satisfies this rule by a different mechanism: the agent still works on its own branch cut from `origin/{BASE}`, and still merges back via PR. Everything below — branch naming, base-branch resolution, board-update placement, PR-per-branch — applies unchanged; only the *directory* differs. Local worktrees remain the fallback when remote execution is unavailable, and the mechanism for every non-dispatched task.
 
 ## Why
 
@@ -19,6 +21,11 @@ Pure read-only operations (running `git log`, reading files to answer a question
 Before any other action, every skill and every agent runs this protocol:
 
 ```bash
+# 0. If you are in a cloud environment (dispatched via /dispatch or /dispatch-task),
+#    you already have your own clone. Skip worktree creation entirely: create your
+#    branch with `git switch --no-track -c "$BRANCH" "origin/$BASE"` and continue
+#    from step 6's verification.
+
 # 1. Determine you're in the main checkout (not already in a worktree).
 MAIN_REPO="$(git rev-parse --show-toplevel)"
 if [ "$MAIN_REPO" != "$(git rev-parse --git-common-dir | xargs dirname)" ]; then
@@ -108,7 +115,7 @@ If multiple worktrees touch `board-context.md` in parallel, the second PR to mer
 
 This rule is the entire arbitration mechanism. Two sessions running at the same time will:
 
-1. Each create their own worktree under `../{repo}-worktrees/...`, with distinct branch names derived from their respective task IDs.
+1. Each get their own checkout — a worktree under `../{repo}-worktrees/...`, or a cloud environment's own clone for dispatched work — with distinct branch names derived from their respective task IDs.
 2. Operate independently — no file conflicts, no branch conflicts, no shared in-flight state.
 3. Each open a PR via `/create-pr` and merge back independently.
 
@@ -129,10 +136,11 @@ git worktree prune                       # if the directory was removed manually
 
 ## Exceptions
 
-There are exactly three exceptions to the worktree-first rule, and they are narrow:
+There are exactly four exceptions to the worktree-first rule, and they are narrow:
 
 1. **Read-only Q&A.** Answering a question by reading files, running `git log`, inspecting state — no worktree needed. If the answer turns into "let's change this," create the worktree before the first write.
-2. **Initial repo setup** (`/setup-repo`). The first scaffolding pass on a fresh repo happens in the main checkout because there's nothing to worktree from yet. After setup completes, the rule applies to all subsequent work.
-3. **Worktree cleanup** (the `/create-pr` sweep). Removing a merged worktree runs from the main checkout by necessity — you can't `git worktree remove` the worktree you're standing in.
+2. **Dispatched cloud work.** An agent spawned by `/dispatch` or `/dispatch-task` Phase 2 into a cloud environment is already isolated by its own clone and creates no local worktree. This is not a loophole — it is the same isolation guarantee by another mechanism, and the branch, board, and PR rules all still apply.
+3. **Initial repo setup** (`/setup-repo`). The first scaffolding pass on a fresh repo happens in the main checkout because there's nothing to worktree from yet. After setup completes, the rule applies to all subsequent work.
+4. **Worktree cleanup** (the `/create-pr` sweep). Removing a merged worktree runs from the main checkout by necessity — you can't `git worktree remove` the worktree you're standing in.
 
 Any other "this case is special" claim is wrong. Push back and create the worktree.

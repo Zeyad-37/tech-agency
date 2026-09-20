@@ -115,23 +115,35 @@ User story US-008. Refer to docs/habit-tracker/adr-002.md for the API contract.
 
 ## Parallel Work (Dispatch)
 
-Run independent tasks simultaneously — each in its own git worktree, branch, and PR.
+Run independent tasks simultaneously — **in the cloud**, each in its own remote environment,
+branch, and PR. Nothing is created on your machine.
 
 ```
 /dispatch @Kai implement the streak screen (US-013)
 /dispatch @Flux implement the habits API (US-008)
 ```
 
-Working inside an epic? Point the dispatch at the epic's integration branch — the worktree
-branches off it and the PR merges back into it (not `main`):
+Cloud agents clone `origin/<base>` and can see nothing else, so push anything they depend on
+first — `/dispatch` checks and refuses to dispatch over unpushed work.
+
+If cloud execution isn't available for your account, `/dispatch` warns and falls back to local
+git worktrees. Force that path with `--local` when the work needs a physical device, a local
+emulator, or a gitignored local config:
+
+```
+/dispatch --local @Swift profile the launch path on the attached iPhone
+```
+
+Working inside an epic? Point the dispatch at the epic's integration branch — the task branch
+is cut from it and the PR merges back into it (not `main`):
 
 ```
 /dispatch --base epic/US-100-checkout @Kai implement the checkout summary screen
 ```
 
 Need planning first? `/dispatch-task` runs the planning chain (tech-task, new-feature,
-investigate-bug, or investigate-crash), waits for your approval, then dispatches the
-resulting implementation tasks in parallel:
+investigate-bug, or investigate-crash) locally, waits for your approval, then dispatches the
+resulting implementation tasks to parallel cloud agents:
 
 ```
 /dispatch-task --type tech-task "migrate all screens to the new design tokens"
