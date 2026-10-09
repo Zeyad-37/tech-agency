@@ -96,17 +96,23 @@ Dispatches Morgan to produce a standalone, industry-standard PRD — problem fra
 
 ### `/release`
 
-Executes the full release checklist: QA sign-off (Apex), security review (Shield), documentation update (Scroll), release notes (Morgan), your go/no-go, then deployment (Sentinel). Each gate must pass before proceeding.
+Executes the full release checklist. It first detects the project type: a mobile app ships through the app stores, and a web service or backend deploys through staging to production. The gates are the same on both paths: code complete, QA on the changes since the last tag (Apex), security review (Shield), changelog (Scroll), release notes (Morgan), your go/no-go, and a check of the exact artifact being shipped (Apex). Each gate must pass, or be waived by you, before the next one starts.
 
-**When to use:** When you're ready to ship a version to production.
+- **Store path:** a version-bump PR, an annotated tag, then CI builds, signs and uploads the release to the store as a draft. You press Publish or Release in the store console.
+- **Service path:** Sentinel deploys to staging, then to production.
+
+At the go/no-go it asks whether to use a staged rollout this time (a staged rollout percentage or phased release in the stores, a canary for a service) and recommends one based on how many users the app or service has. Each release gets a release record in `docs/artifacts/release-record/`.
+
+**When to use:** When you're ready to ship a version to users.
 
 **Example triggers:**
 - "release v1.2.0"
 - "ship it"
 - "are we ready to deploy"
 - "cut a release"
+- "ship to the stores"
 
-**Arguments:** Optionally provide the version number: `/release v1.2.0`
+**Arguments:** Optionally provide the version number: `/release v1.2.0`. The tag keeps your repo's existing format, so bare `1.2.0` tags stay bare.
 
 ---
 

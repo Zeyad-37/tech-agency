@@ -139,7 +139,8 @@ upstream; when to route a task to one is specified in
 ## Sentinel — DevOps/SRE
 | Skill | Trigger | Output |
 |-------|---------|--------|
-| `deploy-service` | "Deploy [service] vX.Y.Z" | Staging → canary → production + monitor |
+| `deploy-service` | "Deploy [service] vX.Y.Z" | Staging → production (through a canary when the rollout is staged) + monitor |
+| `stage-store-release` | "Stage app release X.Y.Z" | Tag-triggered CI build, signed in CI, uploaded to the stores as a draft |
 | `write-terraform` | "Write Terraform for [resource]" | HCL module + variables + tests |
 | `incident-response` | "Incident: [description]" | Assess → communicate → investigate → mitigate |
 | `post-mortem` | "Post-mortem for [incident]" | Timeline, root cause, lessons, actions |
@@ -157,7 +158,8 @@ upstream; when to route a task to one is specified in
 | `write-test-plan` | "Write test plan for [feature]" | Scope, approach, data, schedule, criteria |
 | `write-e2e-tests` | "Write E2E tests for [feature]" | Playwright/Appium test suite |
 | `bug-triage` | "Triage bug [description]" | Reproduce, classify, document, assign |
-| `release-signoff` | "Sign off release vX.Y.Z" | Quality gates → APPROVED/BLOCKED |
+| `release-signoff` | "Sign off release vX.Y.Z" | Regression of the changes since the last tag → APPROVED/BLOCKED |
+| `verify-release-artifact` | "Verify the exact artifact for release X.Y.Z" | Fresh install + cold launch of the shipped file, hash match → Met / Partly met / Not met |
 
 ## Scroll — Technical Writer
 | Skill | Trigger | Output |
