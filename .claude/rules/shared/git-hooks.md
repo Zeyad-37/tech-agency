@@ -121,6 +121,10 @@ Accepted branch-name prefixes (warning only when unmatched): `main`, `develop`, 
 
 Because stdin is consumed by the hook, every subcommand it runs is given `</dev/null`.
 
+The commit range checked for format and the files used to pick test runners are computed **per refspec** — the new commits are those reachable from the pushed sha but not from the remote ref's old sha or the remote main branch. What is checked out at the time is irrelevant: pushing branch `A` while standing on branch `B` checks `A`'s commits and runs the tests `A`'s changes call for. A run with no refspecs on stdin (invoking the hook by hand) falls back to treating the current branch as the push.
+
+This behaviour is pinned by `scripts/test_pre_push.py`, which CI runs on every PR. A hook change that reintroduces a current-branch decision fails it.
+
 ## A Check That Cannot Run Is Not a Pass
 
 Every security-relevant `grep` in `pre-commit` distinguishes three outcomes: exit 0 (matched), exit 1 (no match — OK), exit **2 or higher (grep itself failed)**. On the third, the hook prints a FATAL message and **aborts the commit**. grep's own stderr is never suppressed.
