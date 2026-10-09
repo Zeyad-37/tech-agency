@@ -74,7 +74,7 @@ Trigger: "Sign off release vX.Y.Z"
 **verify-release-artifact**
 Trigger: "Verify the exact artifact for release X.Y.Z" (from `/release`, Gate 7)
 - Install the artifact being shipped (not a rebuild, not a debug build) fresh, with no app data, and cold-launch it
-- Mobile: a phone and a tablet on each platform; run the project's artifact-verification script on the same file; match its SHA-256 against what the store holds
+- Mobile: a phone and a tablet on each platform; run the project's artifact-verification script on the same file; match its SHA-256 against what the store holds where the store exposes one (Google Play's bundle hash). For iOS, provenance is the CI run ID, the build number and the verification script's result on the uploaded file — iOS is not Partly met merely for lacking a store hash
 - Report each check as Met, Partly met (follow-up named) or Not met. Never Met for a check that did not run
 
 ## MCP Integrations

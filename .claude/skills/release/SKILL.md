@@ -18,7 +18,8 @@ Rules that hold on both paths:
 
 - **Nothing project-specific is hardcoded.** Tag format, workflow files, store track names, version locations, verification scripts and runbook paths are **discovered from the repo** in Step 0, or asked for. Never guess one.
 - **Committing actions in a store console are always the human's.** Publish, Send for review, Submit for Review, Release this version, and every rollout-percentage increase are @Zeyad's clicks. The agent stages everything and stops at the button.
-- **The agent never signs a release build and never touches signing material** — keystores, key passwords, certificates, provisioning profiles, store API keys. Signing happens in CI, from secrets only CI holds.
+- **The agent never signs a release build and never touches signing material** — keystores, key passwords, certificates, provisioning profiles, store API keys. Signing happens in CI, from secrets only CI holds — or, for a local iOS archive, by @Zeyad.
+- **A local archive, sign and upload is @Zeyad's step, never the agent's.** When CI does not produce the iOS build (3.5), the agent prepares a clean worktree of the tag and stops; it never runs `xcodebuild archive` or an export with a distribution identity, and never uploads to a store.
 - **Staged rollout is asked about every release** (Gate 6). Never apply one, and never skip one, without asking.
 - @Zeyad approves the release notes and gives the final go/no-go. Any gate may be **waived** only by @Zeyad; a waiver is recorded, never assumed.
 
@@ -33,9 +34,15 @@ Every decision, waiver, failed run and tag move goes into the release record (§
 grep -rlE 'com\.android\.application|androidApplication' --include='*.gradle.kts' --include='*.gradle' --include='*.toml' . 2>/dev/null | grep -v '/build/'
 # Xcode project
 find . -name '*.xcodeproj' -not -path '*/Pods/*' -not -path '*/build/*' -maxdepth 4
-# Release workflow triggered by a tag push
-grep -lE '^\s*tags:' .github/workflows/*.y*ml 2>/dev/null
+# Release workflow triggered by a tag push — a structural check of `on.push.tags`, not a grep
+# for "tags:", which also matches branch filters, job steps and comments. Needs mikefarah yq.
+yq --version 2>/dev/null | grep -q mikefarah || echo "mikefarah yq not available — ask which workflow releases"
+for f in .github/workflows/*.y*ml; do
+  [ "$(yq '.on.push.tags != null' "$f" 2>/dev/null)" = "true" ] && echo "$f"
+done
 ```
+
+Use a YAML 1.2 parser such as mikefarah `yq`. A YAML 1.1 parser (PyYAML, Ruby's Psych) reads the `on:` key as the boolean `true`, so `.on` comes back empty and every workflow looks untriggered. If no structural check can run, do not fall back to grep: list the workflow files and ask @Zeyad which one is the release workflow.
 
 - **Store path** — the repo has an Android app module and/or an Xcode project, **and** a release workflow triggered by a tag push.
 - **Service path** — anything else that deploys: a web app, an API, a worker, a published package.
@@ -49,7 +56,7 @@ Read these from the repo and write them into the release record's **Setup** tabl
 | Item | Where to look |
 |---|---|
 | Tag format | `git tag --sort=-creatordate \| head -20` — bare `1.2.3` or `v1.2.3`, and any prefix |
-| Release workflow (tag-triggered) | `.github/workflows/*` with `on: push: tags:` — note its jobs, runner images and the Xcode version it selects |
+| Release workflow (tag-triggered) | The `.github/workflows/*` file whose `on.push.tags` is set, by the structural check above (or @Zeyad's answer when it cannot run) — note its jobs, runner images and the Xcode version it selects |
 | Main-verification workflow | The workflow that runs on pushes to `main` |
 | PR CI workflow | The workflow that runs on `pull_request` — compare its jobs with the release workflow's |
 | Android version | `versionCode` / `versionName` in the app module's build file or version catalog |
@@ -76,9 +83,17 @@ Build the list from git and the merged PRs, **not** from `docs/board/done-*.md` 
 ```bash
 git fetch origin main --tags
 git log --oneline "<last-tag>..origin/main"
+
+# The date search is only a coarse pre-filter: a PR merged on the tag's own day before the
+# tag was cut matches it too. Keep only PRs whose merge commit is actually in the range.
+RANGE=$(mktemp)
+git rev-list "<last-tag>..origin/main" > "$RANGE"
 gh pr list --state merged --base main --limit 200 \
   --search "merged:>=$(git log -1 --format=%cs <last-tag>)" \
-  --json number,title,url,labels,mergedAt
+  --json number,title,url,labels,mergedAt,mergeCommit \
+  | jq --rawfile range "$RANGE" \
+      '[ .[] | select(.mergeCommit.oid as $s | $range | split("\n") | index($s)) ]'
+rm -f "$RANGE"
 ```
 
 Present it as four tables, each row linking its PR:
@@ -98,7 +113,9 @@ Columns: `PR | Title | Notes`. Two notes are mandatory:
 ### Board task and worktree
 
 - `board.search("Release X.Y.Z")` — reuse the task if one exists; otherwise `board.create_task` it as `[T-NNN] Release X.Y.Z`. Resolve both through the backend in `.claude/settings.json` (`@.claude/rules/shared/board-adapter.md`).
-- That task ID names the branches (`T-NNN/release-X.Y.Z`), prefixes every commit (`[T-NNN] @Atlas: …`), and names the release record.
+- That task ID names the release branch (`T-NNN/release-X.Y.Z`), prefixes its commits (`[T-NNN] @Atlas: …`), and names the release record.
+- **Store path: the version bump gets its own sub-task.** `board.create_task` it as `[T-NNN.1] Version bump X.Y.Z`; on `github` make it a sub-issue of the release task (`gh issue edit <release issue> --add-sub-issue <bump issue>`). Its branch is `T-NNN.1/version-X.Y.Z` and its commits are prefixed `[T-NNN.1]`. This matters because `/create-pr` closes the issue whose title starts with the branch's exact `[TASK-ID] ` prefix: a bump PR on a `T-NNN/…` branch would close the release task the moment the bump merged — before anything was built, verified or published. On `T-NNN.1/…` it closes only the sub-task.
+- **The release task's transitions:** → In Progress now, at Step 1 (`board.move_task`); it stays In Progress through Steps 2–4; → Done through the Step 5 release-record PR on `T-NNN/release-X.Y.Z`. On `github` that PR carries `Closes #<release issue>`, which closes the task when it merges; on `markdown` the Done commit rides in that PR (`@.claude/rules/shared/board-in-pr.md`).
 - Create the release worktree per `@.claude/rules/shared/worktree-first.md`, cut from `origin/main`. The release record is drafted there now and updated at every step.
 
 ## Step 2: Pre-Release Gates
@@ -191,6 +208,7 @@ Release X.Y.Z — T-NNN Release X.Y.Z ([store | service] path)
 - [ ] Gate 4 Scroll changelog updated
 - [ ] Gate 5 Morgan release notes approved
 - [ ] Gate 7 Exact artifact — runs after the build (store path) / on staging (service path)
+- [ ] Store path: the tag's CI upload will submit [draft to <track> | edit commit to <track>] — approved by this go
 - [ ] Rollout: [PENDING — see question below]
 - [ ] @Zeyad go/no-go: [PENDING]
 ```
@@ -216,7 +234,7 @@ Record the answer in the **Decisions** table. For a staged store rollout, also w
 
 ### Store path
 
-**3.1 Version-bump PR.** In a worktree on `T-NNN/version-X.Y.Z`, bump:
+**3.1 Version-bump PR.** In a worktree on `T-NNN.1/version-X.Y.Z` — the bump sub-task from Step 1, never the release task's ID — bump:
 
 - Android `versionName` → `X.Y.Z` and `versionCode` → the next free code.
 - iOS marketing version → `X.Y.Z` and build number → the next free build.
@@ -232,7 +250,7 @@ git tag -a "<tag>" "<bump-merge-sha>" -m "Release X.Y.Z"
 git push origin "refs/tags/<tag>:refs/tags/<tag>"
 ```
 
-Push from a worktree whose branch is **not** `main` (the release worktree). Some pre-push hooks gate on the current branch rather than on the pushed ref, and will refuse a tag pushed from `main`. Pushing this one tag is authorized by @Zeyad's Gate 6 go; this skill never pushes a branch — branches go through `/create-pr`.
+Push from a worktree whose branch is **not** `main` (the release worktree). Some pre-push hooks gate on the current branch rather than on the pushed ref, and will refuse a tag pushed from `main`. Pushing this one tag is the release-tag exception in `@.claude/rules/shared/shared-standards.md` § Push Policy, authorized by @Zeyad's Gate 6 go; this skill never pushes a branch — branches go through `/create-pr`.
 
 **3.3 CI builds, signs and uploads a draft.** The tag workflow builds the release artifacts, signs them with keys held only in CI secrets, and uploads them to the store **as a draft**. Do not build or sign a release locally to "help": a local release build with no keystore configured can quietly fall back to the debug key and produce a binary that looks fine and is not the release. Watch the run by ID:
 
@@ -246,21 +264,40 @@ To abort, cancel the run **before its upload step** (`gh run cancel <run-id>`). 
 **3.4 If the tag run fails before anything shipped**, fix it through a PR like any other change. Moving the tag to the fix commit needs @Zeyad's explicit approval; then:
 
 ```bash
+# Capture what the REMOTE holds before rewriting anything. For an annotated tag that is the
+# tag object's SHA, not the commit's — and a local rev-parse after `git tag -f` already
+# returns the new object, which would make the lease check nothing.
+OLD_TAG_OBJ=$(git ls-remote origin "refs/tags/<tag>" | cut -f1)
+OLD_COMMIT=$(git ls-remote origin "refs/tags/<tag>^{}" | cut -f1)
+
 git tag -fa "<tag>" "<fix-merge-sha>" -m "Release X.Y.Z"
-git push --force-with-lease="refs/tags/<tag>:<old-tag-sha>" origin "refs/tags/<tag>:refs/tags/<tag>"
+git push --force-with-lease="refs/tags/<tag>:$OLD_TAG_OBJ" origin "refs/tags/<tag>:refs/tags/<tag>"
+
+NEW_TAG_OBJ=$(git rev-parse "refs/tags/<tag>")
+NEW_COMMIT=$(git rev-parse "refs/tags/<tag>^{commit}")
 ```
 
-Record both runs, the old and new SHAs, and the approval under **What happened**. Never move a tag once any artifact built from it reached a store track.
+Record both runs, the approval, and the old and new tag-object SHAs with the commits they point at (`$OLD_TAG_OBJ` → `$OLD_COMMIT`, `$NEW_TAG_OBJ` → `$NEW_COMMIT`) under **What happened**. Never move a tag once any artifact built from it reached a store track — see 3.4a.
+
+**3.4a Once anything reached a store, the version is spent.** When any artifact built from the tag reached a store track — any Play track, TestFlight or App Store Connect — or Gate 7 comes back **Not met** after the upload, that version and its build numbers are used up: the store keeps the build forever, and the tag must keep recording what was uploaded. Do not move the tag and do not reuse a build number. Instead:
+
+1. Open a new bump PR — a new sub-task as in Step 1 (`[T-NNN.2] Version bump …`) — with each platform's next free build number, read from the stores as in 3.1.
+2. Create a new tag on its merge commit, usually the next patch version.
+3. Re-run the full gates against the new SHA, from Gate 1 through a fresh Gate 6 go to Gate 7 on the new artifact, including every `L` gate.
+4. Record the spent version, why it was spent and the new version under **What happened**, and move the record's **Platforms** table to the new numbers.
+
+Leave the old tag in place.
 
 **3.5 iOS.** Follow the project's archive runbook (Step 0).
 
-- If the release workflow builds an IPA, use **that** file.
-- Otherwise archive locally from a **clean worktree of the tag** (`git worktree add --detach "<dir>" "refs/tags/<tag>"`), never from a working checkout. Archiving uses the signing identity already installed on the machine; the agent never imports, exports or reads certificates, profiles or keys. If the archive needs any of that, stop and hand the step to @Zeyad.
-- Run the project's IPA verification script on that exact file, then upload it per the runbook.
+- If the release workflow builds and uploads the IPA, use **that** file.
+- Otherwise the archive is **@Zeyad's step**. The agent prepares a **clean detached worktree of the tag** (`git worktree add --detach "<dir>" "refs/tags/<tag>"`) — never a working checkout — gives @Zeyad its path and the runbook section, and stops. @Zeyad archives, signs and uploads per the runbook. The agent never runs `xcodebuild archive` or `-exportArchive` with a distribution identity, never imports, exports or reads certificates, profiles or keys, and never uploads.
+- When @Zeyad hands back the uploaded IPA, the agent runs the project's IPA verification script on that exact file and records the file, the script's result, the build number and who archived it in **Provenance**. A failing script after the upload means the version is spent (3.4a).
 
 **3.6 Store submission rules.**
 
 - Some store APIs submit for review when an edit is committed. **Treat an API commit as a submission**, and make one only when @Zeyad has approved that submission.
+- **@Zeyad's Gate 6 go is the approval for any submission the tag-triggered CI upload performs** — for example, a Play edit commit while managed publishing is on. The tag push starts that upload, so when asking for the go, name exactly what the workflow will submit and to which track. If the workflow would submit more than that (say, commit straight to production with managed publishing off), cancel the run before its upload step and stop. Any other API commit needs its own approval.
 - A first production release needs its countries / regions set in the console, and the CI service account needs permission to release to production. Check both before the tag, not after the upload fails.
 - On the App Store, the first in-app purchase must be submitted together with an app version.
 
@@ -290,7 +327,7 @@ follow-up named) or Not met. Never report Met for a check that did not run.
 1. **Install the artifact being shipped**, fresh, on a device with no app data, and cold-launch it. That means the AAB/APK from the tag's CI run or the store-delivered build, and the uploaded IPA via TestFlight or a device. A build from the same tag is not the same artifact. A debug build is not the release build.
 2. **Device classes**: a phone **and** a tablet on each platform. App Review tests iPhone-only apps on an iPad.
 3. **Run the project's artifact-verification script** on that same file if one exists (for example, an IPA check that the production keys and the version are baked in).
-4. **Prove the bytes**: the SHA-256 of the CI artifact must match what the store holds. The Play Developer API exposes the uploaded bundle's hash; compare it with `shasum -a 256 <file>`. Write artifact, hash and source run into **Provenance**.
+4. **Prove the bytes where the store exposes a hash.** Google Play: the Play Developer API exposes the uploaded bundle's SHA-256; compare it with `shasum -a 256 <file>`. App Store Connect exposes no hash of an uploaded build, so iOS provenance is the CI run ID (or @Zeyad's local archive, 3.5), the build number App Store Connect shows, and the verification script's result on the uploaded file. iOS is **not** Partly met merely for lacking a store hash. Write the artifact, its hash or iOS provenance, and the source run into **Provenance**.
 5. When a check cannot run, mark the gate **Partly met** and name the follow-up. Typical cases: a Play-signed APK with a licence check will not launch on an emulator without a signed-in account; an App Store IPA cannot run on a simulator. Never mark it Met.
 
 **Service path** — verify the artifact on staging is the one that will be promoted: the image digest (or package checksum) on staging equals the digest CI built from the tagged commit, it cold-starts cleanly, and the smoke checks pass. Record digest and source run in **Provenance**.
@@ -303,13 +340,18 @@ Run the `L` gates that check the shipped artifact here too.
 
 Re-present the Gate 6 checklist with Gate 7 and every `L` gate filled in.
 
-**Store path.** Ask @Zeyad to publish, giving the exact action: on Play, publish the managed-publishing change (100%, or the first staged percentage); on the App Store, Release this version (immediately, or with phased release). For a staged rollout, each later percentage increase is also @Zeyad's click — list the planned steps and the halt thresholds each time, with the current crash-free rate.
+**Store path.** Ask @Zeyad to publish, giving the exact action:
+
+- **Google Play:** publish the managed-publishing change (100%, or the first staged percentage).
+- **App Store:** two clicks, both @Zeyad's, with a wait between them. Gate 7 completes **before** submission, so the build Apple reviews is the one already verified. First, Submit for Review (with the approved What's New); then wait for Apple's approval; then Release this version (immediately, or with phased release). Report the review status while waiting, and treat a rejection as a failed gate.
+
+For a staged rollout, each later percentage increase is also @Zeyad's click — list the planned steps and the halt thresholds each time, with the current crash-free rate.
 
 **Service path.** On go, Sentinel promotes from staging per the chosen rollout:
 - **Staged:** canary at 5% traffic, 30-minute soak, then production. Auto-rollback if the error rate rises more than 1% or the crash-free rate drops below 99.5%.
 - **Full:** straight to production.
 
-Then tag the deployed commit in the repo's format, annotated, with an explicit refspec as in 3.2.
+Then tag the deployed commit in the repo's format, annotated, with an explicit refspec as in 3.2 — the same Push Policy release-tag exception.
 
 ## Step 5: Post-Release
 
@@ -329,7 +371,7 @@ Then tag the deployed commit in the repo's format, annotated, with an explicit r
    This is a plain file append into a directory that already exists outside this repo. It installs nothing, requires no plugin, and creates nothing when the directory is absent — in that case do not create it, do not mention it, and move on.
 
    The reader of this feed is whatever downstream tooling the product has configured; the `marketing-agency` plugin's `launch-from-release` is one such reader. That plugin is **not** part of tech-agency: it lives in its own repository, ships from its own marketplace, and is installed separately. Nothing here installs it, and its absence is the normal case — the shared-context directory is the entire contract between the two.
-5. **Finish the release record** and open its PR with `/create-pr` from the release worktree. On `markdown` the board edit from item 3 rides in the same PR.
+5. **Finish the release record** and open its PR with `/create-pr` from the release worktree, on `T-NNN/release-X.Y.Z`. This PR is the release task's → Done (Step 1): on `github` its body carries `Closes #<release issue>`; on `markdown` the Done commit and the board edit from item 3 ride in it.
 
 ## Release Record
 

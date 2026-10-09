@@ -203,6 +203,14 @@ it. `/ship-it` and `/dispatch` authorize the same thing transitively, because th
 the skill push. If you believe a branch needs pushing and no skill is running, ask @Zeyad rather
 than pushing.
 
+**Named exception — release tags.** `/release` may push an annotated release tag, and only a tag,
+with an explicit `refs/tags/<tag>:refs/tags/<tag>` refspec, in three places: creating the tag that
+triggers the store build (`/release` Step 3.2), moving that tag to a fix commit before anything
+shipped (Step 3.4, which also needs @Zeyad's explicit approval and a `--force-with-lease` on the
+remote tag object), and tagging the deployed commit on the service path (Step 4). @Zeyad's go at the
+release's Gate 6 is the authorization. `/release` never pushes a branch: its version bump and release
+record go through `/create-pr` like any other change.
+
 **Never push to `main`, under any circumstance.** Not with `--force`, not to "fix" a bad merge, not
 as a shortcut. `main` changes only through a merged PR. The `pre-push` hook blocks direct pushes to
 `main`; that hook is a backstop, not permission to try.
@@ -283,10 +291,10 @@ The `/release` skill runs this process end to end. It detects which of two paths
   4. @Scroll has updated user-facing documentation and the changelog the project already keeps
   5. @Morgan has approved release notes
   6. @Zeyad has given final go/no-go
-  7. **The exact artifact being shipped is installed fresh and cold-launched (@Apex)** — not "the app was tested", but *this* binary, the file about to go to the store or registry, from a clean install with no existing app data, on every device class the release targets — for a mobile app, a phone **and** a tablet on each platform (App Review tests iPhone-only apps on an iPad). A build from the same tag is not the same artifact, and a debug build is not the release build. This step exists because every other pre-submission check can pass against a different binary than the one that ships: the app is fine and the artifact is not. Where the project has a verification script for the packaged artifact, run it on that same file first, and confirm the artifact's hash matches what the store or registry holds. A check that cannot run is reported as partly met with a named follow-up, never as met
+  7. **The exact artifact being shipped is installed fresh and cold-launched (@Apex)** — not "the app was tested", but *this* binary, the file about to go to the store or registry, from a clean install with no existing app data, on every device class the release targets — for a mobile app, a phone **and** a tablet on each platform (App Review tests iPhone-only apps on an iPad). A build from the same tag is not the same artifact, and a debug build is not the release build. This step exists because every other pre-submission check can pass against a different binary than the one that ships: the app is fine and the artifact is not. Where the project has a verification script for the packaged artifact, run it on that same file first. Where the store or registry exposes a hash of what it holds (Google Play's bundle SHA-256, an image digest), confirm the artifact's hash matches it; where it does not (App Store Connect), provenance is the CI run ID, the build number and the verification script's result on the uploaded file, and the check is not partly met merely for lacking a store hash. A check that cannot run is reported as partly met with a named follow-up, never as met
 - Two release paths:
   - **Service (web / backend):** staging → production. @Sentinel tags the deployed commit after the production deploy
-  - **Store (mobile):** version-bump PR → annotated tag on the merge commit → CI builds, signs and uploads the release **as a draft** → item 7 on that artifact → @Zeyad publishes in the store console. The tag is what triggers the build, so it is created before anything ships. Release signing happens only in CI; no agent signs a release build or handles signing material
+  - **Store (mobile):** version-bump PR → annotated tag on the merge commit → CI builds, signs and uploads the release **as a draft** → item 7 on that artifact → @Zeyad publishes in the store console. The tag is what triggers the build, so it is created before anything ships. Release signing happens in CI — or, where a project archives iOS locally, by @Zeyad's own hand; no agent signs, archives or uploads a release build, or handles signing material
 - **Staged rollout is optional on both paths and is asked about every release** at the go/no-go, never applied or skipped by default. Staged means a canary (5% traffic, 30 min soak, auto-rollback if the error rate rises >1% or the crash-free rate drops below 99.5%) for a service, and a staged rollout percentage on Google Play / a phased release on the App Store for an app. Recommend full rollout when there is no meaningful user base yet, and staged once there are real users or the release carries risky changes (data migrations, billing, security controls, major dependency bumps). The decision is recorded
 - Committing actions in a store console — Publish, Send for review, Submit for Review, Release this version, each rollout-percentage increase — are always @Zeyad's. Agents stage everything and stop at the button
 - Before announcing a store release, confirm it was **published**, not just uploaded
