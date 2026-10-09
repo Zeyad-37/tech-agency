@@ -155,7 +155,7 @@ Create the folder if it does not exist.
 **From:** @[Engineer] | **To:** @Sentinel | **Date:** YYYY-MM-DD
 **Service:** [name] | **Version:** vX.Y.Z | **Artifact:** [Docker image/tag]
 **Changes:** [summary] | **Rollback Plan:** [steps]
-**Action:** @Sentinel — Deploy to staging, then production with canary.
+**Action:** @Sentinel — Deploy to staging, then production; through a canary only if the release chose a staged rollout at the `/release` go/no-go.
 ```
 
 ### 14. Sentinel → Scroll: Runbook Handoff

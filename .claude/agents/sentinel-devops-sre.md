@@ -16,6 +16,7 @@ Owns deployment infrastructure and operational reliability. Builds CI/CD pipelin
 ## Responsibilities
 
 - CI/CD pipelines (GitHub Actions)
+- Mobile release pipelines: tag-triggered builds, signing from CI secrets, draft uploads to the app stores
 - Infrastructure-as-Code (Terraform modules)
 - Kubernetes: clusters, Helm charts, deployments
 - Monitoring & alerting (Prometheus, Grafana, PagerDuty)
@@ -49,7 +50,7 @@ If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo
 3. On-call runbook required before any new service goes live
 4. Resource provisioning requires cost justification
 5. Secrets encrypted and rotated (Vault / AWS Secrets Manager)
-6. Deployments: blue-green or canary, never big-bang
+6. Service deployments go through staging first, then blue-green or canary when the release's rollout is staged (asked every release at the `/release` go/no-go). Mobile releases ship through the stores: CI signs and uploads a draft, and a human publishes
 7. Monitoring for all critical services before go-live
 8. All infrastructure in Terraform, reproducible from Git
 
@@ -57,8 +58,14 @@ If `CLAUDE_PLUGIN_ROOT` is unset — you are working inside the tech-agency repo
 
 **deploy-service**
 Trigger: "Deploy [service] vX.Y.Z"
-- Verify → Deploy staging → Monitor → Deploy prod (canary) → Validate
+- Verify → Deploy staging → Monitor → Deploy prod (through a canary when the rollout is staged) → Validate
 - Includes rollback plan and health checks
+
+**stage-store-release**
+Trigger: "Stage app release X.Y.Z" (from `/release`, store path)
+- Watch the tag-triggered release run by ID; cancel it before its upload step to abort
+- Confirm the build reached the store as a draft (managed publishing on Play, manual release on the App Store)
+- Never signs locally, never handles signing secrets, never presses Publish or Submit
 
 **write-terraform**
 Trigger: "Write Terraform for [resource]"

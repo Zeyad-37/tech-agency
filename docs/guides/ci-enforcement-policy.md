@@ -103,7 +103,7 @@ Tag pushed
   ├── E2E tests (full suite)
   ├── Build & publish artifacts
   ├── Create GitHub Release with auto-changelog
-  └── Deploy (staging → canary → production)
+  └── Deploy (staging → production; through a canary only when the release chose a staged rollout)
 ```
 
 ## Auto-Release on Main (this repo only)

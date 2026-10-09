@@ -273,20 +273,25 @@ Quick rules:
 
 ## Release Process
 
-- Versioning: semantic versioning (`vMAJOR.MINOR.PATCH`). Breaking changes bump major, new features bump minor, bug fixes bump patch
-- Release checklist (all must pass before @Sentinel deploys):
-  1. All stories in the release are merged to `main`
-  2. @Apex has signed off (handoff template #12)
-  3. @Shield has approved security review for any security-sensitive changes
-  4. @Scroll has updated user-facing documentation and changelog
+The `/release` skill runs this process end to end. It detects which of two paths applies and discovers every project-specific value (tag format, workflows, store tracks, verification scripts) from the repo rather than assuming one.
+
+- Versioning: semantic versioning (`MAJOR.MINOR.PATCH`). Breaking changes bump major, new features bump minor, bug fixes bump patch. Keep the repo's existing tag format: if its tags are bare (`1.2.3`), do not start adding a `v`
+- Release checklist (all must pass, or be explicitly waived by @Zeyad and recorded, before anything reaches users):
+  1. All stories in the release are merged to `main`, with a green main-verification run on the exact commit that will be tagged
+  2. @Apex has signed off on the changes since the last release tag (handoff template #12)
+  3. @Shield has approved security review for any security-sensitive changes since the last release tag; a full review is required when security-sensitive code changed or a dependency had a major-version bump
+  4. @Scroll has updated user-facing documentation and the changelog the project already keeps
   5. @Morgan has approved release notes
   6. @Zeyad has given final go/no-go
-  7. **The exact artifact being shipped is installed fresh and cold-launched (@Apex)** — not "the app was tested", but *this* binary, the file about to go to the store or registry, from a clean install with no existing app data, on every device class the release targets. A build from the same tag is not the same artifact, and a debug build is not the release build. This step exists because every other pre-submission check can pass against a different binary than the one that ships: the app is fine and the artifact is not. Where the platform offers a verification script for the packaged artifact, run it on that same file first.
-- Deployment order: staging → canary (5% traffic, 30 min soak) → production (gradual rollout)
-- @Sentinel monitors error rates and crash-free rate during canary. Auto-rollback if error rate increases >1% or crash-free rate drops below 99.5%
-- After successful production deployment, @Sentinel tags the release in git: `git tag vX.Y.Z`
+  7. **The exact artifact being shipped is installed fresh and cold-launched (@Apex)** — not "the app was tested", but *this* binary, the file about to go to the store or registry, from a clean install with no existing app data, on every device class the release targets — for a mobile app, a phone **and** a tablet on each platform (App Review tests iPhone-only apps on an iPad). A build from the same tag is not the same artifact, and a debug build is not the release build. This step exists because every other pre-submission check can pass against a different binary than the one that ships: the app is fine and the artifact is not. Where the project has a verification script for the packaged artifact, run it on that same file first, and confirm the artifact's hash matches what the store or registry holds. A check that cannot run is reported as partly met with a named follow-up, never as met
+- Two release paths:
+  - **Service (web / backend):** staging → production. @Sentinel tags the deployed commit after the production deploy
+  - **Store (mobile):** version-bump PR → annotated tag on the merge commit → CI builds, signs and uploads the release **as a draft** → item 7 on that artifact → @Zeyad publishes in the store console. The tag is what triggers the build, so it is created before anything ships. Release signing happens only in CI; no agent signs a release build or handles signing material
+- **Staged rollout is optional on both paths and is asked about every release** at the go/no-go, never applied or skipped by default. Staged means a canary (5% traffic, 30 min soak, auto-rollback if the error rate rises >1% or the crash-free rate drops below 99.5%) for a service, and a staged rollout percentage on Google Play / a phased release on the App Store for an app. Recommend full rollout when there is no meaningful user base yet, and staged once there are real users or the release carries risky changes (data migrations, billing, security controls, major dependency bumps). The decision is recorded
+- Committing actions in a store console — Publish, Send for review, Submit for Review, Release this version, each rollout-percentage increase — are always @Zeyad's. Agents stage everything and stop at the button
+- Before announcing a store release, confirm it was **published**, not just uploaded
 - @Morgan publishes release notes. @Scroll updates documentation. @Echo prepares support for new features
-- Save the release record to `docs/artifacts/release-record/{Task-Id}-Release Record-vX.Y.Z.md` with: version, date, included stories, release notes, deployment timeline, and any issues encountered
+- Save the release record to `docs/artifacts/release-record/{Task-Id}-Release Record-vX.Y.Z.md` with: version and build numbers per platform, the decisions taken (including waivers and the rollout choice), included changes, known issues, what happened (including failed runs and tag moves), artifact provenance, the gate results, and the approved release notes
 
 ## Hotfix Process
 
