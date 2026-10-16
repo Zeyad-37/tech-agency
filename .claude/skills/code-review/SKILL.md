@@ -97,9 +97,9 @@ else
 fi
 ```
 
-Three things to note:
+Four things to note:
 
-- **Draft PRs are reviewed like any other.** `/ship-pr` opens its PR as a draft, and this review is the first thing that reads it. `gh pr view`, `gh pr diff` and the reviews endpoint in Step 8 all work on a draft. Do not mark the PR ready here: `/address-feedback` does that after it has pushed, so that consumer CI runs its full verification once, on the addressed head.
+- **Draft PRs are reviewed like any other.** `/ship-pr` opens its PR as a draft, and this review is the first thing that reads it. `gh pr view`, `gh pr diff` and the reviews endpoint in Step 8 all work on a draft. Do not mark the PR ready here: `/address-feedback` does that just before it pushes its fixes, so that consumer CI runs its full verification once, on the addressed head.
 - **`gh pr diff` is preferred whenever a PR exists.** It returns exactly what the PR proposes to change, against the correct merge base, without requiring the head branch to be checked out locally — the review can run from any worktree.
 - **`git diff`: three dots, not two.** `git diff origin/$BASE...HEAD` diffs against the *merge base*; `git diff origin/$BASE..HEAD` diffs against the current tip of the base and reports unrelated base-branch movement as if this PR had caused it.
 - **`git log` / `git rev-list`: two dots, not three.** The three-dot shorthand means "merge base" only for `git diff`. For a **rev walk** it means the *symmetric difference*, so `git log origin/$BASE...HEAD` lists the base branch's own commits alongside this branch's — reintroducing exactly the noise this step exists to remove. `origin/$BASE..HEAD` is the correct range for "the commits this PR adds".

@@ -65,7 +65,7 @@ Invoke **`/ship-pr`**, forwarding `--auto-merge` if the user passed it to `/ship
 
 - collects the **single push-approval checkpoint** (Step 2), after which invoking `/create-pr` is itself the push authorization,
 - runs `/create-pr --draft` (rebase, screenshots, verification gate, push, `gh pr create --draft`, **Copilot request**, worktree sweep),
-- runs `/review-and-address` (`/code-review` → background Copilot wait → `/address-feedback`, which marks the PR ready after its push and then watches the full check run),
+- runs `/review-and-address` (`/code-review` → background Copilot wait → `/address-feedback`, which marks the PR ready, pushes its fixes, and then watches the full check run),
 - merges under `--auto-merge` once all gates are green, or stops at the merge gate otherwise.
 
 Do not pass any session narrative — hand `/ship-pr` only the `--auto-merge` flag. If `/ship-pr` aborts (rebase conflict, failed verification gate, or — unexpectedly — an existing PR for this branch), surface its reason and stop.
@@ -89,7 +89,7 @@ Relay `/ship-pr`'s final report verbatim under a ship-it header so the whole run
 
 - **Pure composition.** ship-it re-implements nothing. Its front half routes to a kickoff skill and `/update-board`; its back half is entirely `/ship-pr` (which is itself just `/create-pr` + `/review-and-address`). ship-it owns only the kickoff/implement gate and the `--auto-merge` hand-through. If any downstream skill changes, ship-it inherits it for free.
 - **ship-it vs `/ship-pr`.** They differ by exactly the front end: `/ship-it` kicks off and implements, then delegates the rest to `/ship-pr`; run `/ship-pr` directly when the code is already written and committed on a branch with no PR yet.
-- **Draft until addressed.** The PR opens as a draft (`/ship-pr` passes `--draft` to `/create-pr`) and becomes ready when `/address-feedback` has pushed its fixes. Consumer CI that skips heavy jobs on drafts runs its full verification once, on the addressed head. ship-it passes nothing extra for this: it is `/ship-pr`'s behaviour, inherited.
+- **Draft until addressed.** The PR opens as a draft (`/ship-pr` passes `--draft` to `/create-pr`) and becomes ready when `/address-feedback` is about to push its fixes. Consumer CI that skips heavy jobs on drafts runs its full verification once, on the addressed head. ship-it passes nothing extra for this: it is `/ship-pr`'s behaviour, inherited.
 - **One Copilot requester.** The Copilot review is requested in exactly one place — `/create-pr` Step 5b, reached via `/ship-pr` — so every PR opened through ship-it gets it, and `/review-and-address` only waits for it (it does not request). Don't re-add a request anywhere in this chain.
 - **Not idle while waiting for Copilot.** The external-review wait is absorbed by `/review-and-address`'s background poll (the harness re-invokes on exit), so the session isn't tied up burning turns. This is why ship-it can run all the way to merge instead of stopping at PR-open.
 - **Fully unattended runs** (e.g., Copilot finishes → auto-respond with no session open) still belong in a `.github/workflows/` webhook, not here — use `--auto-merge` for in-session end-to-end, that workflow for away-from-keyboard.

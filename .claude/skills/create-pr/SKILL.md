@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Invoking this skill IS the push authorization for the branch. Auto-pushes by default; pass --no-push to run the pre-push verification gate and stop, when a human wants to inspect before pushing by hand. Pass --draft (as /ship-pr does) to open the PR as a draft that /address-feedback marks ready after its push. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Invoking this skill IS the push authorization for the branch. Auto-pushes by default; pass --no-push to run the pre-push verification gate and stop, when a human wants to inspect before pushing by hand. Pass --draft (as /ship-pr does) to open the PR as a draft that /address-feedback marks ready just before its push. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
 ---
 
 # Create PR — Standardized Pull Request Creation
@@ -13,7 +13,7 @@ This skill creates a pull request with a consistent, structured format that incl
 
 **Base branch:** Pass `--base <branch>` when the PR should merge into something other than the repo default — typically an epic integration branch (`epic/{EPIC-ID}-{slug}`) for branches dispatched off an epic. Without the flag, Pre-flight 0 resolves the base automatically. The flag is parsed in Pre-flight 0 below — it is not decorative.
 
-**Draft:** Pass `--draft` when the PR will be reviewed and addressed **straight away**, so it should stay a draft until that pass has pushed. `/ship-pr` passes it (and `/ship-it` through `/ship-pr`), because `/review-and-address` follows immediately and `/address-feedback` marks the PR ready (its Step 7b) once its fixes are pushed. A consumer's CI that skips its heavy jobs on drafts then runs its full verification once, on the addressed head, instead of twice: once on the opening head (a run that is cancelled by the address push minutes before it finishes, its result never read) and again on the addressed head. Standalone `/create-pr` does not draft: without the flag the PR opens ready for review, exactly as before. Do not pass `--draft` when nothing will mark the PR ready, or it sits as a draft that no one reviews.
+**Draft:** Pass `--draft` when the PR will be reviewed and addressed **straight away**, so it should stay a draft until that pass is ready to push. `/ship-pr` passes it (and `/ship-it` through `/ship-pr`), because `/review-and-address` follows immediately and `/address-feedback` marks the PR ready (its Step 7b) and then pushes its fixes. A consumer's CI that skips its heavy jobs on drafts then runs its full verification once, on the addressed head, instead of twice: once on the opening head (a run that is cancelled by the address push minutes before it finishes, its result never read) and again on the addressed head. Standalone `/create-pr` does not draft: without the flag the PR opens ready for review, exactly as before. Do not pass `--draft` when nothing will mark the PR ready, or it sits as a draft that no one reviews.
 
 ## Pre-flight −1: Parse Arguments
 
@@ -652,7 +652,7 @@ After the PR is created, report back:
 PR created: #{pr_number}
   Title: [{TASK-ID}] {description}
   Branch: {branch} → {base}
-  State: ready for review   (or "draft — /address-feedback marks it ready after its push")
+  State: ready for review   (or "draft — /address-feedback marks it ready before its push")
   Author: @{PrimaryAgent}
   Participants: @{Agent1}, @{Agent2}
   Copilot review: requested (or "not requested — {reason}")

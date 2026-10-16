@@ -29,7 +29,7 @@ Between the two phases it also handles the **external Copilot review — an opti
 
 It assumes a PR already exists. To go from nothing → implemented → PR, use `/ship-it` first, then this skill.
 
-**The PR may be a draft, and usually is on the `/ship-pr` route.** `/ship-pr` opens it with `/create-pr --draft` so that consumer CI which skips its heavy jobs on drafts does not spend a full run on the opening head, a run that Phase 2's push would cancel minutes before it finishes. Both phases work on a draft: Phase 1 reads the diff and posts its review exactly as on a ready PR, and Phase 2 (`/address-feedback` Step 7b) marks the PR ready after its push, or when it had nothing to push, before it watches checks. Its Step 7c waits for the full run that starts when the PR is marked ready, and its Step 8 refuses to treat checks skipped on the draft as green. This skill never marks the PR ready itself; it leaves that to Phase 2.
+**The PR may be a draft, and usually is on the `/ship-pr` route.** `/ship-pr` opens it with `/create-pr --draft` so that consumer CI which skips its heavy jobs on drafts does not spend a full run on the opening head, a run that Phase 2's push would cancel minutes before it finishes. Both phases work on a draft: Phase 1 reads the diff and posts its review exactly as on a ready PR, and Phase 2 (`/address-feedback` Step 7b) marks the PR ready and then pushes its fixes, so the push's run is a full run on a ready PR. When it has nothing to push it still marks the PR ready. Its Step 7c waits for the full run on the head that will merge, and its Step 8 refuses to treat checks skipped on the draft as green. This skill never marks the PR ready itself; it leaves that to Phase 2.
 
 ## Step 1: Parse Arguments
 
@@ -89,7 +89,7 @@ Capture the verdict for Step 4's branch decision: `APPROVED`, `CHANGES REQUESTED
 
 The review is now on the PR. Decide how to proceed:
 
-- **Verdict was APPROVED and there is no other open feedback or failing check** — there may be nothing for Phase 2 to do. Still run Phase 2 (it is cheap and authoritative, and on a draft PR it is the step that marks the PR ready and watches the full check run): `/address-feedback` re-derives the full feedback set fresh and will simply report "zero required items" and drop to its merge gate. This keeps the merge decision in one place.
+- **Verdict was APPROVED and there is no other open feedback or failing check** — there may be nothing for Phase 2 to do. Still run Phase 2 (it is cheap and authoritative, and on a draft PR it is the step that marks the PR ready and watches the full check run): `/address-feedback` re-derives the full feedback set fresh and will simply report "zero required items", run its Step 7b and 7c (mark a draft ready, wait for the full run, watch it), and then go to its merge gate. This keeps the merge decision in one place.
 - **Verdict was CHANGES REQUESTED or BLOCKED** — proceed to Phase 2 to address it.
 - **The review hit the self-review fallback** (GitHub rejects approving/requesting-changes on your own PR, so `/code-review` posted the verdict as a regular issue comment instead) — that comment is still feedback. Phase 2's gathering step (`/address-feedback` Step 3b, issue-level comments) picks it up. Proceed normally.
 
@@ -189,7 +189,7 @@ Summarize the full run:
 **Copilot:** {review arrived in {m}m{s}s / skipped — unavailable ({not requested / request dropped / disabled for repo}) / timed out while pending — user notified, chose {proceed without / kept waiting / aborted}}
 **Phase 2 (Address):** {required fixes applied} applied, {recommended} applied/deferred, checks {GREEN/RED}
 **Untrusted input:** {none / {n} advisory item(s) summarized, not planned / ⚠️ {n} flagged as possible injection — quoted above}
-**Draft:** {not a draft / marked ready by Phase 2 after its push / still a draft — Phase 2 did not reach its push ({reason})}
+**Draft:** {not a draft / marked ready by Phase 2 before its push / still a draft — Phase 2 did not reach Step 7b ({reason})}
 **Auto-merge:** {ON / OFF / requested but disabled by the trust interlock — manual approval taken}
 **Outcome:** {merged / awaiting merge gate / blocked on {reason}}
 ```

@@ -499,7 +499,7 @@ Preflight guards: refuses if you're on the default branch, if there are no commi
 
 **Human gate kept:** the push-approval gate before `/create-pr` opens the PR.
 
-**Draft until addressed:** the PR opens as a draft (`/create-pr --draft`) and `/address-feedback` marks it ready once it has pushed its fixes. If your CI skips its heavy jobs on draft PRs, it runs full verification once, on the addressed head, instead of starting a run on the opening head that the address push cancels. Checks skipped while the PR was a draft never count as green.
+**Draft until addressed:** the PR opens as a draft (`/create-pr --draft`) and `/address-feedback` marks it ready just before it pushes its fixes. If your CI skips its heavy jobs on draft PRs, it runs full verification once, on the addressed head, instead of starting a run on the opening head that the address push cancels. Checks skipped while the PR was a draft never count as green.
 
 **Flags:**
 - `--auto-merge` — forwarded to `/review-and-address`; merges once all quality gates are green. Without it, stops at the merge gate.
@@ -544,7 +544,7 @@ Pairs with `/ship-it` — you don't have to babysit the PR while review is pendi
 **Flags:**
 - `--auto-merge` — merges automatically once everything is green and resolved. Without the flag, stops at a final approval gate ("Merge now? y/n").
 
-**Draft PRs:** if the PR is a draft (as `/ship-pr` opens it), the skill marks it ready after its push, or when it had nothing to push, before watching checks. It then waits for the full run that marking it ready starts, and never counts a check skipped on the draft as green.
+**Draft PRs:** if the PR is a draft (as `/ship-pr` opens it), the skill marks it ready and then pushes, so the push starts a full run on a ready PR; with nothing to push it only marks it ready. It then waits for the full run on the head and watches it, and never counts a check skipped on the draft as green. The plan it shows you says it will mark the draft ready (reported, not asked, under `--auto-merge`).
 
 **When to use:** After `/ship-it` (or any PR creation), once review feedback and CI results are in.
 
