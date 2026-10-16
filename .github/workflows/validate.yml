@@ -431,7 +431,7 @@ jobs:
       - name: (i) docs/artifacts folders are all declared types
         run: ./scripts/check-doc-types.sh
 
-      - name: (j) every push names a refs/heads/ destination; branches are --no-track
+      - name: (j) every push names a refs/heads/ destination; branches are --no-track; pre-push hook decides per refspec
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
           python3 scripts/check_push_safety.py

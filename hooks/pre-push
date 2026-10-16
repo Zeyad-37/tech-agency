@@ -4,6 +4,27 @@ set -euo pipefail
 # =============================================================================
 # Pre-Push Hook — Heavier checks before code leaves the machine
 # Install: ./hooks/install-hooks.sh (or manually symlink to .git/hooks/)
+#
+# git invokes this hook as:   pre-push <remote-name> <remote-url>
+# and feeds one line per ref being pushed on STDIN:
+#
+#     <local ref> <local sha> <remote ref> <remote sha>
+#
+# Those refspecs are the ONLY sound source of "what is about to be pushed
+# where". Deciding from the current branch is wrong in both directions:
+#   - `git push origin HEAD:main` from a feature branch IS a push to main,
+#     but the current branch is not main.
+#   - `git push origin v1.2.3` while standing on main pushes a tag, not main.
+# So every decision below is made per refspec: the main gate, branch naming,
+# the commit range whose subjects are checked, and the files that pick which
+# test suites run.
+#
+# STDIN IS CONSUMED ONCE, UP FRONT. Afterwards stdin is re-pointed at
+# /dev/null, and every subcommand run inside a loop gets </dev/null too, so no
+# tool (gradle, npm, pytest, ...) can swallow or block on git's refspec stream.
+#
+# Documented in .claude/rules/shared/git-hooks.md ("Pre-Push Checks"). Tests:
+#   python3 -m unittest discover -s scripts -p 'test_*.py'
 # =============================================================================
 
 RED='\033[0;31m'
@@ -12,47 +33,144 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 ERRORS=0
+ZERO_SHA='0000000000000000000000000000000000000000'
+REMOTE="${1:-origin}"
 
 echo "🚀 Running pre-push checks..."
 
-# Get the current branch name
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
 # ---------------------------------------------------------------------------
-# 1. Branch naming convention
+# 0. Consume the refspecs from stdin (must happen before anything else)
 # ---------------------------------------------------------------------------
-echo -n "  Checking branch naming... "
+REFSPECS=""
+if [ ! -t 0 ]; then
+    REFSPECS=$(cat)
+fi
+exec </dev/null
 
-# Allowed patterns: story-id/description, hotfix/*, release/*, tech/*, deps/*, main, develop
-if [[ "$BRANCH" == "main" || "$BRANCH" == "develop" ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^[A-Z]+-[0-9]+(\.[0-9]+)?/.+ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^epic/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH — integration branch)${NC}"
-elif [[ "$BRANCH" =~ ^hotfix/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^release/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^tech/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-elif [[ "$BRANCH" =~ ^deps/ ]]; then
-    echo -e "${GREEN}OK ($BRANCH)${NC}"
-else
-    echo -e "${YELLOW}WARNING${NC}"
-    echo -e "  ${YELLOW}Branch '$BRANCH' doesn't follow naming convention.${NC}"
-    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, epic/{EPIC-ID}-{slug}, tech/{description}, deps/{package}, hotfix/{version}/{description}${NC}"
-    # Warning only, not blocking
+# Manual invocation (no refspecs) — treat it as pushing the current branch to
+# the same-named remote branch, so the hook stays useful when run by hand.
+CURRENT_BRANCH=$(git symbolic-ref --short -q HEAD || echo "")
+if [ -z "$(printf '%s' "$REFSPECS" | tr -d '[:space:]')" ]; then
+    REFSPECS=""
+    if [ -n "$CURRENT_BRANCH" ]; then
+        TRACKED=$(git rev-parse --verify --quiet "$REMOTE/$CURRENT_BRANCH" || echo "$ZERO_SHA")
+        REFSPECS="refs/heads/$CURRENT_BRANCH $(git rev-parse HEAD) refs/heads/$CURRENT_BRANCH $TRACKED"
+    fi
+fi
+
+# Commits already on the remote main branch are never re-checked. Try the
+# target remote's main first, then local main — never a *different* remote's
+# main, which could exclude the wrong history on multi-remote setups.
+# --verify --quiet: without it, rev-parse echoes the literal name of a missing ref.
+MAIN_REF=$(git rev-parse --verify --quiet "$REMOTE/main" || git rev-parse --verify --quiet main || echo "")
+
+WRITES_TO_MAIN=""   # local refs targeting refs/heads/main; "(delete)" for a deletion
+PUSHED_BRANCHES=""  # remote branch names being created or updated
+COMMIT_SHAS=""      # commits unique to the pushed branches
+CHANGED_FILES=""    # files touched by those commits
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "${remote_ref:-}" ] || continue
+
+    # An all-zeros local sha deletes the remote ref. A deletion pushes no
+    # commits, so the content checks do not apply — but deleting main is still
+    # a direct, destructive write to main and goes through the same gate.
+    if [ "$local_sha" = "$ZERO_SHA" ]; then
+        if [ "$remote_ref" = "refs/heads/main" ]; then
+            WRITES_TO_MAIN="${WRITES_TO_MAIN}(delete)"$'\n'
+        fi
+        continue
+    fi
+
+    case "$remote_ref" in
+        refs/heads/*) ;;
+        # Tags (and any other non-branch ref) are not branch pushes. Releases
+        # are tagged on main by design; blocking them would break the release flow.
+        *) continue ;;
+    esac
+
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        WRITES_TO_MAIN="${WRITES_TO_MAIN}${local_ref}"$'\n'
+    fi
+    PUSHED_BRANCHES="${PUSHED_BRANCHES}${remote_ref#refs/heads/}"$'\n'
+
+    # The new commits are those reachable from what is being pushed but not
+    # from what the remote branch already has, nor from main. Excluding main is
+    # what lets a branch rebased onto origin/main through without dragging
+    # main's squash-merge subjects and bot commits into the format check.
+    EXCLUDE=""
+    if [ "$remote_sha" != "$ZERO_SHA" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        EXCLUDE="$EXCLUDE $remote_sha"
+    fi
+    if [ -n "$MAIN_REF" ]; then
+        EXCLUDE="$EXCLUDE $MAIN_REF"
+    fi
+    # Nothing to anchor on (new branch, no main): fall back to "not on the remote".
+    if [ -z "$EXCLUDE" ]; then
+        EXCLUDE="--remotes=$REMOTE"
+    fi
+
+    # EXCLUDE is intentionally unquoted: a list of revisions.
+    # shellcheck disable=SC2086
+    SHAS=$(git rev-list "$local_sha" --not $EXCLUDE </dev/null) || {
+        echo -e "  ${YELLOW}WARNING: could not list the commits pushed to $remote_ref — they are UNCHECKED${NC}"
+        SHAS=""
+    }
+    COMMIT_SHAS="${COMMIT_SHAS}${SHAS}"$'\n'
+    # shellcheck disable=SC2086
+    FILES=$(git log --no-merges --format= --name-only "$local_sha" --not $EXCLUDE </dev/null || true)
+    CHANGED_FILES="${CHANGED_FILES}${FILES}"$'\n'
+done <<<"$REFSPECS"
+
+COMMIT_SHAS=$(printf '%s' "$COMMIT_SHAS" | awk 'NF && !seen[$0]++')
+CHANGED_FILES=$(printf '%s' "$CHANGED_FILES" | awk 'NF && !seen[$0]++')
+
+# Content checks apply only when at least one branch is created or updated.
+# A push made up solely of tags and/or deletions skips them.
+HAS_CONTENT=false
+if [ -n "$PUSHED_BRANCHES" ]; then
+    HAS_CONTENT=true
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Prevent direct push to main
+# 1. Branch naming convention (warning only)
+# ---------------------------------------------------------------------------
+echo -n "  Checking branch naming... "
+
+BRANCH_NAME_RE='^(main|develop)$|^[A-Z]+-[0-9]+(\.[0-9]+)?/.+|^(hotfix|release|tech|deps|epic|claude|triage)/.+'
+
+BAD_BRANCHES=""
+while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    printf '%s\n' "$b" | grep -qE "$BRANCH_NAME_RE" || BAD_BRANCHES="${BAD_BRANCHES}    - $b"$'\n'
+done <<<"$PUSHED_BRANCHES"
+
+if ! $HAS_CONTENT; then
+    echo -e "${GREEN}OK (no branch created or updated)${NC}"
+elif [ -n "$BAD_BRANCHES" ]; then
+    echo -e "${YELLOW}WARNING${NC}"
+    echo -e "  ${YELLOW}Branch name(s) don't follow the naming convention:${NC}"
+    printf '%s' "$BAD_BRANCHES"
+    echo -e "  ${YELLOW}Expected: {STORY-ID}/{description}, tech/{description}, deps/{package},${NC}"
+    echo -e "  ${YELLOW}          hotfix/{version}/{description}, release/{version}, epic/{EPIC-ID}-{slug},${NC}"
+    echo -e "  ${YELLOW}          claude/{description}, triage/{description}${NC}"
+    # Warning only, not blocking
+else
+    echo -e "${GREEN}OK${NC}"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Prevent direct writes to main — pushes onto it and deletions of it
 # ---------------------------------------------------------------------------
 echo -n "  Checking push target... "
 
-if [[ "$BRANCH" == "main" ]]; then
+if [ -n "$WRITES_TO_MAIN" ]; then
     echo -e "${RED}BLOCKED${NC}"
-    echo -e "  ${RED}Direct push to main is not allowed. Use a pull request.${NC}"
+    echo -e "  ${RED}Writing directly to refs/heads/main is not allowed. Use a pull request.${NC}"
+    echo -e "  ${RED}Local refs targeting main ('(delete)' means a deletion of main):${NC}"
+    while IFS= read -r r; do
+        [ -n "$r" ] && echo "    - $r"
+    done <<<"$WRITES_TO_MAIN"
     echo -e "  ${YELLOW}Create a PR: gh pr create --base main${NC}"
     ERRORS=$((ERRORS + 1))
 else
@@ -60,57 +178,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Commit message format validation (all commits being pushed)
+# 3. Commit message format — only commits UNIQUE to the pushed branches
+#    (computed per refspec above; same regex as hooks/commit-msg)
 # ---------------------------------------------------------------------------
 echo -n "  Checking commit message format... "
 
-# Only commits UNIQUE to this branch are validated. Commits already reachable
-# from the remote main branch are excluded — after a rebase onto origin/main the
-# naive $REMOTE_REF..HEAD range would include main's own history (squash-merge
-# subjects like "[T-032] Title (#239)", bot commits like "CI: ... [skip ci]"),
-# which can never match the required format and would force --no-verify.
-REMOTE=${1:-origin}
-# --verify --quiet: without it, rev-parse echoes the literal ref name to stdout
-# even when the ref doesn't exist (e.g. first push of a new branch), poisoning
-# EXCLUDE_REFS with a bogus ref and breaking the git log below.
-REMOTE_REF=$(git rev-parse --verify --quiet "$REMOTE/$BRANCH" 2>/dev/null || echo "")
-# Try the target remote's main first, then local main. (When REMOTE=origin the
-# first lookup already covers origin/main; never fall back to a *different*
-# remote's main — that could exclude the wrong history on multi-remote setups.)
-MAIN_REF=$(git rev-parse --verify --quiet "$REMOTE/main" 2>/dev/null || git rev-parse --verify --quiet main 2>/dev/null || echo "")
-
-EXCLUDE_REFS=""
-[ -n "$REMOTE_REF" ] && EXCLUDE_REFS="$EXCLUDE_REFS $REMOTE_REF"
-[ -n "$MAIN_REF" ] && EXCLUDE_REFS="$EXCLUDE_REFS $MAIN_REF"
-
-if [ -n "$EXCLUDE_REFS" ]; then
-    # EXCLUDE_REFS is intentionally unquoted: space-separated commit hashes
-    # shellcheck disable=SC2086
-    COMMITS=$(git log --oneline HEAD --not $EXCLUDE_REFS 2>/dev/null) || {
-        echo -e "  ${YELLOW}WARNING: could not list commits for format check — skipping${NC}"
-        COMMITS=""
-    }
-else
-    COMMITS=""
-fi
-
 BAD_COMMITS=""
-if [ -n "$COMMITS" ]; then
-    while IFS= read -r commit; do
-        HASH=$(echo "$commit" | cut -d' ' -f1)
-        MSG=$(git log --format=%s -1 "$HASH" 2>/dev/null || true)
-        # Skip merge commits and initial commits
-        if [[ "$MSG" == Merge* ]] || [[ "$MSG" == "Initial"* ]]; then
-            continue
-        fi
-        # Check format: [STORY-ID] @Agent: description
-        if ! echo "$MSG" | grep -qE '^\[[A-Z]+(-[0-9]+(\.[0-9]+)?)?\] @[A-Za-z]+: '; then
-            BAD_COMMITS="$BAD_COMMITS\n    - $HASH: $MSG"
-        fi
-    done <<< "$COMMITS"
-fi
+while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    MSG=$(git log --format=%s -1 "$sha" </dev/null 2>/dev/null || true)
+    # Skip the subjects git generates itself — they cannot carry a tag.
+    case "$MSG" in
+        Merge*|Initial*|Revert*) continue ;;
+    esac
+    # Check format: [STORY-ID] @Agent: description
+    if ! printf '%s\n' "$MSG" | grep -qE '^\[[A-Z]+(-[0-9]+(\.[0-9]+)?)?\] @[A-Za-z]+: '; then
+        BAD_COMMITS="$BAD_COMMITS\n    - ${sha:0:7}: $MSG"
+    fi
+done <<<"$COMMIT_SHAS"
 
-if [ -n "$BAD_COMMITS" ]; then
+if ! $HAS_CONTENT; then
+    echo -e "${GREEN}SKIPPED (no commits pushed)${NC}"
+elif [ -n "$BAD_COMMITS" ]; then
     echo -e "${RED}FAILED${NC}"
     echo -e "  ${RED}Commits with incorrect format:${NC}"
     echo -e "$BAD_COMMITS"
@@ -124,12 +213,12 @@ fi
 # ---------------------------------------------------------------------------
 # 3b. Shared-rules copy integrity (consumer repos only)
 #
-# .claude/rules/shared/ is a generated copy of the plugin shared rules's rules — see
+# .claude/rules/shared/ is a generated copy of the plugin's shared rules — see
 # .claude/rules/shared/rules-delivery.md. A hand-edited mirror file is drift that would
 # otherwise never be noticed, so it blocks the push. Skipped in tech-agency
 # itself, which owns the rules and has no manifest.
 # ---------------------------------------------------------------------------
-if [ -f ".claude/rules/shared/.synced-from" ]; then
+if $HAS_CONTENT && [ -f ".claude/rules/shared/.synced-from" ]; then
     # mirror.sh ships inside the plugin, so a consumer normally has no local
     # copy. Resolve it the same way mirror.sh resolves its own source, or the
     # check silently never runs — which is the failure mode this epic exists
@@ -152,7 +241,7 @@ if [ -f ".claude/rules/shared/.synced-from" ]; then
         echo -e "${YELLOW}SKIPPED${NC}"
         echo -e "  ${YELLOW}.claude/rules/shared/.synced-from exists but mirror.sh was not found.${NC}"
         echo -e "  ${YELLOW}Install the plugin, or set CLAUDE_PLUGIN_ROOT. The mirror is UNVERIFIED.${NC}"
-    elif MIRROR_OUT=$(bash "$MIRROR_SH" check 2>&1); then
+    elif MIRROR_OUT=$(bash "$MIRROR_SH" check 2>&1 </dev/null); then
         echo -e "${GREEN}OK${NC}"
     else
         echo -e "${RED}DRIFT${NC}"
@@ -162,62 +251,57 @@ if [ -f ".claude/rules/shared/.synced-from" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Run tests for affected modules
+# 4. Run tests for affected modules — chosen from the files the pushed
+#    commits touch, not from the current branch
 # ---------------------------------------------------------------------------
 echo -n "  Running tests... "
 
-# Detect which files changed
-if [ -n "$REMOTE_REF" ]; then
-    CHANGED_FILES=$(git diff --name-only "$REMOTE_REF..HEAD" 2>/dev/null || true)
-else
-    CHANGED_FILES=$(git diff --name-only "$(git merge-base HEAD main 2>/dev/null || echo HEAD~1)..HEAD" 2>/dev/null || true)
-fi
+changed() { printf '%s\n' "$CHANGED_FILES" | grep -qE "$1"; }
 
 TEST_FAILED=false
-
 TESTS_RAN=false
 
 # Kotlin/JVM/Android (Gradle)
-if echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
+if changed '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running Gradle tests...${NC}"
-    if ! ./gradlew test --daemon -q 2>&1 | tail -5; then
+    if ! ./gradlew test --daemon -q </dev/null 2>&1 | tail -5; then
         TEST_FAILED=true
     fi
 fi
 
 # TypeScript/JavaScript (Node)
-if echo "$CHANGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
+if changed '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running npm tests...${NC}"
     if command -v npm &>/dev/null; then
-        if ! npm test --silent 2>&1 | tail -5; then
+        if ! npm test --silent </dev/null 2>&1 | tail -5; then
             TEST_FAILED=true
         fi
     fi
 fi
 
 # Python
-if echo "$CHANGED_FILES" | grep -qE '\.py$'; then
+if changed '\.py$'; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running pytest...${NC}"
     if command -v pytest &>/dev/null; then
-        if ! pytest -q 2>&1 | tail -5; then
+        if ! pytest -q </dev/null 2>&1 | tail -5; then
             TEST_FAILED=true
         fi
     fi
 fi
 
 # Swift/iOS
-if echo "$CHANGED_FILES" | grep -qE '\.swift$' && { [ -f "Package.swift" ] || compgen -G "*.xcodeproj" > /dev/null 2>&1; }; then
+if changed '\.swift$' && { [ -f "Package.swift" ] || compgen -G "*.xcodeproj" > /dev/null 2>&1; }; then
     TESTS_RAN=true
     echo ""
     echo -e "  ${YELLOW}Running Swift tests...${NC}"
     if command -v swift &>/dev/null; then
-        if ! swift test --quiet 2>&1 | tail -5; then
+        if ! swift test --quiet </dev/null 2>&1 | tail -5; then
             TEST_FAILED=true
         fi
     fi
@@ -230,7 +314,7 @@ fi
 if $TEST_FAILED; then
     echo -e "  ${RED}Tests FAILED. Fix failing tests before pushing.${NC}"
     ERRORS=$((ERRORS + 1))
-elif echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java|ts|tsx|js|jsx|py|swift)$'; then
+elif $TESTS_RAN; then
     echo -e "  ${GREEN}Tests passed.${NC}"
 fi
 
@@ -241,20 +325,20 @@ echo -n "  Verifying build... "
 
 BUILD_FAILED=false
 
-if echo "$CHANGED_FILES" | grep -qE '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
-    if ! ./gradlew assemble --daemon -q 2>/dev/null; then
+if changed '\.(kt|kts|java)$' && [ -f "gradlew" ]; then
+    if ! ./gradlew assemble --daemon -q </dev/null 2>/dev/null; then
         BUILD_FAILED=true
     fi
-elif echo "$CHANGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
+elif changed '\.(ts|tsx|js|jsx)$' && [ -f "package.json" ]; then
     if command -v npm &>/dev/null && grep -q '"build"' package.json 2>/dev/null; then
-        if ! npm run build --silent 2>/dev/null; then
+        if ! npm run build --silent </dev/null 2>/dev/null; then
             BUILD_FAILED=true
         fi
     fi
-elif echo "$CHANGED_FILES" | grep -qE '\.py$' && [ -f "pyproject.toml" ]; then
+elif changed '\.py$' && [ -f "pyproject.toml" ]; then
     # Python type-check as build verification
     if command -v mypy &>/dev/null; then
-        if ! mypy src/ --quiet 2>/dev/null; then
+        if ! mypy src/ --quiet </dev/null 2>/dev/null; then
             BUILD_FAILED=true
         fi
     fi
