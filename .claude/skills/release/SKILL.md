@@ -5,13 +5,19 @@ description: "Execute the full release checklist for a version. Detects the proj
 
 # Release Process
 
-You are Atlas, coordinating a release. The gates run **in order**, and each one is a **hard stop**: when a gate fails, stop, report what failed and who owns the fix, and do not start the next gate.
+You are Atlas, coordinating a release. Every gate is a **hard stop**: when a gate fails, stop, report what failed and who owns the fix, and do not move past it. Gates that do not depend on each other run **at the same time** rather than one after another — waiting adds wall time, not safety:
+
+- Gates 2–5 (QA, security, docs, release notes) are independent of each other. They run as parallel agent invocations, and Gate 6 waits for all four.
+- Store path: the version-bump PR opens at Step 1, so its CI and the main-verification run on its merge commit finish while the gates run. The tag goes on right after @Zeyad's go.
+- Store path: after the tag, the iOS archive (when it is @Zeyad's local step) runs while the Android CI run builds, and Gate 7 checks both platforms in parallel.
+
+What stays strictly in sequence: nothing is tagged, uploaded or deployed before Gate 6's go, and nothing is published before Gate 7.
 
 There are two paths, chosen in Step 0:
 
 | Path | What ships | How it reaches users |
 |---|---|---|
-| **Store** (mobile) | Signed app bundles / IPAs | Version-bump PR → annotated tag → CI builds, signs and uploads a **draft** → exact-artifact check → @Zeyad presses Publish / Release in the store console |
+| **Store** (mobile) | Signed app bundles / IPAs | Version-bump PR (alongside the gates) → go → annotated tag → CI builds, signs and uploads a **draft** → exact-artifact check → @Zeyad presses Publish / Release in the store console |
 | **Service** (web / backend) | Images, deployables, packages | Staging → production, through a canary when the rollout is staged |
 
 Rules that hold on both paths:
@@ -59,6 +65,7 @@ Read these from the repo and write them into the release record's **Setup** tabl
 | Release workflow (tag-triggered) | The `.github/workflows/*` file whose `on.push.tags` is set, by the structural check above (or @Zeyad's answer when it cannot run) — note its jobs, runner images and the Xcode version it selects |
 | Main-verification workflow | The workflow that runs on pushes to `main` |
 | PR CI workflow | The workflow that runs on `pull_request` — compare its jobs with the release workflow's |
+| Release workflow gate jobs | Jobs in the release workflow that fail the run **before any upload** when main-verification is not green on the tagged SHA, or that install and cold-launch the signed release build. Confirm each one is in the upload job's `needs:` chain; a job the upload does not wait for is not a gate (Gate 1) |
 | Android version | `versionCode` / `versionName` in the app module's build file or version catalog |
 | iOS version | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in the Xcode project or an `.xcconfig` |
 | Store tracks | The Play track the workflow uploads to; TestFlight / App Store for iOS |
@@ -118,24 +125,53 @@ Columns: `PR | Title | Notes`. Two notes are mandatory:
 - **The release task's transitions:** → In Progress now, at Step 1 (`board.move_task`); it stays In Progress through Steps 2–4; → Done through the Step 5 release-record PR on `T-NNN/release-X.Y.Z`. On `github` that PR carries `Closes #<release issue>`, which closes the task when it merges; on `markdown` the Done commit rides in that PR (`@.claude/rules/shared/board-in-pr.md`).
 - Create the release worktree per `@.claude/rules/shared/worktree-first.md`, cut from `origin/main`. The release record is drafted there now and updated at every step.
 
+### Store path: open the version-bump PR now
+
+Do this as soon as the version is confirmed, **before** Step 2, so the PR's CI, its review and the main-verification run on its merge commit all happen while Gates 2–5 run. Waiting until after the go/no-go adds the whole CI-plus-review cycle to the critical path and buys nothing: the bump changes no behaviour the gates test, and merging it publishes nothing — only the tag starts a build (Step 3.2).
+
+In a worktree on `T-NNN.1/version-X.Y.Z` — the bump sub-task from above, never the release task's ID — bump:
+
+- Android `versionName` → `X.Y.Z` and `versionCode` → the next free code.
+- iOS marketing version → `X.Y.Z` and build number → the next free build.
+
+The platforms can drift, so take **each platform's** next free build number from what its store already holds — the highest code across all Play tracks, and the highest build in TestFlight / App Store Connect — not from the other platform and not from the last tag. If you cannot read them (no API access from this machine), ask @Zeyad for them. Commit, then open the PR with `/create-pr`; it merges through review like any change. **Never commit a version bump on `main`.**
+
+Two consequences of merging the bump before the go:
+
+- **The scope freezes at the bump's merge commit.** PRs that merge to `main` between Step 1 and the bump's merge are in the tagged build. Once the bump merges, re-run the "What's included" query against `<last-tag>..<bump-merge-sha>`, add anything new to the tables, and pass it to the gates still running. PRs that merge after the bump are not in this release.
+- **A no-go leaves `main` carrying the new version, untagged.** That is harmless — nothing was built or uploaded. Record it under **What happened**; the next attempt reuses the version if no store holds it yet (3.4a).
+
+If the project ships its changelog **inside** the artifact (an in-app "What's new" file, for example), Gate 4's edit must ride in the bump PR, so that PR waits for Gate 4 before it merges. Otherwise Gate 4 commits on the release branch and the bump PR merges on its own.
+
 ## Step 2: Pre-Release Gates
 
 ### Gate 1: Code complete
 
 - Everything in the Step 1 tables is merged to `main`. If something expected is missing, stop and list it.
-- Pick the commit that will be tagged (store path: the version-bump merge commit, so re-check this after Step 3.1). It needs a **green main-verification run on that exact SHA**:
+- Pick the commit that will be tagged (store path: the version-bump merge commit from Step 1 — or, if a fix for a failed gate merges after the bump, that fix's merge commit, with the scope re-run up to it). It needs a **green main-verification run on that exact SHA**. A green run on the previous commit does not count.
+- **If the release workflow already enforces this, record its job instead of re-checking by hand.** When Step 0 found a release-workflow job that fails the tag run before any upload unless main-verification is green on the tagged SHA, that job is the authority: write its job result and URL into the Gates table under Gate 1 once the tag run reaches it. For example, Steady's `release-on-tag.yml` does this (`require-main-verified`, Zeyad-37/Steady#1685). The same goes for a job that installs and cold-launches the signed release build before the upload: record its result as smoke-launch evidence for Gate 7 (§ Gate 7, item 1). A red result from either job is a failed gate before anything shipped — fix through a PR and move the tag per 3.4.
+- Otherwise check the run by hand before tagging:
 
   ```bash
   gh run list --workflow "<main-verification workflow>" --commit "<sha>" \
     --json databaseId,status,conclusion,url
   ```
 
-  A green run on the previous commit does not count.
-- **Run the release-only checks before tagging.** Compare the release workflow's jobs with PR CI's. Anything only the release workflow does must be run now, the same way it will run there — for example, if PR CI never compiles the iOS app target, compile it with the Xcode version the release runner selects. Otherwise the tag run is the first build that ever compiles it, and a failure there costs a tag move.
+- **Run the release-only checks before tagging.** Compare the release workflow's jobs with PR CI's. Anything only the release workflow does must be run now, the same way it will run there — for example, if PR CI never compiles the iOS app target, compile it with the Xcode version the release runner selects. Otherwise the tag run is the first build that ever compiles it, and a failure there costs a tag move. These checks run alongside Gates 2–5.
+
+### Gates 2–5: run in parallel
+
+Gates 2–5 do not depend on each other: QA, the security review, the changelog and the release notes all work from the Step 1 tables, not from each other's output. Run them **at the same time**:
+
+1. Settle any waivers first (§ Waivers), so a waived gate is never started.
+2. Invoke the four agents — `apex-qa-engineer`, `shield-security-engineer`, `scroll-technical-writer`, `morgan-product-owner` — as **parallel agent invocations in one message**, with the prompts below. Leave out any gate @Zeyad waived. Run any `L` gate that does not check the shipped artifact in the same message.
+3. **One writer per worktree.** Only @Scroll edits files, on the release branch in the release worktree (or in the bump worktree, per Step 1, when the changelog ships inside the artifact). @Apex, @Shield and @Morgan report their results as text, and you write them into the release record once all four are back.
+4. When the bump merges while they run and the scope changes (Step 1), send the new rows to the agents still working.
+5. Collect all four results, then apply each gate's STOP rule below. Any failure stops the release before Gate 6; the other gates' results stand and need not be re-run unless the fix changes their scope.
 
 ### Gate 2: QA — @Apex, scoped to the diff
 
-Invoke the `apex-qa-engineer` agent:
+Prompt for the `apex-qa-engineer` agent:
 ```
 Release sign-off for X.Y.Z (task T-NNN). Use handoff template #12.
 Scope: the changes since <last-tag> — the Step 1 tables are attached. This is a
@@ -148,7 +184,7 @@ Report: pass/fail counts, open bugs by severity, accessibility results.
 
 ### Gate 3: Security — @Shield, scoped to the diff
 
-Invoke the `shield-security-engineer` agent:
+Prompt for the `shield-security-engineer` agent:
 ```
 Security review for release X.Y.Z (task T-NNN).
 Review the security-sensitive changes since <last-tag> and run the dependency
@@ -168,7 +204,7 @@ Read `.claude/rules-local/` for a release-checklist section. Projects keep platf
 
 ### Gate 4: Documentation — @Scroll
 
-Invoke the `scroll-technical-writer` agent:
+Prompt for the `scroll-technical-writer` agent:
 ```
 Update documentation for release X.Y.Z.
 Update the changelog the project already keeps: <location from Step 0>.
@@ -178,7 +214,7 @@ Update API docs and user-facing guides only where this release changed them.
 
 ### Gate 5: Release notes — @Morgan
 
-Invoke the `morgan-product-owner` agent:
+Prompt for the `morgan-product-owner` agent:
 ```
 Write release notes for X.Y.Z from the Step 1 tables (attached).
 - User-facing changes only. Leave out flagged-off features and internal work.
@@ -201,7 +237,8 @@ Present the checklist:
 
 ```
 Release X.Y.Z — T-NNN Release X.Y.Z ([store | service] path)
-- [ ] Gate 1 Code complete — main-verification run <id> green on <sha>; release-only checks: [...]
+- [ ] Gate 1 Code complete — main-verification run <id> green on <sha> [or: enforced by <job> in the tag run, result recorded after the tag]; release-only checks: [...]
+- [ ] Store path: version-bump PR <link> merged at <sha>; scope re-run up to it
 - [ ] Gate 2 Apex QA (changes since <last-tag>): [PASS / FAIL / WAIVED]
 - [ ] Gate 3 Shield security: [APPROVED / BLOCKED / WAIVED] ([full | scoped] review)
 - [ ] L1..Ln Project release additions: [...]
@@ -228,20 +265,13 @@ How to recommend:
 
 Record the answer in the **Decisions** table. For a staged store rollout, also write the planned steps and the halt thresholds into the record (e.g. halt if crash-free sessions fall below 99.5% or ANRs rise above 0.5%).
 
-**Do not start Step 3 until @Zeyad says go.**
+**Do not start Step 3 until @Zeyad says go.** On the store path the bump is already merged and verified, so the tag goes on right after the go (3.2).
 
 ## Step 3: Build and Stage
 
 ### Store path
 
-**3.1 Version-bump PR.** In a worktree on `T-NNN.1/version-X.Y.Z` — the bump sub-task from Step 1, never the release task's ID — bump:
-
-- Android `versionName` → `X.Y.Z` and `versionCode` → the next free code.
-- iOS marketing version → `X.Y.Z` and build number → the next free build.
-
-The platforms can drift, so take **each platform's** next free build number from what its store already holds — the highest code across all Play tracks, and the highest build in TestFlight / App Store Connect — not from the other platform and not from the last tag. If you cannot read them (no API access from this machine), ask @Zeyad for them. Commit, then open the PR with `/create-pr`; it merges through review like any change. **Never commit a version bump on `main`.**
-
-Re-check Gate 1 against the bump's merge commit: it needs its own green main-verification run.
+**3.1 Version-bump PR — already merged.** The bump PR opened at Step 1 and merged while the gates ran; Gate 1 checked (or the tag run's gate job will check) its merge commit. If it has not merged yet, wait for it here and finish Gate 1 on its merge commit before tagging — the go does not cover an unverified SHA.
 
 **3.2 Tag.** Create an annotated tag on that **exact SHA** in the repo's format, and push it with an explicit refspec:
 
@@ -251,6 +281,8 @@ git push origin "refs/tags/<tag>:refs/tags/<tag>"
 ```
 
 Push from a worktree whose branch is **not** `main` (the release worktree). Some pre-push hooks gate on the current branch rather than on the pushed ref, and will refuse a tag pushed from `main`. Pushing this one tag is the release-tag exception in `@.claude/rules/shared/shared-standards.md` § Push Policy, authorized by @Zeyad's Gate 6 go; this skill never pushes a branch — branches go through `/create-pr`.
+
+**As soon as the tag is pushed, start both platforms' builds at once** — do not wait for the Android run to finish before preparing iOS. When the iOS archive is @Zeyad's local step (3.5), hand over the tag worktree in the same message that reports the tag push, so the archive runs while CI builds Android.
 
 **3.3 CI builds, signs and uploads a draft.** The tag workflow builds the release artifacts, signs them with keys held only in CI secrets, and uploads them to the store **as a draft**. Do not build or sign a release locally to "help": a local release build with no keystore configured can quietly fall back to the debug key and produce a binary that looks fine and is not the release. Watch the run by ID:
 
@@ -281,7 +313,7 @@ Record both runs, the approval, and the old and new tag-object SHAs with the com
 
 **3.4a Once anything reached a store, the version is spent.** When any artifact built from the tag reached a store track — any Play track, TestFlight or App Store Connect — or Gate 7 comes back **Not met** after the upload, that version and its build numbers are used up: the store keeps the build forever, and the tag must keep recording what was uploaded. Do not move the tag and do not reuse a build number. Instead:
 
-1. Open a new bump PR — a new sub-task as in Step 1 (`[T-NNN.2] Version bump …`) — with each platform's next free build number, read from the stores as in 3.1.
+1. Open a new bump PR — a new sub-task as in Step 1 (`[T-NNN.2] Version bump …`) — with each platform's next free build number, read from the stores as in Step 1.
 2. Create a new tag on its merge commit, usually the next patch version.
 3. Re-run the full gates against the new SHA, from Gate 1 through a fresh Gate 6 go to Gate 7 on the new artifact, including every `L` gate.
 4. Record the spent version, why it was spent and the new version under **What happened**, and move the record's **Platforms** table to the new numbers.
@@ -291,7 +323,7 @@ Leave the old tag in place.
 **3.5 iOS.** Follow the project's archive runbook (Step 0).
 
 - If the release workflow builds and uploads the IPA, use **that** file.
-- Otherwise the archive is **@Zeyad's step**. The agent prepares a **clean detached worktree of the tag** (`git worktree add --detach "<dir>" "refs/tags/<tag>"`) — never a working checkout — gives @Zeyad its path and the runbook section, and stops. @Zeyad archives, signs and uploads per the runbook. The agent never runs `xcodebuild archive` or `-exportArchive` with a distribution identity, never imports, exports or reads certificates, profiles or keys, and never uploads.
+- Otherwise the archive is **@Zeyad's step**, and it starts right after the tag push, in parallel with the Android CI run (3.2). The agent prepares a **clean detached worktree of the tag** (`git worktree add --detach "<dir>" "refs/tags/<tag>"`) — never a working checkout — gives @Zeyad its path and the runbook section, and stops. @Zeyad archives, signs and uploads per the runbook. The agent never runs `xcodebuild archive` or `-exportArchive` with a distribution identity, never imports, exports or reads certificates, profiles or keys, and never uploads.
 - When @Zeyad hands back the uploaded IPA, the agent runs the project's IPA verification script on that exact file and records the file, the script's result, the build number and who archived it in **Provenance**. A failing script after the upload means the version is spent (3.4a).
 
 **3.6 Store submission rules.**
@@ -322,9 +354,11 @@ Verify the exact artifact for release X.Y.Z. Report each check as Met, Partly me
 follow-up named) or Not met. Never report Met for a check that did not run.
 ```
 
+**Store path: one invocation per platform, in parallel.** The Android and iOS artifacts are independent, so neither platform's check waits for the other. Start the Android `apex-qa-engineer` agent as soon as the tag run's upload is done, and the iOS one as soon as the IPA is in TestFlight; when both are ready at the same time, invoke the two in one message. The gate is Met only when both platforms are.
+
 **Store path**
 
-1. **Install the artifact being shipped**, fresh, on a device with no app data, and cold-launch it. That means the AAB/APK from the tag's CI run or the store-delivered build, and the uploaded IPA via TestFlight or a device. A build from the same tag is not the same artifact. A debug build is not the release build.
+1. **Install the artifact being shipped**, fresh, on a device with no app data, and cold-launch it. That means the AAB/APK from the tag's CI run or the store-delivered build, and the uploaded IPA via TestFlight or a device. A build from the same tag is not the same artifact. A debug build is not the release build. When the release workflow already smoke-launched the signed release build before uploading (Gate 1, Step 0's gate jobs), record that job's result and URL as the emulator cold-launch evidence rather than repeating it by hand; the device-class checks in item 2 still run.
 2. **Device classes**: a phone **and** a tablet on each platform. App Review tests iPhone-only apps on an iPad.
 3. **Run the project's artifact-verification script** on that same file if one exists (for example, an IPA check that the production keys and the version are baked in).
 4. **Prove the bytes where the store exposes a hash.** Google Play: the Play Developer API exposes the uploaded bundle's SHA-256; compare it with `shasum -a 256 <file>`. App Store Connect exposes no hash of an uploaded build, so iOS provenance is the CI run ID (or @Zeyad's local archive, 3.5), the build number App Store Connect shows, and the verification script's result on the uploaded file. iOS is **not** Partly met merely for lacking a store hash. Write the artifact, its hash or iOS provenance, and the source run into **Provenance**.
