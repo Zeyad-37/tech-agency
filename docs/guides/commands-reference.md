@@ -96,9 +96,9 @@ Dispatches Morgan to produce a standalone, industry-standard PRD — problem fra
 
 ### `/release`
 
-Executes the full release checklist. It first detects the project type: a mobile app ships through the app stores, and a web service or backend deploys through staging to production. The gates are the same on both paths: code complete, QA on the changes since the last tag (Apex), security review (Shield), changelog (Scroll), release notes (Morgan), your go/no-go, and a check of the exact artifact being shipped (Apex). Each gate must pass, or be waived by you, before the next one starts.
+Executes the full release checklist. It first detects the project type: a mobile app ships through the app stores, and a web service or backend deploys through staging to production. The gates are the same on both paths: code complete, QA on the changes since the last tag (Apex), security review (Shield), changelog (Scroll), release notes (Morgan), your go/no-go, and a check of the exact artifact being shipped (Apex). Gates 2–5 run in parallel. Gates 1–5 must pass before the go/no-go (you may waive QA or security). The exact-artifact check runs after the build, before anything is published. Nothing is tagged or deployed until you say go.
 
-- **Store path:** a version-bump PR, an annotated tag, then CI builds, signs and uploads the release to the store as a draft. You press Publish or Release in the store console.
+- **Store path:** a version-bump PR (opened at the start, so its CI finishes while the gates run), an annotated tag right after your go, then CI builds, signs and uploads the release to the store as a draft. You press Publish or Release in the store console.
 - **Service path:** Sentinel deploys to staging, then to production.
 
 At the go/no-go it asks whether to use a staged rollout this time (a staged rollout percentage or phased release in the stores, a canary for a service) and recommends one based on how many users the app or service has. Each release gets a release record in `docs/artifacts/release-record/`.
