@@ -464,7 +464,7 @@ Creates a pull request with a standardized format. The PR title includes the tas
 - "push and create PR"
 - "ready for review"
 
-**Arguments:** None required — infers task ID, branch, and agents from the current context. Optionally `--base <branch>` to target an epic integration branch instead of `main` (dispatched agents receive this from `/dispatch` / `/dispatch-task`).
+**Arguments:** None required — infers task ID, branch, and agents from the current context. Optionally `--base <branch>` to target an epic integration branch instead of `main` (dispatched agents receive this from `/dispatch` / `/dispatch-task`). Optionally `--draft` to open the PR as a draft: `/ship-pr` passes it because `/review-and-address` runs next and marks the PR ready after its address push. Called on its own, `/create-pr` opens a PR that is ready for review.
 
 ---
 
@@ -498,6 +498,8 @@ The back two-thirds of `/ship-it` for an **already-implemented branch** — code
 Preflight guards: refuses if you're on the default branch, if there are no commits ahead of `main`, or if a PR already exists for the branch (in which case it points you to `/review-and-address`).
 
 **Human gate kept:** the push-approval gate before `/create-pr` opens the PR.
+
+**Draft until addressed:** the PR opens as a draft (`/create-pr --draft`) and `/address-feedback` marks it ready just before it pushes its fixes. If your CI skips its heavy jobs on draft PRs, it runs full verification once, on the addressed head, instead of starting a run on the opening head that the address push cancels. Checks skipped while the PR was a draft never count as green.
 
 **Flags:**
 - `--auto-merge` — forwarded to `/review-and-address`; merges once all quality gates are green. Without it, stops at the merge gate.
@@ -541,6 +543,8 @@ Pairs with `/ship-it` — you don't have to babysit the PR while review is pendi
 
 **Flags:**
 - `--auto-merge` — merges automatically once everything is green and resolved. Without the flag, stops at a final approval gate ("Merge now? y/n").
+
+**Draft PRs:** if the PR is a draft (as `/ship-pr` opens it), the skill marks it ready and then pushes, so the push starts a full run on a ready PR; with nothing to push it only marks it ready. It then waits for the full run on the head and watches it, and never counts a check skipped on the draft as green. The plan it shows you says it will mark the draft ready (reported, not asked, under `--auto-merge`).
 
 **When to use:** After `/ship-it` (or any PR creation), once review feedback and CI results are in.
 

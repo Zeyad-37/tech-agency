@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Invoking this skill IS the push authorization for the branch. Auto-pushes by default; pass --no-push to run the pre-push verification gate and stop, when a human wants to inspect before pushing by hand. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
+description: "Create a pull request with a standardized format. The PR title includes the task ID, and the body lists participating agents, a summary, test plan, and review checklist. If the branch has UI changes, before/after screenshots are captured automatically and embedded in the PR. Invoking this skill IS the push authorization for the branch. Auto-pushes by default; pass --no-push to run the pre-push verification gate and stop, when a human wants to inspect before pushing by hand. Pass --draft (as /ship-pr does) to open the PR as a draft that /address-feedback marks ready just before its push. Use when the user says 'create PR', 'open PR', 'submit PR', 'make a pull request', 'PR for this branch', or 'ready for review'."
 ---
 
 # Create PR — Standardized Pull Request Creation
@@ -13,17 +13,21 @@ This skill creates a pull request with a consistent, structured format that incl
 
 **Base branch:** Pass `--base <branch>` when the PR should merge into something other than the repo default — typically an epic integration branch (`epic/{EPIC-ID}-{slug}`) for branches dispatched off an epic. Without the flag, Pre-flight 0 resolves the base automatically. The flag is parsed in Pre-flight 0 below — it is not decorative.
 
+**Draft:** Pass `--draft` when the PR will be reviewed and addressed **straight away**, so it should stay a draft until that pass is ready to push. `/ship-pr` passes it (and `/ship-it` through `/ship-pr`), because `/review-and-address` follows immediately and `/address-feedback` marks the PR ready (its Step 7b) and then pushes its fixes. A consumer's CI that skips its heavy jobs on drafts then runs its full verification once, on the addressed head, instead of twice: once on the opening head (a run that is cancelled by the address push minutes before it finishes, its result never read) and again on the addressed head. Standalone `/create-pr` does not draft: without the flag the PR opens ready for review, exactly as before. Do not pass `--draft` when nothing will mark the PR ready, or it sits as a draft that no one reviews.
+
 ## Pre-flight −1: Parse Arguments
 
-Parse the invocation's flags **before** anything else. `$BASE_FLAG` and `$NO_PUSH` are read throughout the rest of this skill and must be assigned here.
+Parse the invocation's flags **before** anything else. `$BASE_FLAG`, `$NO_PUSH` and `$DRAFT` are read throughout the rest of this skill and must be assigned here.
 
 ```bash
 BASE_FLAG=""
 NO_PUSH="no"
+DRAFT="no"
 
 # "$@" is the argument string the skill was invoked with, e.g.
 #   /create-pr --base epic/US-100-checkout
 #   /create-pr --base=epic/US-100-checkout --no-push
+#   /create-pr --draft            (from /ship-pr: review-and-address follows)
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)
@@ -38,11 +42,12 @@ while [ $# -gt 0 ]; do
       [ -n "$BASE_FLAG" ] || { echo "❌ --base= requires a branch name. Aborting."; exit 1; }
       shift ;;
     --no-push) NO_PUSH="yes"; shift ;;
+    --draft)   DRAFT="yes"; shift ;;
     *)         shift ;;
   esac
 done
 
-echo "Args: base=${BASE_FLAG:-<auto>}  no-push=${NO_PUSH}"
+echo "Args: base=${BASE_FLAG:-<auto>}  no-push=${NO_PUSH}  draft=${DRAFT}"
 ```
 
 Both spellings (`--base X` and `--base=X`) are accepted. If `--base` is passed with no value, the loop **stops and reports** the malformed invocation rather than silently falling back to the default branch — and, critically, it checks `$#` before `shift 2`, because a bare trailing `--base` otherwise makes `shift 2` fail without shifting and the `while` loop never terminates.
@@ -509,7 +514,7 @@ If a gate fails, the push is aborted. Do not bypass.
 
 To push and open the PR yourself:
   git push -u origin HEAD:refs/heads/{branch}
-  gh pr create --base {BASE} --title "[{TASK-ID}] {short description}" --body-file <file>
+  gh pr create --base {BASE} --title "[{TASK-ID}] {short description}" --body-file <file>   (add --draft if it was passed)
 
 Or re-run `/create-pr` without --no-push to do both automatically.
 ```
@@ -525,8 +530,13 @@ Otherwise (auto-push, the default), proceed:
 #    cannot, whatever the branch tracks or the repo's push.default says.
 git push -u origin "HEAD:refs/heads/$BRANCH"
 
-# 2. Create the PR
-gh pr create \
+# 2. Create the PR — as a draft when --draft was passed (see "Draft" above).
+#    Only the parent that will run /review-and-address next passes it; that
+#    run's /address-feedback Step 7b is what marks the PR ready.
+DRAFT_ARG=""
+[ "$DRAFT" = "yes" ] && DRAFT_ARG="--draft"
+
+gh pr create $DRAFT_ARG \
   --title "[{TASK-ID}] {Short description}" \
   --body "$(cat <<'EOF'
 Closes #{ISSUE}   ← github backend with a resolved issue only; delete this line otherwise
@@ -599,6 +609,7 @@ Rules for this step:
 - **Non-blocking.** If the request fails — Copilot code review not enabled for the account/org, the bot already requested, insufficient permissions, or `gh` unavailable — log the warning and continue. Never abort PR creation over a failed Copilot request.
 - Requesting Copilot is in **addition** to the human reviewers from the Reviewer Assignment matrix, not a replacement.
 - Copilot code review must be enabled for the account/org (GitHub Copilot Pro/Business/Enterprise with code review turned on) for the request to succeed. The disabled auto-request setting only affects the automatic trigger — manual API requests still work when the feature itself is on.
+- **Draft PRs (`--draft`) get the request too.** This is an explicit request, not the automatic trigger, so the draft state does not stop it. (Automatic-review rulesets skip drafts by default and review when the PR is marked ready, which on this route is after the address pass. The explicit request here is what keeps Copilot's comments inside the run.)
 
 ## Step 6: Sweep Merged Worktrees (Auto-Cleanup)
 
@@ -641,6 +652,7 @@ After the PR is created, report back:
 PR created: #{pr_number}
   Title: [{TASK-ID}] {description}
   Branch: {branch} → {base}
+  State: ready for review   (or "draft — /address-feedback marks it ready before its push")
   Author: @{PrimaryAgent}
   Participants: @{Agent1}, @{Agent2}
   Copilot review: requested (or "not requested — {reason}")
@@ -688,13 +700,13 @@ When multiple agents contributed to a branch (common with `/dispatch` or shared 
 ## Integration with Other Skills
 
 This skill is automatically invoked by:
-- `/ship-pr` — Step 2, on the **default auto-push path** (never with `--no-push`); reached from `/ship-it` too
+- `/ship-pr` — Step 2, on the **default auto-push path** (never with `--no-push`), **with `--draft`**, because `/review-and-address` runs next; reached from `/ship-it` too
 - `/pick-up-task` — after task completion, board update, and test verification
 - `/kick-off` — after the task work is complete
 - `/tech-task` — after implementation and board update
 - `/dispatch` — after each dispatched agent finishes in their worktree
 
-Every one of these callers uses the default auto-push path. `--no-push` is a human-only escape hatch; nothing downstream consumes its handoff.
+Every one of these callers uses the default auto-push path. `--no-push` is a human-only escape hatch; nothing downstream consumes its handoff. Only `/ship-pr` passes `--draft`: the others hand the PR to a human reviewer, and a draft would wait for someone to mark it ready.
 
 This skill invokes:
 - `/capture-screenshots --base "$BASE"` — Step 3b, automatically and non-skippably, whenever Pre-flight 0b detects UI changes

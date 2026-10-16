@@ -8,13 +8,16 @@ description: "Take an already-implemented branch all the way to merged, as a pur
 This skill takes a **ready branch** (code already implemented and committed, no PR yet) all the way to merged, as a thin composition of two existing skills — it re-implements none of their logic:
 
 ```
-/create-pr            (opens the PR; requests Copilot; screenshots; worktree sweep)
-  → /review-and-address   (code-review → wait for Copilot if available → address feedback → merge)
+/create-pr --draft    (opens the PR as a draft; requests Copilot; screenshots; worktree sweep)
+  → /review-and-address   (code-review → wait for Copilot if available → address feedback,
+                            which marks the PR ready, then pushes → merge)
 ```
 
 It is `/ship-it` minus the kickoff and implementation steps. Reach for `/ship-pr` when the work is already done on the branch and you just want it opened, reviewed, addressed, and (optionally) merged. If you still need to kick off and write the feature, use `/ship-it`. If a PR **already exists**, skip this and use `/review-and-address` directly.
 
 **`--auto-merge`:** pass it to `/ship-pr` and it is forwarded straight to `/review-and-address`, which merges the PR once all quality gates are green. Without the flag, the run stops at `/review-and-address`'s merge gate for a human decision. The flag is autonomy over the *gates*, not over the *trust boundary*: `/address-feedback` disables it automatically if the feedback set includes untrusted input (issue-level comments, non-write-access authors, or text flagged as a possible injection), and the run then takes the manual gate. Forwarding the flag is not a guarantee of an unattended merge.
+
+**The PR opens as a draft.** `/ship-pr` always passes `--draft` to `/create-pr`, because `/review-and-address` runs straight after and its address pass is going to push. Consumer CI that skips its heavy jobs on drafts therefore runs its full verification once, on the addressed head, rather than starting a full run on the opening head that the address push cancels minutes before it finishes, with its result never read. `/address-feedback` marks the PR ready and then pushes its fixes (or only marks it ready, when it has nothing to push), and only then watches checks, so the head that merges is still fully verified. A run that stops early (an abort, a declined plan) leaves the PR as a draft; that is accurate, because the PR has not been addressed yet.
 
 **`--base <branch>`:** forwarded to `/create-pr`, which resolves and validates it (Pre-flight 0). Pass it when the PR should target an epic integration branch rather than the repo default.
 
@@ -93,12 +96,12 @@ Ready to open PR for {task-id} — {AHEAD} commits on {branch}. Push and open th
 
 This is the only approval collected on this route. Once given, invoking `/create-pr` **is** the push authorization — it does not re-prompt, and `/ship-pr` must not add a second gate before it.
 
-On approval, invoke **`/create-pr`** on the default auto-push path — do **not** pass `--no-push`. (`--no-push` is a human-only escape hatch with no downstream consumer; taking it here would strand the run with a prepared-but-unpushed PR and nothing to complete it.) Forward `--base` if the user gave one. That single call owns everything PR-open:
+On approval, invoke **`/create-pr --draft`** on the default auto-push path — do **not** pass `--no-push`. `--draft` is always passed on this route: Step 3 runs `/review-and-address` immediately, and its `/address-feedback` phase marks the PR ready just before it pushes its fixes. (`--no-push` is a human-only escape hatch with no downstream consumer; taking it here would strand the run with a prepared-but-unpushed PR and nothing to complete it.) Forward `--base` if the user gave one. That single call owns everything PR-open:
 
 - parses its flags (Pre-flight −1) and resolves the PR base (Pre-flight 0: `--base` flag → auto-detected epic integration branch, **which stops and asks before being used** → repo default branch) and rebases onto it if behind,
 - captures before/after screenshots for any UI changes,
 - runs the pre-push verification gate (iOS compile / host tests / screenshot-test compile),
-- pushes the branch and runs `gh pr create` with the standard template,
+- pushes the branch and runs `gh pr create --draft` with the standard template,
 - **requests the Copilot review** (its Step 5b — the single Copilot requester in the whole flow),
 - sweeps any merged worktrees.
 
@@ -110,7 +113,7 @@ Invoke **`/review-and-address`** against the PR just opened, forwarding `--auto-
 
 - **Phase 1 — Review:** runs `/code-review` against the open PR and posts the verdict.
 - **Copilot wait (optional, availability-keyed):** records the HEAD baseline, probes whether Copilot is actually available for the repo, and background-polls for its review (already requested by `/create-pr` in Step 2) so Phase 2 sees its comments — skipping the wait entirely, without halting, when Copilot is unavailable (request dropped / disabled for repo). Zero idle turns.
-- **Phase 2 — Address:** runs `/address-feedback` — gathers the posted verdict + all external/human/bot comments + failing checks, applies fixes, replies to threads, pushes, and watches checks until green.
+- **Phase 2 — Address:** runs `/address-feedback` — gathers the posted verdict + all external/human/bot comments + failing checks, applies fixes, replies to threads, **marks the draft PR ready**, pushes, and watches the full check run that follows until green.
 
 Pass it only the PR number and the flag — no session narrative, so the clean-context guarantee holds.
 
@@ -140,6 +143,7 @@ Summarize the full run:
 ## Notes
 
 - **Pure composition.** `/ship-pr` re-implements nothing: `/create-pr` and `/review-and-address` each own their logic. This skill only sequences them and forwards `--auto-merge`. If either child skill changes, `/ship-pr` inherits it for free.
+- **Draft until addressed.** The PR is a draft from Step 2 until `/address-feedback` Step 7b marks it ready. Nothing in this chain treats checks skipped on the draft as green: `/address-feedback` Step 7c waits for the run started by marking it ready, and its Step 8 merge gate refuses a draft PR.
 - **One Copilot requester.** The Copilot review is requested in exactly one place — `/create-pr` Step 5b — so every PR opened through `/ship-pr` gets it, and `/review-and-address` only waits for it (it does not request). Don't re-add a request anywhere in this chain.
 - **Relationship to the other skills:**
   - `/ship-it` = kickoff → implement → **`/ship-pr`** (open → review → address → merge). Use it when the code isn't written yet.

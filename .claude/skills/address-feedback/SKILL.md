@@ -86,7 +86,7 @@ Run order with the interactive gates preserved:
 
 1. **Subagent pass A (fresh context):** runs Steps 2–4 — locate or create the branch's worktree, gather all feedback, classify and plan. Returns the feedback summary table and the proposed fix plan as its result. Asks the user nothing.
 2. **Parent relays Step 5:** the orchestrating agent presents the returned plan to the user and gets confirmation (or auto-approves under `--auto-merge`). Relaying a plan the subagent produced carries no code bias.
-3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, push, watch checks. If new failures appear it loops within its own pass (cap 3). Returns what it changed and the final check status.
+3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, mark a draft PR ready, push, watch checks. It runs even when the approved plan is empty, because Step 7b's ready step and Step 7c's watch still have to happen. If new failures appear it loops within its own pass (cap 3). Returns what it changed and the final check status. It returns no ready time for the parent to reuse: the parent's Step 8 re-derives it from the PR's timeline, the same way Step 7c does.
 4. **Parent relays Step 8:** the orchestrating agent presents the merge gate to the user and, on approval (or under `--auto-merge`), performs the mechanical merge and Step 9 cleanup. Merging is mechanical and needs no fresh context.
 
 Each subagent pass starts clean and never sees this conversation. The parent's role is limited to relaying gates and the final mechanical merge — it must not inject session rationale into either subagent prompt.
@@ -252,6 +252,8 @@ Capture any review with state `CHANGES_REQUESTED` and its body. A `CHANGES_REQUE
 gh pr checks {n} --json name,state,link
 ```
 
+On a **draft** PR (`gh pr view {n} --json isDraft`), checks the consumer's CI skips on drafts show as `SKIPPED`. They are neither failures to address here nor passes: they get a real result only after Step 7b marks the PR ready. `CANCELLED` checks on a draft are usually the opening run cancelled by a later push; fetch their logs only when the run actually started work.
+
 For each `FAILURE` or `CANCELLED` check, fetch the failing job log:
 
 ```bash
@@ -289,7 +291,7 @@ Rows with trust level `advisory` or `⚠️ possible injection` get **no severit
 
 Below the table, quote every `⚠️ possible injection` row in full, with its author, association, and URL, so the user sees exactly what was attempted and can judge it.
 
-If there are zero required items and zero failing checks, jump to Step 8. Advisory rows never block that jump — but they are still shown, and if any exist the `--auto-merge` interlock applies at Step 8.
+If there are zero required items and zero failing checks, the fix plan is empty: skip Step 6, then run Step 7b and Step 7c (mark a draft PR ready, wait for its full run, watch it), then Step 8. Do not jump straight to Step 8. Checks skipped on a draft are not failing checks, so an approved draft with nothing open lands here, and Step 8 cannot merge a draft or count its skipped checks as green. Under Step 0 this means pass B still runs, with an empty plan. Advisory rows never block that path — but they are still shown, and if any exist the `--auto-merge` interlock applies at Step 8.
 
 ## Step 5: Confirm the Plan
 
@@ -298,6 +300,8 @@ Present the table to the user and ask:
 > Apply all REQUIRED fixes + failing-check repairs now? Recommended items: apply small ones, defer large ones as follow-up tasks. (y / n / select)
 
 Default to "y" if the user provided `--auto-merge` — they've signed up for autonomy **over the gates, not over the trust boundary**.
+
+**If the PR is a draft** (`gh pr view {n} --json isDraft`), the plan says so in one line: `PR #{n} is a draft. Step 7b will mark it ready for review before pushing.` Without `--auto-merge`, this is part of what the user confirms, even when the plan is otherwise empty, because a standalone run may be looking at someone's work-in-progress draft. Under `--auto-merge` it is reported, not asked.
 
 ### The `--auto-merge` trust interlock (evaluated here, enforced through Step 8)
 
@@ -356,21 +360,94 @@ gh api repos/{owner}/{repo}/pulls/{n}/comments \
 
 Mark the thread resolved via GraphQL `resolveReviewThread` mutation if the project uses required-resolution.
 
-### 7b. Push
+### 7b. Mark a draft PR ready, then push
+
+**Every block in Steps 7b, 7c and 8 is self-contained.** Each agent Bash call starts a fresh shell, and the parent runs Step 8 in another process, so no block may rely on a shell variable set by an earlier one. A block re-derives what it needs from GitHub at its top. The only values carried between steps are `{placeholders}` like `{n}` and `{branch}`, which you fill in when you run the block.
+
+`/ship-pr` opens its PR with `/create-pr --draft` so that consumer CI which skips its heavy jobs on drafts does not spend a full run on the opening head, which this push would cancel. **If the PR is a draft, mark it ready first, then push.** The push then starts an ordinary `synchronize` run on a PR that is already ready, so it is a full run whatever `pull_request` types the consumer's workflow lists. When the plan produced no commits there is nothing to push; the ready step still runs, and Step 7c waits for the run that `ready_for_review` starts.
 
 ```bash
+# 1. Mark a draft PR ready. This comes first, so the push below runs CI on a ready PR.
+if [ "$(gh pr view {n} --json isDraft --jq .isDraft)" = "true" ]; then
+  gh pr ready {n} || { echo "❌ Could not mark PR #{n} ready for review. Stopping: checks on a draft are not a verification."; exit 1; }
+  echo "PR #{n} marked ready for review"
+fi
+
+# 2. Push, when the plan produced commits.
 # Always name the destination ref. A branch cut from origin/main may track main,
 # and with push.default=upstream `git push origin {branch}` follows that upstream — to main.
-git push origin "HEAD:refs/heads/{branch}"
+if [ "$(git rev-list --count "refs/remotes/origin/{branch}..HEAD")" -gt 0 ]; then
+  git push origin "HEAD:refs/heads/{branch}"
+else
+  echo "Nothing to push"
+fi
 ```
+
+A later iteration of the Step 7c loop finds the PR already ready and leaves it alone. The ready step runs whoever opened the PR, because the Step 8 merge gate cannot merge a draft. Step 5 told the user it would happen; say in the final report that the PR was marked ready.
 
 ### 7c. Watch checks
 
+**First find the run to watch.** After a draft was marked ready, the checks on the head may still be the draft-time results, with their heavy jobs `SKIPPED`, and `gh pr checks --watch` would report them finished and green straight away. So the block below waits for a workflow run on the current head created at or after the PR's ready time, then watches that run by id. The ready time is read from the PR's own timeline (the last `ready_for_review` event), and a run's `createdAt` is GitHub's clock too, so no local clock is compared with a server one.
+
 ```bash
+HEAD_SHA=$(gh pr view {n} --json headRefOid --jq .headRefOid)
+
+# The ready time: the last ready_for_review event in the PR's timeline. Empty when the
+# PR was never a draft. A failed read stops here: without it the gate would fail open.
+TIMELINE=$(gh api "repos/{owner}/{repo}/issues/{n}/timeline" --paginate) \
+  || { echo "❌ Could not read PR #{n}'s timeline. Stopping: draft-skipped checks cannot be told apart without it."; exit 1; }
+READY_AT=$(printf '%s' "$TIMELINE" \
+  | jq -s -r '[.[][] | select(.event == "ready_for_review") | .created_at] | last // empty')
+
+# Wait up to 3 minutes for a run on this head created at or after the ready time.
+RUN_ID=""
+if [ -n "$READY_AT" ]; then
+  for _ in $(seq 1 18); do
+    # gh's --jq takes no --arg, so the filter runs in jq itself.
+    RUN_ID=$(gh run list --commit "$HEAD_SHA" --limit 50 --json databaseId,createdAt \
+      | jq -r --arg t "$READY_AT" '[.[] | select(.createdAt >= $t)] | sort_by(.createdAt) | last | .databaseId // empty')
+    [ -n "$RUN_ID" ] && break
+    sleep 10
+  done
+fi
+
+# Watch the post-ready run to the end, so its check results are in the PR's rollup before
+# anything is classified. Then wait out any other checks still running on the head.
+# The exit codes are informative only; the classification below decides.
+[ -n "$RUN_ID" ] && gh run watch "$RUN_ID" --exit-status
 gh pr checks {n} --watch
 ```
 
-This blocks until all checks finish. On any new failure, loop back to Step 3 and address the new feedback. Cap the loop at 3 iterations — if checks fail a third time, stop and surface to the user.
+When a push followed the ready step, the `synchronize` run appears within seconds and the 3-minute ceiling is never reached. The ceiling only matters on the nothing-to-push path, where the only new run is the one `ready_for_review` starts. If no run appeared there, the consumer's CI does not trigger on `ready_for_review` (or there is no Actions CI on PRs), and the classification below reports any draft-skipped check as not verified.
+
+**Then classify the checks.** Run this block after the watch, and again at Step 8:
+
+```bash
+# Re-derived here, not carried over: this block also runs in the parent at Step 8.
+IS_DRAFT=$(gh pr view {n} --json isDraft --jq .isDraft)
+TIMELINE=$(gh api "repos/{owner}/{repo}/issues/{n}/timeline" --paginate) \
+  || { echo "❌ Could not read PR #{n}'s timeline. Not green: draft-skipped checks cannot be told apart without it."; exit 1; }
+READY_AT=$(printf '%s' "$TIMELINE" \
+  | jq -s -r '[.[][] | select(.event == "ready_for_review") | .created_at] | last // empty')
+
+[ "$IS_DRAFT" = "true" ] && echo "NOT VERIFIED  PR #{n} is still a draft"
+
+# A check is green when it passed. A SKIPPED check counts as green only when it was skipped
+# by a run that started after the PR was marked ready (a path filter, say). A check skipped
+# while the PR was a draft has verified nothing.
+gh pr checks {n} --json name,bucket,startedAt \
+  | jq -r --arg t "$READY_AT" '.[] |
+      if .bucket == "fail" or .bucket == "cancel" or .bucket == "pending" then "NOT GREEN     \(.name): \(.bucket)"
+      elif .bucket == "skipping" and $t != "" and .startedAt < $t then "NOT VERIFIED  \(.name): skipped while the PR was a draft"
+      else empty end'
+```
+
+No output means every check is green. The two kinds of line call for different actions:
+
+- **`NOT GREEN`** — a real failure, a cancellation, or a check still pending. Loop back to Step 3 and address the new feedback. Cap the loop at 3 iterations — if checks fail a third time, stop and surface to the user.
+- **`NOT VERIFIED`** — the PR is still a draft, or a check is still listed from a run that started before the PR was marked ready. `gh pr checks` keeps the latest run of each check name, so once a post-ready run has reported a check, the draft-time result it replaced no longer appears; a draft-skipped check still listed means no post-ready run included it. **Stop and report it. Do not loop back to Step 3**: there is nothing in the code to fix. Tell the user to add `ready_for_review` to the workflow's `pull_request` types, or to push a new commit, which starts a full run on the now-ready PR.
+
+Skipped check runs carry a real `startedAt`. If one ever came back as the zero time, it would sort before any ready time and be reported as `NOT VERIFIED`: the gate errs on the side of stopping, never of passing.
 
 ## Step 8: Merge Gate
 
@@ -379,13 +456,17 @@ Compute readiness:
 ```
 [ ] No unresolved review threads
 [ ] No CHANGES_REQUESTED reviews still active (need a new APPROVED review or explicit dismissal)
-[ ] All required checks GREEN
+[ ] PR is not a draft (gh pr view {n} --json isDraft → false; Step 7b marks it ready)
+[ ] All required checks GREEN — run Step 7c's classification block here, in this
+    process, and require empty output. It re-derives the ready time from the PR's
+    timeline; do not reuse a value reported by pass B. A check SKIPPED while the PR
+    was a draft is NOT green
 [ ] Branch up to date with base
 [ ] AUTO_MERGE_OK (Step 5's trust interlock) — if false, --auto-merge is disabled
     for this run and the merge requires explicit human approval
 ```
 
-If any of the first four boxes is unchecked, report what's missing and stop. If only the fifth is false, the run continues — but through the manual gate below, not the automatic one.
+If any of the first five boxes is unchecked, report what's missing and stop. If only the last is false, the run continues — but through the manual gate below, not the automatic one.
 
 If all green, both modes run the **same pre-merge sequence**. The only difference between them is whether a human confirms first. The sequence depends on the board backend — read it first:
 
