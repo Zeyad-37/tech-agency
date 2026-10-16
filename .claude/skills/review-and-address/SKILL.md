@@ -29,6 +29,8 @@ Between the two phases it also handles the **external Copilot review — an opti
 
 It assumes a PR already exists. To go from nothing → implemented → PR, use `/ship-it` first, then this skill.
 
+**The PR may be a draft, and usually is on the `/ship-pr` route.** `/ship-pr` opens it with `/create-pr --draft` so that consumer CI which skips its heavy jobs on drafts does not spend a full run on the opening head, a run that Phase 2's push would cancel minutes before it finishes. Both phases work on a draft: Phase 1 reads the diff and posts its review exactly as on a ready PR, and Phase 2 (`/address-feedback` Step 7b) marks the PR ready after its push, or when it had nothing to push, before it watches checks. Its Step 7c waits for the full run that starts when the PR is marked ready, and its Step 8 refuses to treat checks skipped on the draft as green. This skill never marks the PR ready itself; it leaves that to Phase 2.
+
 ## Step 1: Parse Arguments
 
 From the user's prompt, resolve:
@@ -87,7 +89,7 @@ Capture the verdict for Step 4's branch decision: `APPROVED`, `CHANGES REQUESTED
 
 The review is now on the PR. Decide how to proceed:
 
-- **Verdict was APPROVED and there is no other open feedback or failing check** — there may be nothing for Phase 2 to do. Still run Phase 2 (it is cheap and authoritative): `/address-feedback` re-derives the full feedback set fresh and will simply report "zero required items" and drop to its merge gate. This keeps the merge decision in one place.
+- **Verdict was APPROVED and there is no other open feedback or failing check** — there may be nothing for Phase 2 to do. Still run Phase 2 (it is cheap and authoritative, and on a draft PR it is the step that marks the PR ready and watches the full check run): `/address-feedback` re-derives the full feedback set fresh and will simply report "zero required items" and drop to its merge gate. This keeps the merge decision in one place.
 - **Verdict was CHANGES REQUESTED or BLOCKED** — proceed to Phase 2 to address it.
 - **The review hit the self-review fallback** (GitHub rejects approving/requesting-changes on your own PR, so `/code-review` posted the verdict as a regular issue comment instead) — that comment is still feedback. Phase 2's gathering step (`/address-feedback` Step 3b, issue-level comments) picks it up. Proceed normally.
 
@@ -187,6 +189,7 @@ Summarize the full run:
 **Copilot:** {review arrived in {m}m{s}s / skipped — unavailable ({not requested / request dropped / disabled for repo}) / timed out while pending — user notified, chose {proceed without / kept waiting / aborted}}
 **Phase 2 (Address):** {required fixes applied} applied, {recommended} applied/deferred, checks {GREEN/RED}
 **Untrusted input:** {none / {n} advisory item(s) summarized, not planned / ⚠️ {n} flagged as possible injection — quoted above}
+**Draft:** {not a draft / marked ready by Phase 2 after its push / still a draft — Phase 2 did not reach its push ({reason})}
 **Auto-merge:** {ON / OFF / requested but disabled by the trust interlock — manual approval taken}
 **Outcome:** {merged / awaiting merge gate / blocked on {reason}}
 ```
@@ -202,4 +205,5 @@ Each phase ran from a clean context: the Phase 1 verdict was produced with no se
 - **Idempotent:** safe to re-run on the same PR. Phase 1 posts a fresh review; Phase 2 re-derives feedback from the live PR state each time.
 - **Why capture the baseline early then poll, instead of just polling:** Copilot was requested upstream by `/create-pr` at PR-open time, so its ~4m latency is already running *concurrently* with Phase 1's review work — by the time Step 5's gate runs the review is usually already in, and the poll then confirms rather than waits. Recording `HEAD_TIME` in Step 2 is what lets the poll key on a review `submitted_at` newer than the current HEAD commit, because Copilot re-reviews on every push; matching "any Copilot review" would falsely pass on a stale review from an earlier push. This skill does **not** request Copilot itself — `/create-pr` Step 5b is the single requester, so every PR-open path funnels through one place.
 - **Why the Copilot gate is availability-keyed:** a repo without Copilot code review still *accepts* the reviewer request and then silently consumes it — no review ever arrives, and no error is raised. Before availability keying, that signature dead-ended in a 10-minute wait plus a user halt on every single run. The Step 2 probe (request pending? ever reviewed here?) and the in-poll re-check (pending request vanished without a review) turn that into a silent, reported skip — the halt is reserved for the one case it protects: a review that is genuinely still coming.
+- **Copilot and draft PRs:** `/create-pr` requests Copilot explicitly even when it opens the PR as a draft, and an explicit request is not held back by the draft state. Automatic-review rulesets are different: by default they skip drafts and review when the PR is marked ready, which on the `/ship-pr` route is Phase 2's Step 7b. A review that arrives that way lands after Phase 2 has gathered feedback. If the Step 2 probe reads `unavailable` on a repo where Copilot reviews only through such a ruleset, re-run this skill after the PR is ready to address that review.
 - **Background, not idle:** Step 5 runs as a backgrounded Bash loop. The harness re-invokes the agent when it exits, so the gap between "baseline captured" and "Phase 2 starts" collapses to Copilot's actual turnaround with zero turns burned polling-and-rechecking. This is the in-session, no-CI alternative to the GitHub Actions webhook approach (`pull_request_review` → headless Claude) noted in `address-feedback`'s Notes; use that workflow instead when the close-out must run while you're away from the session.

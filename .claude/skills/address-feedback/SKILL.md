@@ -86,7 +86,7 @@ Run order with the interactive gates preserved:
 
 1. **Subagent pass A (fresh context):** runs Steps 2–4 — locate or create the branch's worktree, gather all feedback, classify and plan. Returns the feedback summary table and the proposed fix plan as its result. Asks the user nothing.
 2. **Parent relays Step 5:** the orchestrating agent presents the returned plan to the user and gets confirmation (or auto-approves under `--auto-merge`). Relaying a plan the subagent produced carries no code bias.
-3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, push, watch checks. If new failures appear it loops within its own pass (cap 3). Returns what it changed and the final check status.
+3. **Subagent pass B (fresh context):** given the approved plan + PR number, runs Steps 6–7 — apply fixes, reply to threads, push, mark a draft PR ready, watch checks. It runs even when the approved plan is empty, because Step 7b's ready step and Step 7c's watch still have to happen. If new failures appear it loops within its own pass (cap 3). Returns what it changed, the final check status, and `READY_AT` (when Step 7b marked the PR ready, else empty) so the parent's Step 8 judges skipped checks the same way.
 4. **Parent relays Step 8:** the orchestrating agent presents the merge gate to the user and, on approval (or under `--auto-merge`), performs the mechanical merge and Step 9 cleanup. Merging is mechanical and needs no fresh context.
 
 Each subagent pass starts clean and never sees this conversation. The parent's role is limited to relaying gates and the final mechanical merge — it must not inject session rationale into either subagent prompt.
@@ -252,6 +252,8 @@ Capture any review with state `CHANGES_REQUESTED` and its body. A `CHANGES_REQUE
 gh pr checks {n} --json name,state,link
 ```
 
+On a **draft** PR (`gh pr view {n} --json isDraft`), checks the consumer's CI skips on drafts show as `SKIPPED`. They are neither failures to address here nor passes: they get a real result only after Step 7b marks the PR ready. `CANCELLED` checks on a draft are usually the opening run cancelled by a later push; fetch their logs only when the run actually started work.
+
 For each `FAILURE` or `CANCELLED` check, fetch the failing job log:
 
 ```bash
@@ -364,13 +366,62 @@ Mark the thread resolved via GraphQL `resolveReviewThread` mutation if the proje
 git push origin "HEAD:refs/heads/{branch}"
 ```
 
+When the plan produced no commits there is nothing to push. Skip the push and still run the ready step below.
+
+**Then mark a draft PR ready. This happens before Step 7c, after the push or in place of it.** `/ship-pr` opens its PR with `/create-pr --draft` so that consumer CI which skips its heavy jobs on drafts does not spend a full run on the opening head, which this push would cancel. Marking the PR ready here starts the full run on the head that will merge, and Step 7c watches that run:
+
+```bash
+READY_AT=""
+IS_DRAFT=$(gh pr view {n} --json isDraft --jq .isDraft)
+if [ "$IS_DRAFT" = "true" ]; then
+  READY_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  gh pr ready {n} || { echo "❌ Could not mark PR #{n} ready for review. Stopping: checks on a draft are not a verification."; exit 1; }
+  echo "PR #{n} marked ready for review at $READY_AT"
+fi
+```
+
+Keep `READY_AT` for Step 7c and Step 8. It stays set across the Step 7c loop: a later iteration finds the PR already ready and leaves it alone. If the PR was not a draft, `READY_AT` is empty and Steps 7c and 8 behave as they always have.
+
+The ready step runs whoever opened the PR, because the Step 8 merge gate cannot merge a draft. Say in the final report that the PR was marked ready.
+
 ### 7c. Watch checks
+
+**If Step 7b marked the PR ready (`READY_AT` is set), first wait for the run that `ready_for_review` starts.** The checks on the head right now come from runs triggered while the PR was a draft. Their heavy jobs show `SKIPPED`, and `gh pr checks --watch` would report them finished and green straight away. Wait for a workflow run on the current head created at or after `READY_AT`:
+
+```bash
+HEAD_SHA=$(gh pr view {n} --json headRefOid --jq .headRefOid)
+NEW_RUN=""
+if [ -n "$READY_AT" ]; then
+  for _ in $(seq 1 18); do            # up to 3 minutes, every 10 s
+    # gh's --jq takes no --arg, so the filter runs in jq itself.
+    NEW_RUN=$(gh run list --commit "$HEAD_SHA" --limit 50 --json databaseId,createdAt \
+      | jq --arg t "$READY_AT" '[.[] | select(.createdAt >= $t)] | length')
+    [ "${NEW_RUN:-0}" -gt 0 ] && break
+    sleep 10
+  done
+fi
+```
+
+- **A run appeared** → watch it as below.
+- **No run appeared within 3 minutes** → the consumer's CI does not trigger on `ready_for_review`, or there is no Actions CI on PRs. If any check on the head is `SKIPPED`, **stop and report it**: those checks were skipped on a draft and nothing will re-run them on this head. Tell the user to add `ready_for_review` to the workflow's `pull_request` types, or push a new commit to trigger a run. If nothing is `SKIPPED`, the draft-time checks ran in full and the watch below is a real verification.
+
+Then watch, and judge the result from the check list itself rather than from the watch's exit code:
 
 ```bash
 gh pr checks {n} --watch
+
+# A check is green when it passed. A SKIPPED check counts as green only when it was
+# skipped by a run that started after the PR was marked ready (a path filter, say).
+# A check skipped while the PR was a draft has verified nothing.
+gh pr checks {n} --json name,bucket,startedAt \
+  | jq -r --arg t "${READY_AT:-}" '.[] | select(
+        .bucket == "fail" or .bucket == "cancel" or .bucket == "pending"
+        or (.bucket == "skipping" and $t != "" and .startedAt < $t)) | "\(.name): \(.bucket)"'
 ```
 
-This blocks until all checks finish. On any new failure, loop back to Step 3 and address the new feedback. Cap the loop at 3 iterations — if checks fail a third time, stop and surface to the user.
+Any line printed is a check that is not green. `gh pr checks` keeps the latest run of each check name, so once the post-ready run has finished, the draft-run results it replaced no longer appear. A draft-skipped check that is still listed means the post-ready run did not include that check. Treat it as not verified, not as passed.
+
+On any new failure, loop back to Step 3 and address the new feedback. Cap the loop at 3 iterations — if checks fail a third time, stop and surface to the user.
 
 ## Step 8: Merge Gate
 
@@ -379,13 +430,15 @@ Compute readiness:
 ```
 [ ] No unresolved review threads
 [ ] No CHANGES_REQUESTED reviews still active (need a new APPROVED review or explicit dismissal)
-[ ] All required checks GREEN
+[ ] PR is not a draft (gh pr view {n} --json isDraft → false; Step 7b marks it ready)
+[ ] All required checks GREEN — judged as in Step 7c: a check SKIPPED while the PR
+    was a draft is NOT green, and the post-ready run must have finished
 [ ] Branch up to date with base
 [ ] AUTO_MERGE_OK (Step 5's trust interlock) — if false, --auto-merge is disabled
     for this run and the merge requires explicit human approval
 ```
 
-If any of the first four boxes is unchecked, report what's missing and stop. If only the fifth is false, the run continues — but through the manual gate below, not the automatic one.
+If any of the first five boxes is unchecked, report what's missing and stop. If only the last is false, the run continues — but through the manual gate below, not the automatic one.
 
 If all green, both modes run the **same pre-merge sequence**. The only difference between them is whether a human confirms first. The sequence depends on the board backend — read it first:
 

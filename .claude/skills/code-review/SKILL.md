@@ -99,6 +99,7 @@ fi
 
 Three things to note:
 
+- **Draft PRs are reviewed like any other.** `/ship-pr` opens its PR as a draft, and this review is the first thing that reads it. `gh pr view`, `gh pr diff` and the reviews endpoint in Step 8 all work on a draft. Do not mark the PR ready here: `/address-feedback` does that after it has pushed, so that consumer CI runs its full verification once, on the addressed head.
 - **`gh pr diff` is preferred whenever a PR exists.** It returns exactly what the PR proposes to change, against the correct merge base, without requiring the head branch to be checked out locally — the review can run from any worktree.
 - **`git diff`: three dots, not two.** `git diff origin/$BASE...HEAD` diffs against the *merge base*; `git diff origin/$BASE..HEAD` diffs against the current tip of the base and reports unrelated base-branch movement as if this PR had caused it.
 - **`git log` / `git rev-list`: two dots, not three.** The three-dot shorthand means "merge base" only for `git diff`. For a **rev walk** it means the *symmetric difference*, so `git log origin/$BASE...HEAD` lists the base branch's own commits alongside this branch's — reintroducing exactly the noise this step exists to remove. `origin/$BASE..HEAD` is the correct range for "the commits this PR adds".
@@ -502,6 +503,7 @@ Notes:
 - `event` maps the verdict to GitHub's review states: APPROVED → `APPROVE`, CHANGES REQUESTED/BLOCKED → `REQUEST_CHANGES` (GitHub has no "blocked" state — the body text carries the BLOCKED designation and blocking issues), anything else → `COMMENT`.
 - Inline `line` values MUST fall on lines that are part of the diff, or the API rejects the whole review. If a `comments` entry is rejected, drop that entry back to the summary body and re-submit. When in doubt, anchor to a line you can see in `gh pr diff "$PR_NUMBER"`.
 - All temp files live in `/tmp`, never inside the repo, and are deleted after posting.
+- **Draft PRs:** the same payload posts to a draft. If GitHub ever refuses `APPROVE`/`REQUEST_CHANGES` because the PR is a draft, re-submit with `EVENT=COMMENT` exactly as in the self-review fallback below. Never mark the PR ready to get the review in.
 - **Fallback — self-review** ("Can not request changes / approve your own pull request"): GitHub blocks `APPROVE`/`REQUEST_CHANGES` on your own PR but **allows `COMMENT`**. Re-submit the same payload with `EVENT=COMMENT` — this keeps every inline comment and the full summary body; the verdict text inside the body still records the real APPROVED/CHANGES-REQUESTED/BLOCKED designation. (Only if even the `COMMENT` review fails, fall back to a plain `gh pr comment "$PR_NUMBER" --body-file "$REVIEW_BODY_FILE"`, which loses inline anchoring but still records the review.)
 - **Fallback — no PR exists for the branch** (`PR_NUMBER` is empty from Step 1): do not create a file. Either run `/create-pr` first and then post, or, if the user only wanted the review, output the full report inline in the response and tell them no PR was found to post to.
 
