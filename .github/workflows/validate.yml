@@ -392,7 +392,10 @@ jobs:
           # Documentation *about* email must not trip this check. Validator
           # samples (`z.string().email()`, `@field:Email`) contain no address at
           # all and never match the pattern; test fixtures use the reserved
-          # domains below. Every other address is treated as a real one.
+          # domains below. Kotlin labeled references (`this@Outer.value`,
+          # `return@forEach`) look like addresses but are code, so a local part
+          # that is a Kotlin label keyword is skipped. Every other address is
+          # treated as a real one.
           #
           # Reserved for documentation and testing: example.com/.org/.net and
           # the .test / .example / .invalid / .localhost TLDs (RFC 2606), plus
@@ -415,6 +418,9 @@ jobs:
             addr="${hit##*:}"
             domain="${addr##*@}"
             checked=$((checked + 1))
+            case "${addr%%@*}" in
+              this|super|return|break|continue) continue ;;
+            esac
             if is_reserved_domain "$domain"; then
               continue
             fi
