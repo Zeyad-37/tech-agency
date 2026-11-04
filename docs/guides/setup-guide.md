@@ -27,7 +27,7 @@ them.
 ### What you now have
 
 - **19 agents** — available immediately, loaded on demand when invoked.
-- **48 skills** (slash commands) — 34 first-party workflows + 14 vendored Google/JetBrains skills.
+- **61 skills** (slash commands) — 35 first-party workflows + 26 vendored Google/JetBrains skills.
 - **8 language coding standards** — shipped inside the plugin, **read on demand**, not auto-loaded.
 
 ### What you do NOT yet have

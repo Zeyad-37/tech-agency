@@ -677,8 +677,8 @@ Rules:
 - **R8 full mode** enabled in release builds.
 - Profile with **Android Studio Profiler** (Compose recomposition counts, CPU, memory).
 - **Measure in a release build** with R8 and Baseline Profiles. Debuggable builds can be several times slower and mislead you about what to fix.
-- **Text input uses `TextFieldState`.** The `value` / `onValueChange` overloads of `BasicTextField` and the Material wrappers are being soft-deprecated, starting in Compose 1.13. Write new text fields with `TextFieldState`, and migrate old ones when you touch them.
-- **Google Play enforces memory, bitmap and DEX thresholds from February 2027.** Treat a regression in Android vitals memory, bitmap memory, or R8 scores as a release blocker. See the Play Console Help page on app quality thresholds for the current limits.
+- **Text input uses `TextFieldState`.** The `value` / `onValueChange` overloads of `BasicTextField` and the Material wrappers are being soft-deprecated. Write new text fields with `TextFieldState`, and migrate old ones when you touch them.
+- **Google Play enforces app quality thresholds for memory, bitmap and DEX.** Treat a regression in Android vitals memory, bitmap memory, or R8 scores as a release blocker. Take the current limits and enforcement dates from the Google Play Console Help page on app quality thresholds (https://support.google.com/googleplay/android-developer/answer/17492799).
 - **Check release status before using a new API.** Confirm the library's stage on the AndroidX releases page. Talks and posts sometimes call an API stable before it ships, as happened with Compose 1.13 in October 2026. Use beta or alpha APIs only when the project already accepts that stage.
 
 ## Security in Code

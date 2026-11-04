@@ -123,7 +123,7 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 ## Skills
 
-61 skills ship with the plugin, all invoked as slash commands. 35 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
+61 skills ship with the plugin, all invoked as slash commands. 35 are first-party Tech Agency workflows; 26 are vendored from Google and JetBrains.
 
 ### First-party workflows (35)
 
@@ -285,7 +285,7 @@ tech-agency/
 │   │   ├── web/                 # React standard
 │   │   └── backend/{nodejs,python,jvm,kotlin}/  # Fastify, FastAPI, Spring, Ktor standards
 │   ├── skills/                  # 61 skills — 35 first-party + 26 vendored
-│   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 14
+│   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 26
 │   │   └── LICENSE-APACHE-2.0.txt
 │   ├── hooks.json               # Session hooks
 │   └── settings.json            # This repo's own config — NOT applied to installing users

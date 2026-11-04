@@ -995,7 +995,7 @@ The AGP 9 / KMP upgrade skill is the canonical reference for the Kotlin-version-
 
 For Compose Multiplatform or shared-code work that needs a running Android target, use the `android` CLI via Bash (`android emulator start`, `android run --apks=…`, `android docs search "<keywords>"` for up-to-date Android API guidance, `android layout`/`android screen capture` for inspection). If `command -v android` is empty the toolchain isn't installed — flag it as a blocker (install steps in `/setup-repo`). Android-platform UI tasks (theming, edge-to-edge, navigation, profiling) are owned by Kai and mapped to `android-*` skills in `compose-coding-standards.md`.
 
-`android preview render` renders Compose `@Preview` functions to PNG without an emulator, which also covers Android previews of shared Compose UI. `android analyze` checks the release bundle the way Google Play does.
+`android preview render` renders Jetpack Compose `@Preview` functions to PNG without an emulator. `android analyze` checks the release bundle the way Google Play does.
 
 Android skills that touch shared code, which Link reads when the task matches:
 

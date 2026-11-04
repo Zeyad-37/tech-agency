@@ -89,7 +89,7 @@ For Android/KMP pipelines, Sentinel uses the **`android` CLI** (via Bash) to mak
 - `android sdk install <packages>` / `android sdk update` — provision SDK platforms and build-tools in the runner.
 - `android emulator create|start` + `android run --apks=…` — boot a headless device and run instrumented/E2E checks.
 - Build verification + APK deploy steps in GitHub Actions jobs.
-- `android analyze --format=… <bundle>` — check shrinking, optimization and obfuscation the way Google Play does, and gate the release bundle on the JSON output. From February 2027 Play requires at least 25% on each for apps with more than 10 MB of DEX.
+- `android analyze --format=… <bundle>` — check shrinking, optimization and obfuscation the way Google Play does, and gate the release bundle on the JSON output. Take the required scores and the DEX-size cutoff from the Google Play Console Help page on app quality thresholds (https://support.google.com/googleplay/android-developer/answer/17492799), not from memory: the limits change.
 - `./gradlew :<app>:analyzeReleaseR8Config` (AGP 9.3+) — score the R8 configuration and rank keep rules by cost, then hand the worst ones to Kai.
 
 The `/setup-repo` skill documents installing the `android` CLI (`android update`) for new repos. Related vendored skills: `android-r8-analyzer` (release-shrinking/app-size gates) and `kotlin-tooling-agp9-migration` (AGP 9 build migrations). If `command -v android` is empty, treat the toolchain as a CI prerequisite to install, not a blocker to guess around.

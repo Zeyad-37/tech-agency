@@ -2,7 +2,7 @@
 
 These are the **35 first-party slash commands** shipped by the tech-agency plugin. They are available in every project once the plugin is installed, and they automate the most common multi-step workflows so you don't have to type out full prompts.
 
-The plugin also ships **14 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 49 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
+The plugin also ships **26 vendored skills** from Google (`/android-*`) and JetBrains (`/kotlin-*`) — 61 skills in total. Those are documented upstream; when to route a task to one is specified in `@.claude/rules/shared/kotlin-agent-skills.md` and in the Android and KMP coding standards. Provenance and licensing: `../../.claude/skills/VENDORED-SKILLS.md`.
 
 > Installing the plugin is not the whole setup. Run `/setup-repo` once per project to bootstrap the shared policy rules, the board, the git hooks, and `.claude/settings.json`. See `../setup-guide.md`.
 
