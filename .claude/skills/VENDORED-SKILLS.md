@@ -23,7 +23,8 @@ new folder name — see below).
 
 ## Android skills — from `github.com/android/skills`
 
-- **Upstream commit:** `a8f3525d5a1f7fe250fecd0fca43a87755433c8f`
+- **Upstream commit:** `bf68e2d66a992a1e6aeb7e9263293cc23fcbf475` (2026-11-04), except the
+  three skills marked *pinned* below, which stay at `a8f3525d5a1f7fe250fecd0fca43a87755433c8f`
 - **Author:** Google LLC · **License:** Apache-2.0
 - The local folder is `android-`-prefixed for namespacing; the `SKILL.md` `name:` field
   was updated to match the folder. Each folder's `references/` (and `assets/` where
@@ -32,15 +33,33 @@ new folder name — see below).
 | Local folder (`.claude/skills/`) | Upstream path | Primary owner(s) |
 |---|---|---|
 | `android-cli` | `devtools/android-cli` | Kai, Link, Sentinel |
-| `android-compose-theming` | `jetpack-compose/theming/styles` | Kai |
+| `android-compose-theming` | `jetpack-compose/theming/styles` (*pinned*) | Kai |
 | `android-compose-adaptive` | `jetpack-compose/adaptive` | Kai |
 | `android-xml-to-compose` | `jetpack-compose/migration/migrate-xml-views-to-jetpack-compose` | Kai |
 | `android-navigation-3` | `navigation/navigation-3` | Kai |
 | `android-edge-to-edge` | `system/edge-to-edge` | Kai |
 | `android-testing-setup` | `testing/testing-setup` | Kai |
 | `android-r8-analyzer` | `performance/r8-analyzer` | Kai, Sentinel |
-| `android-perfetto-trace-analysis` | `profilers/perfetto-trace-analysis` | Kai |
-| `android-perfetto-sql` | `profilers/perfetto-sql` | Kai |
+| `android-perfetto-trace-analysis` | `profilers/perfetto-trace-analysis` (*pinned*) | Kai |
+| `android-perfetto-sql` | `profilers/perfetto-sql` (*pinned*) | Kai |
+| `android-profiler` | `profilers/android-profiler` | Kai, Sentinel |
+| `android-compose-performance` | `jetpack-compose/jetpack-compose-performance` | Kai |
+| `android-anr-audit-and-fix` | `performance/anr-audit-and-fix` | Kai |
+| `android-play-policy-insights` | `play/play-policy-insights` | Shield, Kai |
+| `android-intent-security` | `security/android-intent-security` | Shield |
+| `android-permissions-security` | `security/android-permissions-security` | Shield |
+| `android-play-billing-upgrade` | `play/play-billing-library-version-upgrade` | Kai, Link |
+| `android-appfunctions` | `device-ai/appfunctions` | Kai, Link |
+| `android-mlkit-agent-api` | `device-ai/mlkit-agent-api` | Kai |
+| `android-restore-credentials` | `identity/restore-credentials` | Kai, Link |
+| `android-camerax` | `camera/camerax` | Kai |
+| `android-wear-widgets` | `wear/wear-widgets` | Kai |
+
+**Pinned skills.** Upstream removed `profilers/perfetto-trace-analysis` and
+`profilers/perfetto-sql` in August 2026, and `jetpack-compose/theming/styles` on
+2026-10-26. They stay vendored at the old commit because the rules still reference them.
+Prefer `android-profiler` for trace work. Retire the pinned copies when nothing points to
+them any more.
 
 ## Kotlin agent skills — from `github.com/Kotlin/kotlin-agent-skills`
 
@@ -60,12 +79,14 @@ new folder name — see below).
 These upstream skills were not vendored because they are situational for this agency's
 stack. To add one, follow the *Refresh / extend* runbook below.
 
-- **Android:** `camera/camera1-to-camerax`, `device-ai/appfunctions`,
-  `identity/verified-email`, `play/engage-sdk-integration`,
-  `play/play-billing-library-version-upgrade`, `wear/jetpack-compose-m3`,
-  `xr/display-glasses-with-jetpack-compose-glimmer`, and `build/agp/agp-9-upgrade`
-  (the Kotlin `kotlin-tooling-agp9-migration` covers AGP 9, so Android's was skipped to
-  avoid duplication).
+- **Android:** `identity/verified-email`, `play/engage-sdk-integration`,
+  `wear/wear-compose-m3`, `xr/display-glasses-with-jetpack-compose-glimmer`,
+  `xr/projected-hardware`, `tv/leanback-to-compose-tv-migration`, the `ink/*` and
+  `litert/*` skills, `device-ai/ml-kit-genai-prompt-api`, `navigation/navigation-event`,
+  `media/media3-cast-integration`, the two `system/glance-*` skills, `cars/*`, and
+  `build-system/agp/agp-9-upgrade` (the Kotlin `kotlin-tooling-agp9-migration` covers
+  AGP 9, so Android's was skipped to avoid duplication). Agents can still install any of
+  these per project with `android skills add`.
 
 ## Rule wiring (where the "use when needed" lives)
 

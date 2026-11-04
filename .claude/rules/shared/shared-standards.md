@@ -35,6 +35,18 @@ will not resolve, stop and report it rather than writing the code without it
 - Code reviews required before merge
 - No deliverable ships without at least one other agent's review
 - All artifacts version-controlled
+- Before calling a library, API or tool **stable**, check its current stage on the official release page (for AndroidX, `developer.android.com/jetpack/androidx/versions`). Conference talks and blog posts sometimes describe features as shipped while they are still beta or release candidates.
+
+## Working With Coding Agents
+
+When an agent gets a task wrong, treat it as an environment bug first: ask what it was missing, then fix the docs, rules, skills or tooling rather than concluding the task is out of reach.
+
+- **Give every task a check.** A failing test, a journey or an expected screenshot lets the agent verify its own work. On long Android tasks, agents pass far more often with one.
+- **Keep always-loaded instructions short.** `AGENTS.md` / `CLAUDE.md` are sent with every prompt, so hold them to roughly 250 lines of architecture rules and common review corrections. Put task-specific guidance in skills.
+- **Keep conversations within budget.** Slice work so each task fits in roughly 150,000 tokens of context, and start a fresh session per slice rather than letting one grow.
+- **Keep tool output small.** Run Gradle in quiet mode (`-q`) and filter logs before passing them to an agent.
+
+These are working guidelines from practitioners, not hard limits. Adjust them per model and project.
 
 ## UI Render Decisions Belong to Typed Structures (platform-agnostic)
 

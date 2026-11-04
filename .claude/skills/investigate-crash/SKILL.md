@@ -15,9 +15,14 @@ git log --oneline -20
 
 # Check for Crashlytics data
 cat .claude/crashlytics-context.md 2>/dev/null || echo "No crashlytics context file found"
+
+# Android: query Crashlytics directly when the Android CLI is installed
+command -v android >/dev/null && android signals context
 ```
 
 If `.claude/crashlytics-context.md` exists, parse it for: stack traces, affected OS versions, device models, crash counts, timeline.
+
+On Android projects with the `android` CLI, use `android signals crashes` to list and describe production crashes and ANRs, and `android signals heaps` for heap dumps collected in the field. Run `android signals crashes --help` for its options. For ANRs, also follow `.claude/skills/android-anr-audit-and-fix/SKILL.md`.
 
 If it doesn't exist, ask the user for: stack trace, affected platform, approximate start time of the spike, crash count if known.
 
