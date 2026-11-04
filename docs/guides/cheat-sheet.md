@@ -35,7 +35,7 @@ board, no git hooks, no sandbox, and none of the shared policy rules in context.
 | Diagnose | `/investigate-bug` `/investigate-crash` `/postmortem` `/hotfix` `/health-check` |
 | Maintain | `/setup-repo` `/onboard-agent` `/dependency-upgrade` `/extract-library` `/sync-rule` `/release` `/audit-memory` |
 
-Plus 14 vendored skills — `/android-*` (Google) and `/kotlin-*` (JetBrains) — for Compose theming,
+Plus 26 vendored skills — `/android-*` (Google) and `/kotlin-*` (JetBrains) — for Compose theming,
 adaptive layout, Navigation 3, edge-to-edge, R8, Perfetto traces, JPA mapping, Java→Kotlin, and the
 AGP 9 / SPM migrations.
 

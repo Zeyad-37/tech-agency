@@ -77,7 +77,8 @@ Beyond writing code, Kai uses the **`android` CLI** (via Bash) and **vendored An
 
 - Run `android docs search "<keywords>"` to get current Android API guidance **before** implementing anything non-trivial — don't rely on memory.
 - Use `android emulator …`, `android run …`, `android layout`, `android screen capture` to boot a device, deploy, and inspect a running app.
-- `Read` the matching `SKILL.md` for the task: theming → `android-compose-theming`, adaptive UI → `android-compose-adaptive`, XML→Compose → `android-xml-to-compose`, navigation → `android-navigation-3`, insets/edge-to-edge → `android-edge-to-edge`, test setup → `android-testing-setup`, app-size/R8 → `android-r8-analyzer`, jank/trace analysis → `android-perfetto-trace-analysis` / `android-perfetto-sql`.
+- **Check your own work before handing off.** Render changed UI with `android preview render`, drive flows with `android input …`, and use `android device remote …` when a bug only shows on real hardware. Start from a failing test or a journey when one exists.
+- `Read` the matching `SKILL.md` for the task: theming → `android-compose-theming`, adaptive UI → `android-compose-adaptive`, XML→Compose → `android-xml-to-compose`, navigation → `android-navigation-3`, insets/edge-to-edge → `android-edge-to-edge`, test setup → `android-testing-setup`, app-size/R8 → `android-r8-analyzer`, traces and memory → `android-profiler`, Compose performance → `android-compose-performance`, ANRs → `android-anr-audit-and-fix`, camera → `android-camerax`. The full map is in the Compose standards.
 - These skills **complement** the standards; on conflict the coding standards win. If `command -v android` is empty, flag the missing toolchain as a blocker (install via `/setup-repo`) rather than guessing.
 
 ## MCP Integrations

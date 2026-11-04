@@ -13,7 +13,9 @@ Write, Edit`. **They have no `Skill` tool**, so they cannot invoke a skill the w
 main session can. They consume this tooling in exactly two ways:
 
 1. **Bash** — running the `android` CLI directly (`android docs search`, `android run`,
-   `android emulator`, `android layout`, `android screen capture`, `android sdk`).
+   `android emulator`, `android layout`, `android screen capture`, `android sdk`, and
+   since the October 2026 update `android preview`, `android input`, `android device`,
+   `android profiler`, `android signals` and `android analyze`).
 2. **Rule files** — the coding-standards rules are auto-injected into every agent's
    context as project instructions. Each relevant rule file has a
    **"Tooling: Android CLI & Agent Skills"** section that maps a task to the right
@@ -34,7 +36,12 @@ in [`.claude/skills/VENDORED-SKILLS.md`](../../.claude/skills/VENDORED-SKILLS.md
 - **Android (`android-*`)**: `android-cli`, `android-compose-theming`,
   `android-compose-adaptive`, `android-xml-to-compose`, `android-navigation-3`,
   `android-edge-to-edge`, `android-testing-setup`, `android-r8-analyzer`,
-  `android-perfetto-trace-analysis`, `android-perfetto-sql`.
+  `android-perfetto-trace-analysis`, `android-perfetto-sql`, `android-profiler`,
+  `android-compose-performance`, `android-anr-audit-and-fix`,
+  `android-play-policy-insights`, `android-intent-security`,
+  `android-permissions-security`, `android-play-billing-upgrade`,
+  `android-appfunctions`, `android-mlkit-agent-api`, `android-restore-credentials`,
+  `android-camerax`, `android-wear-widgets`.
 - **Kotlin (`kotlin-*`)**: `kotlin-backend-jpa-entity-mapping`,
   `kotlin-tooling-agp9-migration`, `kotlin-tooling-java-to-kotlin`,
   `kotlin-tooling-cocoapods-spm-migration`.
@@ -50,6 +57,8 @@ Both upstreams are Apache-2.0; the license text is at
 | Link | `.claude/rules/mobile/shared/kmp-coding-standards.md`, `.claude/rules/backend/kotlin/ktor-server-coding-standards.md` | `.claude/agents/link-kmp-engineer.md` |
 | Forge | `.claude/rules/backend/jvm/jvm-coding-standards.md` | `.claude/agents/forge-backend-jvm.md` |
 | Sentinel | (CI usage) | `.claude/agents/sentinel-devops-sre.md` |
+| Shield | (security and Play policy audits) | `.claude/agents/shield-security-engineer.md` |
+| Apex | (verification targets for agents) | `.claude/agents/apex-qa-engineer.md` |
 
 **Precedence:** the vendored skills *complement* the agency's coding standards. On any
 conflict, the agency standards win (MVI/KMP architecture, T-013 typed-render rules,

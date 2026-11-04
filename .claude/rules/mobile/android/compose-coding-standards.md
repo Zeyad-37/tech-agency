@@ -676,6 +676,10 @@ Rules:
 - **Baseline Profiles** for optimized startup and scroll performance.
 - **R8 full mode** enabled in release builds.
 - Profile with **Android Studio Profiler** (Compose recomposition counts, CPU, memory).
+- **Measure in a release build** with R8 and Baseline Profiles. Debuggable builds can be several times slower and mislead you about what to fix.
+- **Text input uses `TextFieldState`.** The `value` / `onValueChange` overloads of `BasicTextField` and the Material wrappers are being soft-deprecated. Write new text fields with `TextFieldState`, and migrate old ones when you touch them.
+- **Google Play enforces app quality thresholds for memory, bitmap and DEX.** Treat a regression in Android vitals memory, bitmap memory, or R8 scores as a release blocker. Take the current limits and enforcement dates from the Google Play Console Help page on app quality thresholds (https://support.google.com/googleplay/android-developer/answer/17492799).
+- **Check release status before using a new API.** Confirm the library's stage on the AndroidX releases page. Talks and posts sometimes call an API stable before it ships, as happened with Compose 1.13 in October 2026. Use beta or alpha APIs only when the project already accepts that stage.
 
 ## Security in Code
 
@@ -815,6 +819,15 @@ Use it via Bash for device-and-environment tasks that source edits can't cover. 
 - `android layout --pretty` — dump the running app's UI hierarchy as JSON (useful for debugging a screen).
 - `android screen capture` — screenshot a running app (pairs with our Paparazzi screenshot-test workflow for manual before/after checks).
 - `android sdk install|update|list` — manage SDK packages.
+- `android preview list|render` — render `@Preview` functions to PNG without an emulator or IDE. **Use this to check every UI change visually before handing off**, across the screen sizes the previews declare.
+- `android input tap|text|scroll|swipe|key` — drive a running app by UI selector, for journeys and repro steps.
+- `android device remote …` — run on a real device from a remote lab when a bug only reproduces on hardware; `android device hub` mirrors local and remote devices.
+- `android profiler systemtrace|heapdump` — capture a system trace or heap dump from the command line, then analyze it with `android-profiler`.
+- `android signals crashes|heaps` — read production crashes, ANRs and heap dumps from Crashlytics in the terminal.
+- `android analyze <aab|apk>` — check shrinking, optimization and obfuscation the way Google Play does, before upload.
+- `android skills list|add` — find and install upstream Android skills that are not vendored here.
+
+**Verify against something.** Give yourself a check before you start: a failing test, a journey, or a preview to compare. Agents pass far more tasks with one, so do not hand off UI work that you have not rendered or run.
 
 ### Task → vendored skill map
 
@@ -829,6 +842,16 @@ When a task matches one of these, `Read` the named `SKILL.md` and follow its wor
 | Edge-to-edge, system-bar/IME insets bugs | `android-edge-to-edge` |
 | Setting up test infrastructure / harnesses | `android-testing-setup` (reconcile with this doc's Testing section) |
 | Optimizing app size / auditing R8 keep rules | `android-r8-analyzer` |
-| Diagnosing jank, latency, memory from a trace | `android-perfetto-trace-analysis`, `android-perfetto-sql` |
+| Capturing and analyzing traces, startup, jank, memory | `android-profiler` (first choice); `android-perfetto-trace-analysis`, `android-perfetto-sql` for raw Perfetto SQL |
+| Compose recomposition and rendering performance | `android-compose-performance` |
+| Finding and fixing ANRs | `android-anr-audit-and-fix` |
+| Camera features or Camera1 migration | `android-camerax` |
+| Sign-in restore on a new device (Play Zero-Tap requirement) | `android-restore-credentials` |
+| Exposing app actions to system or in-app agents (Android MCP) | `android-appfunctions` |
+| On-device agents with Gemini Nano | `android-mlkit-agent-api` |
+| Upgrading Play Billing Library | `android-play-billing-upgrade` |
+| Wear OS widgets (Tiles successor) | `android-wear-widgets` |
+| Pre-submission Play policy check | `android-play-policy-insights` (Shield reviews the result) |
+| Intent and permission security review | `android-intent-security`, `android-permissions-security` (Shield owns the review) |
 
 Provenance and the full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

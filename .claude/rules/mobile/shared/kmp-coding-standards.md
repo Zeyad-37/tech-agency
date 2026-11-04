@@ -995,4 +995,14 @@ The AGP 9 / KMP upgrade skill is the canonical reference for the Kotlin-version-
 
 For Compose Multiplatform or shared-code work that needs a running Android target, use the `android` CLI via Bash (`android emulator start`, `android run --apks=…`, `android docs search "<keywords>"` for up-to-date Android API guidance, `android layout`/`android screen capture` for inspection). If `command -v android` is empty the toolchain isn't installed — flag it as a blocker (install steps in `/setup-repo`). Android-platform UI tasks (theming, edge-to-edge, navigation, profiling) are owned by Kai and mapped to `android-*` skills in `compose-coding-standards.md`.
 
+`android preview render` renders Jetpack Compose `@Preview` functions to PNG without an emulator. `android analyze` checks the release bundle the way Google Play does.
+
+Android skills that touch shared code, which Link reads when the task matches:
+
+| Task | Skill (`.claude/skills/…/SKILL.md`) |
+|---|---|
+| Restoring sign-in on a new device | `android-restore-credentials` (Android side; keep the account model in `commonMain`) |
+| Exposing app actions to agents (Android MCP) | `android-appfunctions` (Android-only; wrap shared use cases, don't move them) |
+| Upgrading Play Billing Library | `android-play-billing-upgrade` (check whether a KMP billing wrapper pins the version first) |
+
 Provenance and full inventory: `.claude/skills/VENDORED-SKILLS.md`. Integration overview: `docs/guides/references/android-kotlin-skills-integration.md`.

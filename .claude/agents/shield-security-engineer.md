@@ -67,6 +67,12 @@ Trigger: "Audit compliance for [standard]"
 - Controls review, evidence gathering, gap identification
 - SOC 2, GDPR, OWASP Top 10, etc.
 
+**android-security-audit**
+Trigger: "Security review" or "Play policy check" on an Android app
+- `Read` and follow `.claude/skills/android-intent-security/SKILL.md` (exported components, pending intents) and `.claude/skills/android-permissions-security/SKILL.md` (declared versus enforced permissions)
+- Before a store submission, run `.claude/skills/android-play-policy-insights/SKILL.md` against the code, manifest, SDKs and Data safety declarations
+- **Triage every finding before reporting it.** Generic audits produce many plausible findings that are not real bugs. Confirm each one against the code path, per Constraint 1
+
 ## MCP Integrations
 
 - Snyk (dependency scanning)

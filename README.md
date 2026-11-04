@@ -2,7 +2,7 @@
 
 **AI-powered multi-agent development team for fullstack product delivery.**
 
-Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 49 skills (35 first-party workflows + 14 vendored Google/JetBrains skills), and 8 language coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
+Tech Agency is a Claude Code plugin that provides 19 specialized AI agents, 61 skills (35 first-party workflows + 26 vendored Google/JetBrains skills), and 8 language coding standards to orchestrate end-to-end software development across Mobile (KMP), Web, and Server platforms.
 
 **Author:** Zeyad Gasser
 
@@ -23,7 +23,7 @@ This is the single most important thing to understand before installing. **Insta
 | Component | Ships with the plugin? | How you get it |
 |---|---|---|
 | 19 agent definitions | **Yes** | Available immediately after install |
-| 49 skills (slash commands) | **Yes** | Available immediately after install |
+| 61 skills (slash commands) | **Yes** | Available immediately after install |
 | 8 language coding standards | **Yes**, but **read on demand** | Stay in the plugin; an agent reads the one matching its task's stack. Never auto-loaded — see [Rules delivery](#rules-delivery) |
 | 11 shared policy rules | Ship in the plugin, but must be **copied into your project** | `/setup-repo` copies them to your `.claude/rules/shared/`, where they auto-load every session |
 | `board-context.md` Kanban board | **No** | `/setup-repo` creates it from a template |
@@ -123,7 +123,7 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 ## Skills
 
-49 skills ship with the plugin, all invoked as slash commands. 35 are first-party Tech Agency workflows; 14 are vendored from Google and JetBrains.
+61 skills ship with the plugin, all invoked as slash commands. 35 are first-party Tech Agency workflows; 26 are vendored from Google and JetBrains.
 
 ### First-party workflows (35)
 
@@ -196,7 +196,7 @@ Full policy — where each transition commits, the `→ Done` sequencing at the 
 
 Copied (not submoduled) into `.claude/skills/`, version-pinned to an upstream commit. Both sets are Apache-2.0; provenance, commit pins, and attribution are recorded in [`.claude/skills/VENDORED-SKILLS.md`](.claude/skills/VENDORED-SKILLS.md).
 
-**From [github.com/android/skills](https://github.com/android/skills) — Google LLC (10):**
+**From [github.com/android/skills](https://github.com/android/skills) — Google LLC (22):**
 
 | Skill | Use it for |
 |---|---|
@@ -210,6 +210,18 @@ Copied (not submoduled) into `.claude/skills/`, version-pinned to an upstream co
 | `/android-r8-analyzer` | Auditing R8 keep rules, app-size optimization |
 | `/android-perfetto-trace-analysis` | Root-causing jank, latency, and memory from a Perfetto trace |
 | `/android-perfetto-sql` | Translating a data question into Perfetto SQL against a trace |
+| `/android-profiler` | Capturing and analyzing traces and heap dumps; startup, jank and memory |
+| `/android-compose-performance` | Compose recomposition and rendering performance |
+| `/android-anr-audit-and-fix` | Finding and fixing ANRs |
+| `/android-play-policy-insights` | Checking code, manifest and SDKs against Google Play policy before submission |
+| `/android-intent-security` | Auditing exported components and pending intents |
+| `/android-permissions-security` | Auditing declared versus enforced permissions |
+| `/android-play-billing-upgrade` | Upgrading Play Billing Library versions |
+| `/android-appfunctions` | Exposing app actions to agents with AppFunctions (Android MCP) |
+| `/android-mlkit-agent-api` | On-device agents on Gemini Nano with the ML Kit Agentic API |
+| `/android-restore-credentials` | Restoring sign-in on a new device (Play Zero-Tap requirement) |
+| `/android-camerax` | CameraX features and Camera1 migration |
+| `/android-wear-widgets` | Wear OS widgets, the successor to Tiles |
 
 **From [github.com/Kotlin/kotlin-agent-skills](https://github.com/Kotlin/kotlin-agent-skills) — JetBrains (4):**
 
@@ -272,8 +284,8 @@ tech-agency/
 │   │   ├── mobile/{shared,android,ios}/   # KMP, Compose, SwiftUI standards
 │   │   ├── web/                 # React standard
 │   │   └── backend/{nodejs,python,jvm,kotlin}/  # Fastify, FastAPI, Spring, Ktor standards
-│   ├── skills/                  # 49 skills — 35 first-party + 14 vendored
-│   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 14
+│   ├── skills/                  # 61 skills — 35 first-party + 26 vendored
+│   │   ├── VENDORED-SKILLS.md   # Provenance, commit pins, licensing for the vendored 26
 │   │   └── LICENSE-APACHE-2.0.txt
 │   ├── hooks.json               # Session hooks
 │   └── settings.json            # This repo's own config — NOT applied to installing users

@@ -1,6 +1,3 @@
-> [!NOTE]
-> **Note:** `Grid` is an experimental API and is subject to change. File any issues on the [issue tracker](https://issuetracker.google.com/issues/new?component=1876021&template=1424126).
-
 [`Grid`](https://developer.android.com/reference/kotlin/androidx/compose/foundation/layout/Grid.composable#Grid(kotlin.Function1,androidx.compose.ui.Modifier,kotlin.Function1)) is a Jetpack Compose API
 that lets you flexibly implement a two-dimensional layout.
 With this API, you can display items in multi-column
@@ -25,7 +22,7 @@ of which layouts are suitable for each API:
 
 | Component | Purpose |
 |---|---|
-| `LazyVerticalGrid`, `LazyStaggeredGrid`, `LazyHorizontalGrid` | Visualization of large, homogeneous data sets that requires lazy loading. |
+| `LazyVerticalGrid`, `LazyStaggeredGrid`, `LazyHorizontalGrid` | Visualization of large, homogeneous data sets that require lazy loading. |
 | `Row`, `Column`, `FlexBox` | One-dimensional layout |
 | `Grid` | Two-dimensional layout |
 

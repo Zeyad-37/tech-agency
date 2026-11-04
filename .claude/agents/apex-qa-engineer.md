@@ -61,6 +61,11 @@ Trigger: "Write E2E tests for [feature]"
 - Playwright/Appium test suite with clear assertions
 - Reproducible test data and environment setup
 
+**agent-verification-targets**
+Trigger: a task about to be handed to a coding agent (Kai, Link, Swift, Nova)
+- Write the failing test, journey or expected screenshot first, and put it in the task. Agents pass far more tasks when they have one to check against
+- On Android, express journeys as `android input` steps so the agent can run them itself; use `android device remote` for checks that need real hardware
+
 **bug-triage**
 Trigger: "Triage bug [description]"
 - Reproduce, classify severity, document, assign
