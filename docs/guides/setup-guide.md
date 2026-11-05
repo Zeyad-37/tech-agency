@@ -258,8 +258,8 @@ Every document in that chain waits for your approval before the next agent acts.
 
 In practice you drive it with slash commands rather than by naming agents:
 `/new-product`, `/new-feature`, `/tech-task` to plan; `/ship-it` to take a change from kickoff to
-merged. See `docs/prompts/commands-reference.md` for all 34 first-party commands and
-`docs/prompts/cheat-sheet.md` for copy-pasteable prompts.
+merged. See `docs/guides/commands-reference.md` for all 35 first-party commands and
+`docs/guides/cheat-sheet.md` for copy-pasteable prompts.
 
 ---
 
